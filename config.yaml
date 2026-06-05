@@ -1,0 +1,63 @@
+# macd_searcher configuration.
+# Edit values here; secrets go in .env (see .env.example).
+
+signal:
+  # Stage 3 — zero-line proximity (the original target, latest warning)
+  zero_line_enabled: true
+  mode: price_pct              # price_pct | atr | rank
+  price_pct_threshold: 0.005   # Mode A: |MACD| / close < this
+  atr_multiple: 0.25           # Mode B: |MACD| < this * ATR(14)
+  rank_top_n: 15               # Mode C: top-N closest-to-zero, ascending |MACD|/close
+  shrink_lookback: 3           # bars over which |MACD| must be strictly decreasing toward zero
+
+  # Stage 1 — histogram flattening (earliest warning)
+  # Hist = macd - signal_line. Peaks before MACD reaches zero, so a shrinking
+  # |hist| from a meaningful peak is an early read on momentum exhaustion.
+  histogram_flattening:
+    enabled: true
+    shrink_lookback: 2           # bars over which |hist| must strictly decrease (2 = today vs yesterday)
+    min_peak_pct_of_price: 0.002 # noise floor: |hist|_peak / close must exceed this
+    min_reduction_from_peak: 0.3 # |hist[now]| <= (1 - this) * |hist|_peak
+    peak_lookback: 10            # window in which to locate the recent peak
+    use_forming_candle: true     # Stage 1 reads today's forming bar to join momentum live
+
+macd:
+  fast: 12
+  slow: 26
+  signal: 9
+
+candles:
+  interval: "1d"
+  # The forming (current, incomplete) bar is always fetched; each detector
+  # decides whether to use it. This flag is the DEFAULT and governs Stage 3
+  # (zero-line proximity): false = Stage 3 uses only closed bars, so its
+  # "imminent cross" alerts are stable and never repaint intraday.
+  use_forming_candle: false
+  lookback_days: 200           # >= 35 needed for stable MACD; 200 leaves headroom
+
+hyperliquid:
+  base_url: "https://api.hyperliquid.xyz"
+  concurrency: 10
+  request_timeout_s: 15
+  retry_attempts: 3
+  retry_backoff_s: 1.0
+  # HIP-3 perp DEXes to include in scanning. "xyz" exposes equities, commodities,
+  # and FX as perps (e.g. xyz:TSLA, xyz:GOLD, xyz:EUR). Empty list = core only.
+  extra_dexes: ["xyz"]
+
+universe_filter:
+  min_24h_volume_usd: 300000
+  min_open_interest_usd: 1000000
+
+notify:
+  send_when_empty: true
+  quiet_hours:
+    enabled: true
+    timezone: "Australia/Melbourne"
+    start: "00:00"             # inclusive, local time
+    end: "08:00"               # exclusive, local time
+  dry_run: false               # true = print message to stdout instead of sending to Telegram
+
+database:
+  enabled: true
+  path: "state/macd_searcher.sqlite3"   # logs runs, per-asset snapshots, and signals for analysis

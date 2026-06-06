@@ -61,3 +61,6 @@ notify:
 database:
   enabled: true
   path: "state/macd_searcher.sqlite3"   # logs runs, per-asset snapshots, and signals for analysis
+
+outcomes:
+  horizon_days: 14   # forward window the update_outcomes job scores each signal over

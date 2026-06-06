@@ -126,3 +126,61 @@ def test_foreign_key_rejects_orphan_signal():
     except sqlite3.IntegrityError:
         raised = True
     assert raised
+
+
+def test_pending_signals_and_outcome_update_roundtrip():
+    conn = _conn()
+    db.start_run(conn, "r1", "t0", None, None, None)
+    sigs = [
+        Signal(name="BTC", stage="zero_line_proximity", direction="bullish",
+               close=100.0, macd=-0.1, hist=0.0, macd_pct_of_price=0.001),
+        Signal(name="ETH", stage="histogram_flattening", direction="bearish",
+               close=200.0, macd=0.1, hist=0.05),
+    ]
+    db.insert_signals(conn, "r1", sigs, "2026-01-01T00:00:00+00:00")
+
+    # Both start unscored.
+    pending = db.fetch_pending_signals(conn)
+    assert len(pending) == 2
+    assert {r["symbol"] for r in pending} == {"BTC", "ETH"}
+
+    # Finalize the BTC one.
+    btc_id = next(r["signal_id"] for r in pending if r["symbol"] == "BTC")
+    db.update_signal_outcome(
+        conn, btc_id,
+        px_1d=101.0, px_3d=103.0, px_7d=107.0, px_14d=114.0,
+        max_favorable_move_pct=0.15, max_adverse_move_pct=-0.05,
+        bars_to_zero_cross=3, zero_cross_observed_at="2026-01-04T00:00:00+00:00",
+        outcome_updated_at="2026-01-15T00:00:00+00:00",
+    )
+
+    # Now only ETH is pending.
+    pending2 = db.fetch_pending_signals(conn)
+    assert [r["symbol"] for r in pending2] == ["ETH"]
+
+    row = conn.execute(
+        "SELECT px_7d, bars_to_zero_cross, max_favorable_move_pct FROM signals WHERE signal_id=?",
+        (btc_id,),
+    ).fetchone()
+    assert tuple(row) == (107.0, 3, 0.15)  # row_factory may be sqlite3.Row here
+
+
+def test_partial_outcome_leaves_signal_pending():
+    conn = _conn()
+    db.start_run(conn, "r1", "t0", None, None, None)
+    db.insert_signals(conn, "r1", [
+        Signal(name="SOL", stage="zero_line_proximity", direction="bullish",
+               close=50.0, macd=-0.01, hist=0.0)
+    ], "2026-01-01T00:00:00+00:00")
+    sid = db.fetch_pending_signals(conn)[0]["signal_id"]
+
+    # Partial: fill early prices but leave outcome_updated_at NULL (not finalized).
+    db.update_signal_outcome(
+        conn, sid,
+        px_1d=51.0, px_3d=52.0, px_7d=None, px_14d=None,
+        max_favorable_move_pct=0.04, max_adverse_move_pct=-0.02,
+        bars_to_zero_cross=None, zero_cross_observed_at=None,
+        outcome_updated_at=None,
+    )
+    # Still pending so it gets revisited next run.
+    assert [r["symbol"] for r in db.fetch_pending_signals(conn)] == ["SOL"]

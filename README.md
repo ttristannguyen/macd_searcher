@@ -128,19 +128,87 @@ The config file is loaded fresh on every run, so changes take effect on the next
 
 ---
 
-## Deployment (VPS, cron)
+## Deployment (Ubuntu/Debian VPS, cron)
 
-Every-4-hour scan + a daily outcome-update job (see "Data logging" below):
+These steps clone from GitHub and run via cron as your normal (non-root) user. `uv` manages the Python toolchain, so the system Python version doesn't matter.
 
-```cron
-# Scan every 4 hours, log to file
-0 */4 * * * /opt/macd_searcher/.venv/bin/macd-searcher >> /var/log/macd_searcher.log 2>&1
+### 1. Install prerequisites
 
-# Update outcomes once daily (planned)
-30 1 * * * /opt/macd_searcher/.venv/bin/python -m macd_searcher.update_outcomes >> /var/log/macd_searcher.log 2>&1
+```bash
+sudo apt update && sudo apt install -y git curl
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.bashrc          # put uv on PATH (or open a new shell)
+uv --version              # confirm
 ```
 
-The 1-day candles close at 00:00 UTC. Stage 1 reads today's forming bar so it produces fresh reads on every 4-hour run; Stage 3 reads only closed bars, so it changes once per day at the 00:00 UTC close. Full install / logrotate steps land in a later commit.
+### 2. Clone and install
+
+```bash
+cd ~
+git clone https://github.com/ttristannguyen/macd_searcher.git
+cd macd_searcher
+uv sync                   # creates .venv and downloads Python 3.11+ if needed
+```
+
+### 3. Configure secrets
+
+```bash
+cp .env.example .env
+nano .env                 # set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
+```
+
+Tune `config.yaml` if desired (thresholds, liquidity floors, quiet hours). It's re-read every run.
+
+### 4. Test before scheduling
+
+```bash
+uv run python -m macd_searcher --dry-run     # prints the message, sends nothing
+uv run python -m macd_searcher               # real run — should hit Telegram (outside quiet hours)
+```
+
+### 5. Schedule with cron
+
+Create a log dir, then edit your crontab (`crontab -e`):
+
+```bash
+mkdir -p ~/macd_searcher/logs
+```
+
+```cron
+# Pin cron to UTC so the 4-hourly slots line up with the 00:00 UTC daily candle close.
+CRON_TZ=UTC
+
+# Scan every 4 hours. cd into the project so relative paths (state/, logs/) resolve there.
+0 */4 * * * cd $HOME/macd_searcher && .venv/bin/macd-searcher >> $HOME/macd_searcher/logs/scan.log 2>&1
+
+# Daily signal-outcome backfill (scores fired signals as forward bars complete).
+30 1 * * * cd $HOME/macd_searcher && .venv/bin/python -m macd_searcher.update_outcomes >> $HOME/macd_searcher/logs/outcomes.log 2>&1
+```
+
+`config.yaml` and `.env` are located relative to the project root (not the cwd), so they're always found. The SQLite DB and logs are written under the project dir **because** the cron line `cd`s there first — keep that `cd` (or set `database.path` to an absolute path).
+
+The 1-day candles close at 00:00 UTC: Stage 1 reads today's forming bar (fresh every 4h run); Stage 3 reads only closed bars (changes once daily at the 00:00 UTC close).
+
+### 6. Log rotation (optional)
+
+`sudo nano /etc/logrotate.d/macd_searcher`:
+
+```
+/home/YOUR_USER/macd_searcher/logs/*.log {
+    weekly
+    rotate 8
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+```
+
+### 7. Updating later
+
+```bash
+cd ~/macd_searcher && git pull && uv sync
+```
 
 ---
 
@@ -166,7 +234,7 @@ By volume this is the largest table (~50 MB/year at current universe size and ca
 
 ### `signals` — alert ledger + outcome tracking
 
-One row per fired alert. Captures the detector state at fire time (close, MACD, hist, the stage-specific metrics that triggered it), and — filled in later by a separate `update_outcomes` job — what happened next: how many bars until MACD actually crossed zero, prices at +1d / +3d / +7d / +14d, maximum favorable and adverse moves within 7 days.
+One row per fired alert. Captures the detector state at fire time (close, MACD, hist, the stage-specific metrics that triggered it), and — filled in later by the `update_outcomes` job (`python -m macd_searcher.update_outcomes`, run daily) — what happened next: how many bars until MACD actually crossed zero, prices at +1d / +3d / +7d / +14d, and the maximum favorable/adverse move (MFE/MAE) within the 14-day horizon. Outcomes fill in progressively as forward bars complete and the row finalizes (`outcome_updated_at` set) once 14 days have elapsed.
 
 **Why this exists:** this is the table that tells you whether the model *works*. With a few months of these rows you can answer:
 
@@ -187,6 +255,8 @@ Outcomes are computed by a separate daily job rather than the main scan because 
 
 Together they give you both the data and the reproducibility to do real tuning instead of guessing.
 
+Full column-by-column reference: [docs/schema.md](docs/schema.md).
+
 ---
 
 ## Project status
@@ -199,10 +269,10 @@ Together they give you both the data and the reproducibility to do real tuning i
 | Stage 1 + Stage 3 detectors + tests | ✅ done |
 | Telegram formatter + quiet hours + dry-run | ✅ done |
 | `__main__` entrypoint + CLI | ✅ done |
-| **SQLite data logging (3 tables above)** | 🚧 planned next |
-| `update_outcomes` job for signal outcomes | 🚧 planned after logging |
-| VPS install / cron / logrotate instructions | 🚧 planned |
-| Analytical query examples | 🚧 planned with logging |
+| SQLite data logging (3 tables above) | ✅ done |
+| `update_outcomes` job for signal outcomes | ✅ done |
+| VPS install / cron / logrotate instructions | ✅ done |
+| Analytical query examples | 🚧 planned |
 
 See [PLAN.md](PLAN.md) for the full implementation roadmap.
 

@@ -221,6 +221,21 @@ async def _fetch_one_candles(
     return df
 
 
+async def fetch_candles(
+    client: httpx.AsyncClient,
+    coin: str,
+    cfg: AppConfig,
+    start_ms: int,
+    end_ms: int,
+) -> pd.DataFrame:
+    """Public wrapper: fetch one coin's candles over ``[start_ms, end_ms]``.
+
+    Returns the full series including any still-forming bar (callers that need
+    closed bars only should trim it). Used by the outcome-scoring job.
+    """
+    return await _fetch_one_candles(client, coin, cfg, start_ms, end_ms)
+
+
 async def fetch_all_candles(
     client: httpx.AsyncClient,
     assets: list[AssetMeta],

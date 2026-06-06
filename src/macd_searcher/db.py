@@ -193,6 +193,42 @@ def insert_snapshots(
     conn.commit()
 
 
+def fetch_pending_signals(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Signals whose outcomes haven't been finalized yet."""
+    conn.row_factory = sqlite3.Row
+    return conn.execute(
+        "SELECT signal_id, symbol, direction, fired_at, fire_close, fire_macd "
+        "FROM signals WHERE outcome_updated_at IS NULL"
+    ).fetchall()
+
+
+def update_signal_outcome(
+    conn: sqlite3.Connection,
+    signal_id: str,
+    *,
+    px_1d: float | None,
+    px_3d: float | None,
+    px_7d: float | None,
+    px_14d: float | None,
+    max_favorable_move_pct: float | None,
+    max_adverse_move_pct: float | None,
+    bars_to_zero_cross: int | None,
+    zero_cross_observed_at: str | None,
+    outcome_updated_at: str | None,
+) -> None:
+    """Write computed outcome columns. `outcome_updated_at` stays NULL until the
+    signal is fully scored (horizon elapsed), so partially-scored rows are
+    revisited on later runs."""
+    conn.execute(
+        "UPDATE signals SET px_1d=?, px_3d=?, px_7d=?, px_14d=?, "
+        "max_favorable_move_pct=?, max_adverse_move_pct=?, bars_to_zero_cross=?, "
+        "zero_cross_observed_at=?, outcome_updated_at=? WHERE signal_id=?",
+        (px_1d, px_3d, px_7d, px_14d, max_favorable_move_pct, max_adverse_move_pct,
+         bars_to_zero_cross, zero_cross_observed_at, outcome_updated_at, signal_id),
+    )
+    conn.commit()
+
+
 def insert_signals(
     conn: sqlite3.Connection,
     run_id: str,

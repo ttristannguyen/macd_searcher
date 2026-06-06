@@ -115,6 +115,14 @@ class DatabaseConfig(BaseModel):
     path: str = "state/macd_searcher.sqlite3"
 
 
+class OutcomesConfig(BaseModel):
+    # How many days forward the update_outcomes job scores each signal:
+    # the MFE/MAE window and the zero-cross search horizon. The px_1d/3d/7d/14d
+    # columns are fixed regardless. A signal is finalized once this many days
+    # have elapsed since it fired.
+    horizon_days: int = Field(14, ge=1)
+
+
 class TelegramSecrets(BaseModel):
     bot_token: str = ""
     chat_id: str = ""
@@ -132,6 +140,7 @@ class AppConfig(BaseModel):
     universe_filter: UniverseFilterConfig = UniverseFilterConfig()
     notify: NotifyConfig = NotifyConfig()
     database: DatabaseConfig = DatabaseConfig()
+    outcomes: OutcomesConfig = OutcomesConfig()
     telegram: TelegramSecrets = TelegramSecrets()
     log_level: str = "INFO"
 

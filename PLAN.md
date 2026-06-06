@@ -282,8 +282,8 @@ Add to crontab (every 4h on the hour):
 - [x] **6.** `__main__.py` — `argparse` CLI (`--config / -c`, `--dry-run`, `--log-level`, `--no-db`), UTF-8 stdout reconfigure for Windows, logging setup with httpx capped at WARNING, structured exit codes (0/1/2/130), best-effort Telegram error alert on uncaught exception via new `notify.send_raw_text` helper. End-to-end `python -m macd_searcher --dry-run` works against live Hyperliquid.
 - [x] **7.** README — purpose, two-stage model, config reference, example output, the three-table data-logging design, disclaimer. (VPS install / logrotate specifics still to fill in under commit 10.)
 - [x] **8.** SQLite data logging (§11) — `db.py` (`runs` / `asset_snapshots` / `signals` + indexes, WAL, FKs), `classify.py` (asset-class), `signals.compute_all_metrics` (per-asset detector intermediates, both confirmed + live views), `universe_total` threaded through the fetch, wired into `__main__` as a best-effort pre/post-run write (`--no-db` to disable). 15 new tests (51 total). Live run populated all three tables: 134 snapshots, 21 signals, 5 asset classes.
-- [ ] **9.** `update_outcomes` job — daily cron entrypoint that backfills `signals` outcome columns (bars-to-zero-cross, +1d/3d/7d/14d prices, max favorable/adverse move) once enough bars have formed.
-- [ ] **10.** VPS deployment guide (install, cron for scan + outcomes job, logrotate) and first real Telegram send.
+- [x] **9.** `update_outcomes.py` — daily entrypoint that backfills `signals` outcome columns (forward closes 1/3/7/14d, direction-normalized MFE/MAE, bars-to-zero-cross) for fired signals. Closed-bar scoring, progressive fill, finalize at `outcomes.horizon_days` (14). `score_signal` takes the MACD series as an arg so the cross logic is unit-tested with injected data; 12 outcome tests + 2 db roundtrips (64 total pass). Live run scored 88 pending signals across 25 symbols, exit 0, no errors. Counterfactual *loosening* (scoring `asset_snapshots`) deferred.
+- [x] **10.** README VPS deployment guide (install, scan + outcomes cron, logrotate) — done; first real Telegram send pending on the user's server.
 
 ---
 
@@ -318,3 +318,9 @@ Local SQLite file at `database.path` (default `state/macd_searcher.sqlite3`), WA
 - `classify.py` — `classify_asset(symbol)` → crypto | equity | commodity | fx | index.
 - `signals.compute_all_metrics(candles, cfg)` — computes `AssetMetrics` per asset (shares `_view` / `_last_bar_is_forming` with the detectors so logged values match what fired).
 - `fetch_universe` now returns `(assets, universe_total)`; `fetch_universe_and_candles` returns `(assets, candles, universe_total)`.
+
+**Outcome scoring (`update_outcomes.py`)**
+- `db.fetch_pending_signals` (`outcome_updated_at IS NULL`) + `db.update_signal_outcome`; `hyperliquid.fetch_candles` public wrapper.
+- `score_signal(df, macd_line, fired_at, fire_close, direction, horizon_days, now)` → `Outcome`. Anchors on the daily bar at-or-before `fired_at`, drops the forming bar (closed-bar scoring), computes forward closes at fixed 1/3/7/14d offsets, direction-normalized MFE/MAE over the window, and first forward bar where MACD crosses zero in the predicted direction (`bars_to_zero_cross`; NULL after finalize = never crossed in window).
+- Idempotent and re-runnable: fills available columns each run, finalizes once `horizon_days` elapsed. Fetches once per symbol.
+- **Scope (v1):** fired signals only — supports threshold *tightening*. Scoring `asset_snapshots` for counterfactual *loosening* is a deferred follow-up.

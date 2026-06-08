@@ -255,7 +255,7 @@ Outcomes are computed by a separate daily job rather than the main scan because 
 
 Together they give you both the data and the reproducibility to do real tuning instead of guessing.
 
-Full column-by-column reference: [docs/schema.md](docs/schema.md).
+Full column-by-column reference: [docs/schema.md](docs/schema.md). Ready-made analysis queries (win-rate, lead time, threshold tuning, MFE/MAE): [docs/queries.sql](docs/queries.sql) — run with `sqlite3 state/macd_searcher.sqlite3 < docs/queries.sql`.
 
 ---
 
@@ -272,7 +272,7 @@ Full column-by-column reference: [docs/schema.md](docs/schema.md).
 | SQLite data logging (3 tables above) | ✅ done |
 | `update_outcomes` job for signal outcomes | ✅ done |
 | VPS install / cron / logrotate instructions | ✅ done |
-| Analytical query examples | 🚧 planned |
+| Analytical query examples (`docs/queries.sql`) | ✅ done |
 
 See [PLAN.md](PLAN.md) for the full implementation roadmap.
 

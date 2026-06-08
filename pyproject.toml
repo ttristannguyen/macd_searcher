@@ -14,8 +14,16 @@ dependencies = [
     "tzdata>=2024.1",
 ]
 
+[project.optional-dependencies]
+# Dashboard API. Install only where you run the web UI: `uv sync --extra web`.
+web = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+
 [project.scripts]
 macd-searcher = "macd_searcher.__main__:main"
+macd-searcher-web = "macd_searcher.web.app:main"
 
 [dependency-groups]
 dev = [

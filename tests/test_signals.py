@@ -14,6 +14,7 @@ from macd_searcher.config import AppConfig
 from macd_searcher.signals import (
     _check_histogram_flattening,
     _check_zero_line_proximity,
+    _consecutive_shrink_count,
     _last_bar_is_forming,
     _view,
     evaluate_all,
@@ -308,6 +309,50 @@ def test_view_no_drop_when_last_bar_not_forming():
         m, c, _ = _view(df, macd_df, None, last_is_forming=False, use_forming=use_forming)
         assert c == 159.0
         assert len(m) == len(macd_df)
+
+
+def _macd_df(hist_vals: list[float]) -> pd.DataFrame:
+    """Build a macd_df with a crafted hist column (macd/signal unused by Stage 1)."""
+    n = len(hist_vals)
+    return pd.DataFrame({"macd": [0.0] * n, "signal": [0.0] * n, "hist": [float(x) for x in hist_vals]})
+
+
+# ---------- same-sign-excursion fix (BRENTOIL bug) ----------
+
+
+def test_stage1_no_fire_when_forming_bar_crosses_zero_down():
+    """The BRENTOIL case: hist was green for days, the last bar dips negative.
+    A stale deep negative trough sits earlier in the window. Must NOT fire bullish."""
+    cfg = AppConfig()
+    hist = [-0.9, -0.7, -0.4, -0.1, 0.05, 0.16, 0.20, 0.16, 0.12, 0.107, -0.0259]
+    assert _check_histogram_flattening("BRENTOIL", 94.0, _macd_df(hist), cfg) is None
+
+
+def test_stage1_peak_ignores_pre_crossing_trough():
+    """A stale negative trough before a crossing must not be used as the peak;
+    the peak comes from the current (positive) excursion only."""
+    cfg = AppConfig()
+    hist = [-0.9, -0.5, -0.1, 0.1, 0.3, 0.5, 0.4, 0.3, 0.2, 0.1]
+    sig = _check_histogram_flattening("X", 100.0, _macd_df(hist), cfg)
+    assert sig is not None
+    assert sig.direction == "bearish"
+    assert sig.hist_peak == 0.5  # current green peak, not the stale -0.9
+
+
+def test_stage1_fires_bullish_on_clean_same_sign_shrink():
+    cfg = AppConfig()
+    hist = [-0.05, -0.1, -0.3, -0.6, -0.5, -0.4, -0.3, -0.2, -0.12, -0.08]
+    sig = _check_histogram_flattening("X", 100.0, _macd_df(hist), cfg)
+    assert sig is not None
+    assert sig.direction == "bullish"
+    assert sig.hist_peak == -0.6
+
+
+def test_consecutive_shrink_count_resets_on_sign_flip():
+    assert _consecutive_shrink_count(pd.Series([0.5, 0.3, -0.1])) == 0  # crossed zero
+    assert _consecutive_shrink_count(pd.Series([0.5, 0.4, 0.3, 0.2])) == 3
+    assert _consecutive_shrink_count(pd.Series([-0.5, -0.4, -0.3, -0.2])) == 3
+    assert _consecutive_shrink_count(pd.Series([0.2, 0.3, 0.4])) == 0  # growing
 
 
 def test_shorter_shrink_lookback_is_a_superset():

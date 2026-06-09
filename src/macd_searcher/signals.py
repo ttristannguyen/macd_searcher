@@ -63,16 +63,32 @@ def _strictly_decreasing(series: pd.Series) -> bool:
     return bool((diffs < 0).all())
 
 
-def _consecutive_shrink_count(abs_series: pd.Series) -> int:
-    """Number of consecutive strictly-decreasing steps at the tail of the series.
+def _consecutive_shrink_count(series: pd.Series) -> int:
+    """Consecutive tail bars where ``|value|`` strictly decreases AND the sign
+    does not flip (a zero-crossing resets the count). Pass the SIGNED series.
 
-    e.g. |hist| = [.., 5, 4, 3] → 2 (two decreasing steps). Used for analytics
-    logging so thresholds on shrink length can be swept offline.
+    e.g. [.., 0.5, 0.3, -0.1] → 0 (the last bar crossed zero), but
+    [.., -0.5, -0.3, -0.2] → 2. Used for analytics logging.
     """
-    vals = abs_series.to_numpy()
+    vals = series.to_numpy()
     n = 0
     for i in range(len(vals) - 1, 0, -1):
-        if vals[i] < vals[i - 1]:
+        cur, prev = vals[i], vals[i - 1]
+        same_sign = (cur > 0 and prev > 0) or (cur < 0 and prev < 0)
+        if same_sign and abs(cur) < abs(prev):
+            n += 1
+        else:
+            break
+    return n
+
+
+def _trailing_same_sign_len(hist_vals, last_hist: float) -> int:
+    """Length of the trailing run of bars sharing ``last_hist``'s sign — i.e. the
+    current same-sign histogram excursion. A zero value or sign flip ends it."""
+    positive = last_hist > 0
+    n = 0
+    for v in reversed(hist_vals):
+        if (v > 0) if positive else (v < 0):
             n += 1
         else:
             break
@@ -92,28 +108,34 @@ def _check_histogram_flattening(
     macd_df: pd.DataFrame,
     cfg: AppConfig,
 ) -> Signal | None:
-    """Stage 1: histogram peaked above noise floor, now shrinking back toward zero."""
+    """Stage 1: histogram peaked above noise floor, now shrinking back toward zero.
+
+    Peak-finding and the shrink check are confined to the **current same-sign
+    excursion** (since the last zero-crossing), so a stale peak from a prior
+    excursion can't inflate the reduction, and a green↔red flip can't be
+    mistaken for shrinking toward zero.
+    """
     s = cfg.signal.histogram_flattening
     hist = macd_df["hist"]
-    if len(hist) < max(s.peak_lookback, s.shrink_lookback + 1):
+    if len(hist) < s.shrink_lookback + 1:
         return None
 
     last_hist = float(hist.iloc[-1])
     if last_hist == 0:
         return None  # exactly at zero is technically a cross, not "approaching"
 
-    window = hist.iloc[-s.peak_lookback:]
-    # Peak must be on the same side of zero as current hist.
-    if last_hist > 0:
-        peak = float(window.max())
-        if peak <= 0:
-            return None
-        direction: Direction = "bearish"
-    else:
-        peak = float(window.min())
-        if peak >= 0:
-            return None
-        direction = "bullish"
+    # Current same-sign run. Need enough same-sign bars to confirm a sustained
+    # approach without a zero-crossing inside the shrink window.
+    seg = _trailing_same_sign_len(hist.to_numpy(), last_hist)
+    if seg < s.shrink_lookback:
+        return None
+
+    direction: Direction = "bearish" if last_hist > 0 else "bullish"
+
+    # Peak = extreme of THIS excursion only, capped at peak_lookback bars.
+    look = min(seg, s.peak_lookback)
+    seg_window = hist.iloc[-look:]
+    peak = float(seg_window.max()) if last_hist > 0 else float(seg_window.min())
 
     abs_peak = abs(peak)
     abs_last = abs(last_hist)
@@ -126,7 +148,7 @@ def _check_histogram_flattening(
     if abs_last > (1.0 - s.min_reduction_from_peak) * abs_peak:
         return None
 
-    # Strict shrink over last N bars.
+    # Strict shrink over last N bars — all same-sign now (guaranteed by seg check).
     recent_abs = hist.iloc[-s.shrink_lookback:].abs()
     if not _strictly_decreasing(recent_abs):
         return None
@@ -390,7 +412,7 @@ def compute_asset_metrics(name: str, df: pd.DataFrame, cfg: AppConfig) -> AssetM
     c_signal = float(cm["signal"].iloc[-1])
     c_atr_val = float(c_atr.iloc[-1]) if c_atr is not None else None
     macd_pct = abs(c_macd) / c_close if c_close > 0 else None
-    macd_shrink = _consecutive_shrink_count(cm["macd"].abs())
+    macd_shrink = _consecutive_shrink_count(cm["macd"])
 
     # Live (forming-bar) view.
     lm, l_close, _ = _view(df, macd_df, None, last_is_forming, use_forming=True)
@@ -404,7 +426,7 @@ def compute_asset_metrics(name: str, df: pd.DataFrame, cfg: AppConfig) -> AssetM
     elif l_hist < 0 and float(window.min()) < 0:
         peak = float(window.min())
     reduction = 1.0 - abs(l_hist) / abs(peak) if peak not in (None, 0) else None
-    hist_shrink = _consecutive_shrink_count(lm["hist"].abs())
+    hist_shrink = _consecutive_shrink_count(lm["hist"])
 
     return AssetMetrics(
         name=name,

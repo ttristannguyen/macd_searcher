@@ -319,6 +319,24 @@ Local SQLite file at `database.path` (default `state/macd_searcher.sqlite3`), WA
 - `signals.compute_all_metrics(candles, cfg)` — computes `AssetMetrics` per asset (shares `_view` / `_last_bar_is_forming` with the detectors so logged values match what fired).
 - `fetch_universe` now returns `(assets, universe_total)`; `fetch_universe_and_candles` returns `(assets, candles, universe_total)`.
 
+---
+
+## 12. Next steps — outcome analysis & DB hygiene
+
+### Analysis to gauge signal effectiveness (once ~1–2 weeks of outcomes exist)
+1. ★ **Beat a baseline.** Win-rate alone is misleading in a trending market. Add a `benchmark_ret` column computed in `update_outcomes` — the asset's *unconditional* forward return (or BTC's) over the same window. A signal only has edge if it beats just-holding. Most important addition.
+2. **Validate the two-stage thesis** — `bars_to_zero_cross`: does S1 actually lead S3? And the **hit rate**: % of signals where the predicted cross happened within the horizon (NULL after finalize = never).
+3. **Median, not mean** (SQLite lacks `MEDIAN`) — means are skewed by outliers; pushes analysis toward a small Python script over the DB.
+4. **Sample-size discipline** — flag win-rates with N < ~20 as noise (binomial CI); don't over-tune on a handful.
+5. **Threshold optimization** (queries.sql G1/G2) → feed back into `config.yaml` (`price_pct_threshold`, `min_reduction_from_peak`).
+6. **Counterfactual loosening** — score `asset_snapshots` (not just fired signals) for forward outcomes, so "what if thresholds were looser?" is answerable with real returns. Needs outcome storage on snapshots + generalized scoring.
+7. ⚠️ **Regime caveat** — current data is one market regime (broad selloff); edge measured now may not generalize. Note it everywhere.
+
+### DB hygiene — same-day dilution (decision pending)
+- Logging every 4h is **not a storage problem** (~100 MB/yr); it's a **statistical-validity** problem. Confirmed (closed-bar) snapshot columns are *identical* across the 6 daily runs; same-day repeat **S3** signals are near-identical, and same-day **S1** repeats are correlated snapshots of one developing setup — **pseudo-replicates** that inflate N and bias win-rates.
+- **Decision for analysis:** collapse to **one record per (symbol, stage, direction, day)** — `GROUP BY symbol, substr(fired_at,1,10)` — so each asset-day counts once. For a 1-day strategy the principled keeper is the **post-00:00-UTC closed-bar read** (stable, non-repainting).
+- Keep scanning every 4h (alerting needs it); optionally only *persist* the post-close snapshot, or keep all rows + dedupe in queries. See discussion in chat.
+
 **Outcome scoring (`update_outcomes.py`)**
 - `db.fetch_pending_signals` (`outcome_updated_at IS NULL`) + `db.update_signal_outcome`; `hyperliquid.fetch_candles` public wrapper.
 - `score_signal(df, macd_line, fired_at, fire_close, direction, horizon_days, now)` → `Outcome`. Anchors on the daily bar at-or-before `fired_at`, drops the forming bar (closed-bar scoring), computes forward closes at fixed 1/3/7/14d offsets, direction-normalized MFE/MAE over the window, and first forward bar where MACD crosses zero in the predicted direction (`bars_to_zero_cross`; NULL after finalize = never crossed in window).

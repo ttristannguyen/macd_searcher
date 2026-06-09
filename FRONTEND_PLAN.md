@@ -136,9 +136,9 @@ Optional: a `systemd --user` unit (or a `web` cron `@reboot`) to keep uvicorn ru
 
 - [x] **1.** Backend skeleton — `web` optional extra (`fastapi`, `uvicorn[standard]`), `web/db.py` read-only connection (path resolver + `MACD_SEARCHER_DB_PATH` override + WAL-safe `mode=ro`→`query_only` fallback), `web/app.py` FastAPI app with `get_conn` dependency (503 when DB absent), `macd-searcher-web` console script (localhost-bound by default).
 - [x] **2.** All MVP endpoints + typed pydantic models + dev CORS + optional static mount. `asset_class` joined inline (read-only can't create the `signal_perf` view). 9 `TestClient` tests vs a seeded fixture DB (`importorskip` so the core suite runs without the extra); 73 total pass. All 10 endpoints verified live against the local DB.
-- [ ] **3.** Frontend scaffold — Vite + React + TS + Tailwind + react-query; API client + types; health banner working end-to-end against the dev API.
-- [ ] **4.** Build the dashboard sections (runs, notify, signals feed, composition, headroom) with Recharts; dark theme; responsive.
-- [ ] **5.** Static serving — FastAPI mounts `frontend/dist`; one-port mode verified locally.
+- [x] **3.** Frontend scaffold — Vite 6 + React 18 + TS (strict) + Tailwind 3 + TanStack Query + Recharts. Typed API client (`api/types.ts` mirrors the pydantic models) with polling hooks, `lib/format.ts` helpers, dark theme. `npm install` clean (0 vulns).
+- [x] **4.** Dashboard sections — `HealthBanner`, stage×direction / by-class / notify-status / signals-per-day / runs-per-day charts, `SignalsFeed`, `RunsTable`, `TopSymbols`, `Headroom`. Reusable `ui.tsx` (Card/Badge/Metric/StateMsg with loading/empty/error states). Dark, responsive grid. `npm run build` passes `tsc --noEmit` + bundles.
+- [x] **5.** Static serving — FastAPI conditionally mounts `frontend/dist` at `/` (after the API routes, so `/api/*` keeps precedence). Verified via TestClient: `/` serves the SPA, `/api/health` returns JSON.
 - [ ] **6.** VPS deploy guide — build-locally → ship dist → localhost uvicorn → SSH tunnel; optional keep-alive unit. Add to README.
 - [ ] **7. (Phase 2)** Performance/analytics endpoints + panels once outcomes mature (E–I).
 
@@ -147,6 +147,19 @@ Optional: a `systemd --user` unit (or a `web` cron `@reboot`) to keep uvicorn ru
 ## 8. Open questions / future
 
 - **Keep-alive:** run uvicorn on demand (start when you tunnel in) or always-on via systemd? Default: on-demand for the MVP.
-- **Charting lib** Recharts vs visx — starting with Recharts; revisit if a chart needs more control.
+- **Charting lib** Recharts vs visx — starting with Recharts; revisit if a chart needs more control. (Recharts is ~620 kB unsplit — fine over localhost; if it ever matters, lazy-load the charts or set `manualChunks`. Recharts v2 also nudges toward v3.)
 - **Auth:** none needed while it's localhost-only behind SSH. Only relevant if you ever choose public hosting.
 - **Phase 3+:** filters (date range, asset class, stage), per-symbol drill-down, threshold-tuning explorer, CSV export.
+
+---
+
+## 9. Next steps (frontend)
+
+Suggested order when resuming:
+1. **Sortable tables (order-bys)** — click column headers in `SignalsFeed` + `RunsTable` to sort (time, symbol, MACD, proximity, price). Client-side sort state + sortable `<th>`. Quick, high value.
+2. **More feed filters** — asset-class filter + symbol search box (extends the `Segmented` pattern).
+3. **Recharts label casing** — `tickFormatter` on the by-class axis + legend `formatter` on the dispatch donut + capitalize the health "Dispatch" value (can't use the `ui.tsx` `capitalize` class — Recharts renders its own text).
+4. **Phase-2 performance panels** — win-rate / return-by-horizon / lead-time / MFE-MAE / threshold-bucket charts. Map to `docs/queries.sql` E–I → new `/api/perf/*` endpoints + chart components, with an "accumulating data…" state until outcomes exist.
+5. **Polish** — "last updated" indicator + manual refresh button, loading skeletons, error toast (vs the bare banner).
+6. **Deploy (commit 6)** — build → ship `dist` → localhost uvicorn + SSH tunnel + optional `systemd` keep-alive.
+7. **Bundle** — lazy-load charts / `manualChunks` to cut the ~620 kB if it ever matters.

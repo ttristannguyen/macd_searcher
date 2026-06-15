@@ -1,0 +1,28 @@
+# systemd unit for the macd_searcher dashboard API.
+# Assumes the repo is at /home/tristan/macd_searcher and `uv sync --extra web`
+# has been run (so .venv/bin/macd-searcher-web exists). Edit User/paths if yours differ.
+#
+# Install:
+#   sudo cp deploy/macd-searcher-web.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now macd-searcher-web
+#   systemctl status macd-searcher-web
+#   journalctl -u macd-searcher-web -f      # follow logs
+
+[Unit]
+Description=macd_searcher dashboard API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tristan
+WorkingDirectory=/home/tristan/macd_searcher
+# The venv console script is self-contained (shebang -> venv python), so no PATH/uv needed.
+# Bound to localhost only — reachable via SSH tunnel or `tailscale serve`, never public.
+ExecStart=/home/tristan/macd_searcher/.venv/bin/macd-searcher-web --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

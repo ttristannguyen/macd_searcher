@@ -35,3 +35,5 @@ state/
 node_modules/
 frontend/dist/
 .vite/
+
+CLAUDE.md

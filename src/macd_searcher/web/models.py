@@ -166,3 +166,21 @@ class PerfBucket(BaseModel):
     n: int
     win_pct: Optional[float] = None
     avg_ret_pct: Optional[float] = None
+
+
+class PerfDistribution(BaseModel):
+    stage: str
+    direction: str
+    metric: str
+    n: int
+    # All in percent points. `min`/`max` shadow builtins only as field names.
+    min: Optional[float] = None
+    p10: Optional[float] = None
+    p25: Optional[float] = None
+    median: Optional[float] = None
+    p75: Optional[float] = None
+    p90: Optional[float] = None
+    max: Optional[float] = None
+    mean: Optional[float] = None
+    winsorized_mean: Optional[float] = None
+    std: Optional[float] = None

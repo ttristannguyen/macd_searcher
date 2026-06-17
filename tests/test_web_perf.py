@@ -22,8 +22,12 @@ from macd_searcher import db  # noqa: E402
 from macd_searcher.signals import AssetMetrics, Signal  # noqa: E402
 from macd_searcher.web.app import app, get_conn  # noqa: E402
 
-DAY_A = "2026-01-10"
-DAY_B = "2026-01-11"
+# Post-fix dates (after DETECTOR_FIX_CUTOFF = 2026-06-09T14:00Z), so the
+# endpoints' default post-fix filter keeps them.
+DAY_A = "2026-06-12"
+DAY_B = "2026-06-13"
+# Before the cutoff: a contaminated pre-fix signal that must be excluded by default.
+PRE_FIX = "2026-06-05"
 
 
 def _metrics(name: str, macd_pct: float) -> AssetMetrics:
@@ -81,6 +85,9 @@ def _seed(path: str) -> None:
     # Day B — SOL still pending (no outcome yet).
     _fire(conn, "SOL", "zero_line_proximity", "bullish", f"{DAY_B}T08:00:00+00:00",
           50.0, macd_pct=0.001, finalized=False)
+    # PRE-FIX — a contaminated Stage-1-era signal; must be excluded by default.
+    _fire(conn, "OLD", "zero_line_proximity", "bullish", f"{PRE_FIX}T08:00:00+00:00",
+          100.0, macd_pct=0.001, px_7d=130.0, mfe=0.30, mae=-0.01, bars=1, finalized=True)
     conn.close()
 
 
@@ -176,13 +183,6 @@ def test_by_class(client):
     assert by[("equity", "histogram_flattening")]["avg_ret_pct"] == 5.0
 
 
-def test_since_filter_drops_day_a(client):
-    rows = client.get(f"/api/perf/summary?since={DAY_B}").json()
-    # Only TSLA (day B, finalized) survives; SOL is pending so has no ret_7d.
-    assert len(rows) == 1
-    assert rows[0]["stage"] == "histogram_flattening"
-
-
 def test_thresholds(client):
     prox = client.get("/api/perf/thresholds?kind=proximity").json()
     buckets = {r["bucket"]: r for r in prox}
@@ -194,3 +194,51 @@ def test_thresholds(client):
 
 def test_invalid_horizon_422(client):
     assert client.get("/api/perf/summary?horizon=5d").status_code == 422
+
+
+def test_distribution_ret7d(client):
+    rows = client.get("/api/perf/distribution?metric=ret_7d").json()
+    by = {(r["stage"], r["direction"]): r for r in rows}
+    # zero_line bullish: deduped BTC(+10%) + ETH(-5%), dup dropped.
+    z = by[("zero_line_proximity", "bullish")]
+    assert z["n"] == 2
+    assert z["median"] == 2.5
+    assert z["mean"] == 2.5
+    assert z["min"] == -5.0 and z["max"] == 10.0
+    assert z["metric"] == "ret_7d"
+    # single-point group has no std.
+    t = by[("histogram_flattening", "bearish")]
+    assert t["n"] == 1 and t["median"] == 5.0 and t["std"] is None
+
+
+def test_distribution_metric_switch(client):
+    rows = client.get("/api/perf/distribution?metric=mfe").json()
+    by = {(r["stage"], r["direction"]): r for r in rows}
+    assert by[("zero_line_proximity", "bullish")]["median"] == 7.5  # BTC 12% / ETH 3%
+
+    mae = client.get("/api/perf/distribution?metric=mae").json()
+    by_mae = {(r["stage"], r["direction"]): r for r in mae}
+    assert by_mae[("zero_line_proximity", "bullish")]["median"] == -4.0
+
+
+def test_distribution_min_n_drops_small_groups(client):
+    rows = client.get("/api/perf/distribution?metric=ret_7d&min_n=2").json()
+    assert len(rows) == 1
+    assert rows[0]["stage"] == "zero_line_proximity"
+
+
+def test_distribution_invalid_metric_422(client):
+    assert client.get("/api/perf/distribution?metric=sharpe").status_code == 422
+
+
+# ---- detector-fix filter (pre-fix Stage 1 contamination is always excluded) ----
+
+
+def test_pre_fix_signals_excluded(client):
+    # OLD fired before DETECTOR_FIX_CUTOFF, so it never reaches the stats:
+    # zero_line bullish stays BTC + ETH (would be 3 if OLD leaked in), and
+    # readiness counts 5 of the 6 seeded signals.
+    rows = client.get("/api/perf/summary").json()
+    z = next(r for r in rows if r["stage"] == "zero_line_proximity" and r["direction"] == "bullish")
+    assert z["n"] == 2
+    assert client.get("/api/perf/readiness").json()["total"] == 5

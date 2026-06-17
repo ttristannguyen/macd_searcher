@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import perf, queries
@@ -25,6 +25,7 @@ from .models import (
     NotifyStatusRow,
     PerfBucket,
     PerfClassStage,
+    PerfDistribution,
     PerfExcursion,
     PerfHorizon,
     PerfLeadTime,
@@ -38,7 +39,7 @@ from .models import (
     SymbolCountRow,
     TableCounts,
 )
-from .perf import Horizon, ThresholdKind
+from .perf import Horizon, Metric, ThresholdKind
 
 # The scan cron runs every 4h; used to judge whether the latest run is fresh.
 EXPECTED_INTERVAL_SECONDS = 4 * 60 * 60
@@ -140,9 +141,9 @@ def proximity_headroom(conn: sqlite3.Connection = Depends(get_conn)) -> Proximit
 
 # ---------- performance / outcomes ----------
 #
-# All /api/perf endpoints read a deduped (one-per-asset-day) view of signals and
-# return direction-normalized returns; see web/perf.py. `since` (ISO date) drops
-# pre-fix noise. Most are empty until outcomes mature (~14 days after firing).
+# All /api/perf endpoints read a deduped (one-per-asset-day) view of post-fix
+# signals and return direction-normalized returns; see web/perf.py. Most are
+# empty until outcomes mature (~14 days after firing).
 
 
 @app.get("/api/perf/readiness", response_model=PerfReadiness)
@@ -153,65 +154,61 @@ def perf_readiness(conn: sqlite3.Connection = Depends(get_conn)) -> PerfReadines
 @app.get("/api/perf/summary", response_model=list[PerfStageDirection])
 def perf_summary(
     horizon: Horizon = "7d",
-    since: str | None = Query(None),
     min_n: int = 1,
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfStageDirection]:
-    return [PerfStageDirection(**r) for r in perf.summary(conn, horizon, since, min_n)]
+    return [PerfStageDirection(**r) for r in perf.summary(conn, horizon, min_n)]
 
 
 @app.get("/api/perf/by-horizon", response_model=list[PerfHorizon])
-def perf_by_horizon(
-    since: str | None = Query(None),
-    conn: sqlite3.Connection = Depends(get_conn),
-) -> list[PerfHorizon]:
-    return [PerfHorizon(**r) for r in perf.by_horizon(conn, since)]
+def perf_by_horizon(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfHorizon]:
+    return [PerfHorizon(**r) for r in perf.by_horizon(conn)]
 
 
 @app.get("/api/perf/lead-time", response_model=list[PerfLeadTime])
-def perf_lead_time(
-    since: str | None = Query(None),
-    conn: sqlite3.Connection = Depends(get_conn),
-) -> list[PerfLeadTime]:
-    return [PerfLeadTime(**r) for r in perf.lead_time(conn, since)]
+def perf_lead_time(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfLeadTime]:
+    return [PerfLeadTime(**r) for r in perf.lead_time(conn)]
 
 
 @app.get("/api/perf/mfe-mae", response_model=list[PerfExcursion])
-def perf_mfe_mae(
-    since: str | None = Query(None),
-    conn: sqlite3.Connection = Depends(get_conn),
-) -> list[PerfExcursion]:
-    return [PerfExcursion(**r) for r in perf.excursions(conn, since)]
+def perf_mfe_mae(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfExcursion]:
+    return [PerfExcursion(**r) for r in perf.excursions(conn)]
 
 
 @app.get("/api/perf/by-symbol", response_model=list[PerfSymbol])
 def perf_by_symbol(
     horizon: Horizon = "7d",
-    since: str | None = Query(None),
     min_n: int = 5,
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfSymbol]:
-    return [PerfSymbol(**r) for r in perf.by_symbol(conn, horizon, since, min_n)]
+    return [PerfSymbol(**r) for r in perf.by_symbol(conn, horizon, min_n)]
 
 
 @app.get("/api/perf/by-class", response_model=list[PerfClassStage])
 def perf_by_class(
     horizon: Horizon = "7d",
-    since: str | None = Query(None),
     min_n: int = 1,
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfClassStage]:
-    return [PerfClassStage(**r) for r in perf.by_class(conn, horizon, since, min_n)]
+    return [PerfClassStage(**r) for r in perf.by_class(conn, horizon, min_n)]
 
 
 @app.get("/api/perf/thresholds", response_model=list[PerfBucket])
 def perf_thresholds(
     kind: ThresholdKind = "proximity",
     horizon: Horizon = "7d",
-    since: str | None = Query(None),
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfBucket]:
-    return [PerfBucket(**r) for r in perf.thresholds(conn, kind, horizon, since)]
+    return [PerfBucket(**r) for r in perf.thresholds(conn, kind, horizon)]
+
+
+@app.get("/api/perf/distribution", response_model=list[PerfDistribution])
+def perf_distribution(
+    metric: Metric = "ret_7d",
+    min_n: int = 1,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfDistribution]:
+    return [PerfDistribution(**r) for r in perf.distribution(conn, metric, min_n)]
 
 
 # Serve the built React app at / when it exists (production / one-port mode).

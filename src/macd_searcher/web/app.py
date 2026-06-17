@@ -12,10 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import queries
+from . import perf, queries
 from .db import connect
 from .models import (
     ClassCountRow,
@@ -23,6 +23,14 @@ from .models import (
     Health,
     LatestRun,
     NotifyStatusRow,
+    PerfBucket,
+    PerfClassStage,
+    PerfExcursion,
+    PerfHorizon,
+    PerfLeadTime,
+    PerfReadiness,
+    PerfStageDirection,
+    PerfSymbol,
     ProximityHeadroom,
     RunRow,
     SignalRow,
@@ -30,6 +38,7 @@ from .models import (
     SymbolCountRow,
     TableCounts,
 )
+from .perf import Horizon, ThresholdKind
 
 # The scan cron runs every 4h; used to judge whether the latest run is fresh.
 EXPECTED_INTERVAL_SECONDS = 4 * 60 * 60
@@ -127,6 +136,82 @@ def signals_per_day(days: int = 14, conn: sqlite3.Connection = Depends(get_conn)
 @app.get("/api/stats/proximity-headroom", response_model=ProximityHeadroom)
 def proximity_headroom(conn: sqlite3.Connection = Depends(get_conn)) -> ProximityHeadroom:
     return ProximityHeadroom(**queries.proximity_headroom(conn))
+
+
+# ---------- performance / outcomes ----------
+#
+# All /api/perf endpoints read a deduped (one-per-asset-day) view of signals and
+# return direction-normalized returns; see web/perf.py. `since` (ISO date) drops
+# pre-fix noise. Most are empty until outcomes mature (~14 days after firing).
+
+
+@app.get("/api/perf/readiness", response_model=PerfReadiness)
+def perf_readiness(conn: sqlite3.Connection = Depends(get_conn)) -> PerfReadiness:
+    return PerfReadiness(**perf.readiness(conn))
+
+
+@app.get("/api/perf/summary", response_model=list[PerfStageDirection])
+def perf_summary(
+    horizon: Horizon = "7d",
+    since: str | None = Query(None),
+    min_n: int = 1,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfStageDirection]:
+    return [PerfStageDirection(**r) for r in perf.summary(conn, horizon, since, min_n)]
+
+
+@app.get("/api/perf/by-horizon", response_model=list[PerfHorizon])
+def perf_by_horizon(
+    since: str | None = Query(None),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfHorizon]:
+    return [PerfHorizon(**r) for r in perf.by_horizon(conn, since)]
+
+
+@app.get("/api/perf/lead-time", response_model=list[PerfLeadTime])
+def perf_lead_time(
+    since: str | None = Query(None),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfLeadTime]:
+    return [PerfLeadTime(**r) for r in perf.lead_time(conn, since)]
+
+
+@app.get("/api/perf/mfe-mae", response_model=list[PerfExcursion])
+def perf_mfe_mae(
+    since: str | None = Query(None),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfExcursion]:
+    return [PerfExcursion(**r) for r in perf.excursions(conn, since)]
+
+
+@app.get("/api/perf/by-symbol", response_model=list[PerfSymbol])
+def perf_by_symbol(
+    horizon: Horizon = "7d",
+    since: str | None = Query(None),
+    min_n: int = 5,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfSymbol]:
+    return [PerfSymbol(**r) for r in perf.by_symbol(conn, horizon, since, min_n)]
+
+
+@app.get("/api/perf/by-class", response_model=list[PerfClassStage])
+def perf_by_class(
+    horizon: Horizon = "7d",
+    since: str | None = Query(None),
+    min_n: int = 1,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfClassStage]:
+    return [PerfClassStage(**r) for r in perf.by_class(conn, horizon, since, min_n)]
+
+
+@app.get("/api/perf/thresholds", response_model=list[PerfBucket])
+def perf_thresholds(
+    kind: ThresholdKind = "proximity",
+    horizon: Horizon = "7d",
+    since: str | None = Query(None),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfBucket]:
+    return [PerfBucket(**r) for r in perf.thresholds(conn, kind, horizon, since)]
 
 
 # Serve the built React app at / when it exists (production / one-port mode).

@@ -7,10 +7,11 @@ Forward roadmap for macd_searcher. Companion to [PLAN.md](PLAN.md) (backend) and
 ---
 
 ## 1. Frontend — Outcomes / Performance tab
-- [ ] New `/api/perf/*` endpoints wrapping `docs/queries.sql` E–I: win-rate & return by stage×direction, return-by-horizon, lead-time (S1 vs S3), threshold buckets, MFE/MAE, per-symbol.
-- [ ] A second tab/page rendering those, with an **"accumulating data…"** state until outcomes mature (~1–2 weeks).
-- [ ] Bake in the corrections: filter to post-fix signals via `runs.code_version`, and **dedup per asset-day** so same-day repeats don't inflate stats.
-- [ ] Carry-overs: sortable tables (order-bys), asset-class / symbol-search filters, Recharts label casing (by-class axis, dispatch legend, health "Dispatch" value).
+- [x] New `/api/perf/*` endpoints wrapping `docs/queries.sql` E–I: readiness, win-rate & return by stage×direction, return-by-horizon, lead-time (S1 vs S3), MFE/MAE, per-symbol, by-class, threshold buckets. (`web/perf.py`; tests in `tests/test_web_perf.py`.)
+- [x] A second tab/page rendering those (`pages/Outcomes.tsx`, `components/Outcomes.tsx`), with an **"accumulating data…"** readiness banner until outcomes mature (~1–2 weeks).
+- [x] **Dedup per asset-day** baked into every perf query (earliest fire per symbol/stage/direction/UTC-day).
+- [~] Post-fix filtering: implemented as an optional `since` (ISO date) param on the perf endpoints rather than `runs.code_version` (git short-SHAs aren't chronologically orderable). Not yet wired into the UI — add a "since fix date" toggle when ready.
+- [ ] Carry-overs: sortable tables (order-bys), asset-class / symbol-search filters, Recharts label casing (by-class axis, dispatch legend, health "Dispatch" value). The by-class & threshold-bucket endpoints exist but aren't rendered in the tab yet.
 
 ## 2. Analysis & outcome engine
 - [ ] ★ **Benchmark column** in `update_outcomes` — forward return vs buy-and-hold (or BTC) over the same window. The honest "is there edge" test.
@@ -20,7 +21,7 @@ Forward roadmap for macd_searcher. Companion to [PLAN.md](PLAN.md) (backend) and
 - ⚠️ **Regime caveat:** current data is one market regime — note it in any analysis.
 
 ## 3. Permanent uptime / hosting
-- [ ] **Service uptime (do first):** run the API as a **systemd service** on the VM (auto-start, restart-on-failure, survives reboot), bound to `127.0.0.1`. Confirm the scan + `update_outcomes` crons are healthy.
+- [x] **Service uptime:** API runs as a **systemd service** on the VM (`deploy/macd-searcher-web.service`) — auto-start, restart-on-failure, survives reboot, bound to `127.0.0.1`. Still TODO: confirm the scan + `update_outcomes` crons are healthy.
 - [ ] **Access anywhere without opening ports** (pick one):
   - **Tailscale** — private mesh VPN; reach the VM service from any device, nothing public. Simplest for personal multi-device.
   - **Cloudflare Tunnel** — exposes localhost:8000 via Cloudflare with optional Access login; no open ports, free.

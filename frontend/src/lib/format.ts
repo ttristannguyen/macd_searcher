@@ -28,6 +28,14 @@ export function fmtNum(n: number | null | undefined, digits = 4): string {
   return Number(n.toFixed(digits)).toString()
 }
 
+/** Format a value that is ALREADY in percent points (e.g. 2.5 -> "2.5%").
+ *  The /api/perf endpoints pre-scale to percent, unlike fmtPct which ×100s. */
+export function fmtPctPts(n: number | null | undefined, digits = 1, signed = false): string {
+  if (n == null) return '—'
+  const sign = signed && n > 0 ? '+' : ''
+  return sign + n.toFixed(digits) + '%'
+}
+
 export function stageLabel(stage: string): string {
   if (stage === 'histogram_flattening') return 'Stage 1 · histogram'
   if (stage === 'zero_line_proximity') return 'Stage 3 · zero-line'

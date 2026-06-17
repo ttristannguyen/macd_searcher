@@ -82,3 +82,74 @@ export interface ProximityHeadroom {
   avg_assets_under_0_5pct: number | null
   avg_assets_under_1pct: number | null
 }
+
+// ---------- performance / outcomes (/api/perf/*) ----------
+
+export type Horizon = '1d' | '3d' | '7d' | '14d'
+
+export interface PerfReadiness {
+  total: number
+  finalized: number
+  have_1d: number
+  have_3d: number
+  have_7d: number
+  have_14d: number
+  oldest_pending: string | null
+  pending: number
+}
+
+export interface PerfStageDirection {
+  stage: string
+  direction: string
+  n: number
+  win_pct: number | null
+  avg_ret_pct: number | null
+  worst_pct: number | null
+  best_pct: number | null
+}
+
+export interface PerfHorizon {
+  stage: string
+  ret_1d: number | null
+  n_1d: number
+  ret_3d: number | null
+  n_3d: number
+  ret_7d: number | null
+  n_7d: number
+  ret_14d: number | null
+  n_14d: number
+}
+
+export interface PerfLeadTime {
+  stage: string
+  finalized_n: number
+  crossed_n: number
+  cross_rate_pct: number | null
+  avg_bars_to_cross: number | null
+  min_bars: number | null
+  max_bars: number | null
+}
+
+export interface PerfExcursion {
+  stage: string
+  direction: string
+  n: number
+  avg_mfe_pct: number | null
+  avg_mae_pct: number | null
+}
+
+export interface PerfSymbol {
+  symbol: string
+  asset_class: string | null
+  n: number
+  win_pct: number | null
+  avg_ret_pct: number | null
+}
+
+export interface PerfClassStage {
+  asset_class: string | null
+  stage: string
+  n: number
+  win_pct: number | null
+  avg_ret_pct: number | null
+}

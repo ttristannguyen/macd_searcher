@@ -89,3 +89,80 @@ class ProximityHeadroom(BaseModel):
     avg_assets_under_0_2pct: Optional[float] = None
     avg_assets_under_0_5pct: Optional[float] = None
     avg_assets_under_1pct: Optional[float] = None
+
+
+# ---------- performance / outcomes (/api/perf/*) ----------
+
+
+class PerfReadiness(BaseModel):
+    total: int
+    finalized: int
+    have_1d: int
+    have_3d: int
+    have_7d: int
+    have_14d: int
+    oldest_pending: Optional[str] = None
+    pending: int
+
+
+class PerfStageDirection(BaseModel):
+    stage: str
+    direction: str
+    n: int
+    win_pct: Optional[float] = None
+    avg_ret_pct: Optional[float] = None
+    worst_pct: Optional[float] = None
+    best_pct: Optional[float] = None
+
+
+class PerfHorizon(BaseModel):
+    stage: str
+    ret_1d: Optional[float] = None
+    n_1d: int
+    ret_3d: Optional[float] = None
+    n_3d: int
+    ret_7d: Optional[float] = None
+    n_7d: int
+    ret_14d: Optional[float] = None
+    n_14d: int
+
+
+class PerfLeadTime(BaseModel):
+    stage: str
+    finalized_n: int
+    crossed_n: int
+    cross_rate_pct: Optional[float] = None
+    avg_bars_to_cross: Optional[float] = None
+    min_bars: Optional[int] = None
+    max_bars: Optional[int] = None
+
+
+class PerfExcursion(BaseModel):
+    stage: str
+    direction: str
+    n: int
+    avg_mfe_pct: Optional[float] = None
+    avg_mae_pct: Optional[float] = None
+
+
+class PerfSymbol(BaseModel):
+    symbol: str
+    asset_class: Optional[str] = None
+    n: int
+    win_pct: Optional[float] = None
+    avg_ret_pct: Optional[float] = None
+
+
+class PerfClassStage(BaseModel):
+    asset_class: Optional[str] = None
+    stage: str
+    n: int
+    win_pct: Optional[float] = None
+    avg_ret_pct: Optional[float] = None
+
+
+class PerfBucket(BaseModel):
+    bucket: str
+    n: int
+    win_pct: Optional[float] = None
+    avg_ret_pct: Optional[float] = None

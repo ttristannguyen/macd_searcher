@@ -281,3 +281,7 @@ See [PLAN.md](PLAN.md) for the full implementation roadmap.
 ## Disclaimer
 
 Signal output is not financial advice. Markets are noisy; technical indicators give probabilistic edges at best. This tool exists to surface candidates for *your* research and judgement — it does not place trades, and no part of the project should be construed as a recommendation to enter, exit, or size any position.
+
+
+## Restarts on VM
+git pull && uv sync --extra web && sudo systemctl restart macd-searcher-web

@@ -3,7 +3,14 @@ import type {
   ClassCountRow,
   DayCount,
   Health,
+  Horizon,
   NotifyStatusRow,
+  PerfExcursion,
+  PerfHorizon,
+  PerfLeadTime,
+  PerfReadiness,
+  PerfStageDirection,
+  PerfSymbol,
   ProximityHeadroom,
   RunRow,
   SignalRow,
@@ -90,4 +97,51 @@ export const useProximityHeadroom = () =>
     queryKey: ['headroom'],
     queryFn: () => fetchJson<ProximityHeadroom>('/api/stats/proximity-headroom'),
     refetchInterval: STATS_REFRESH,
+  })
+
+// ---------- performance / outcomes ----------
+//
+// Outcomes mature ~14 days after a signal fires, so these refresh slowly.
+const PERF_REFRESH = 5 * 60_000
+
+export const usePerfReadiness = () =>
+  useQuery({
+    queryKey: ['perf-readiness'],
+    queryFn: () => fetchJson<PerfReadiness>('/api/perf/readiness'),
+    refetchInterval: PERF_REFRESH,
+  })
+
+export const usePerfSummary = (horizon: Horizon = '7d') =>
+  useQuery({
+    queryKey: ['perf-summary', horizon],
+    queryFn: () => fetchJson<PerfStageDirection[]>(`/api/perf/summary?horizon=${horizon}`),
+    refetchInterval: PERF_REFRESH,
+  })
+
+export const usePerfByHorizon = () =>
+  useQuery({
+    queryKey: ['perf-by-horizon'],
+    queryFn: () => fetchJson<PerfHorizon[]>('/api/perf/by-horizon'),
+    refetchInterval: PERF_REFRESH,
+  })
+
+export const usePerfLeadTime = () =>
+  useQuery({
+    queryKey: ['perf-lead-time'],
+    queryFn: () => fetchJson<PerfLeadTime[]>('/api/perf/lead-time'),
+    refetchInterval: PERF_REFRESH,
+  })
+
+export const usePerfMfeMae = () =>
+  useQuery({
+    queryKey: ['perf-mfe-mae'],
+    queryFn: () => fetchJson<PerfExcursion[]>('/api/perf/mfe-mae'),
+    refetchInterval: PERF_REFRESH,
+  })
+
+export const usePerfBySymbol = (horizon: Horizon = '7d', minN = 3) =>
+  useQuery({
+    queryKey: ['perf-by-symbol', horizon, minN],
+    queryFn: () => fetchJson<PerfSymbol[]>(`/api/perf/by-symbol?horizon=${horizon}&min_n=${minN}`),
+    refetchInterval: PERF_REFRESH,
   })

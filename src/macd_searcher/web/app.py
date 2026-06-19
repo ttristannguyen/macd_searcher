@@ -26,7 +26,6 @@ from .models import (
     PerfBucket,
     PerfClassStage,
     PerfDistribution,
-    PerfExcursion,
     PerfHorizon,
     PerfLeadTime,
     PerfReadiness,
@@ -168,11 +167,6 @@ def perf_by_horizon(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfHo
 @app.get("/api/perf/lead-time", response_model=list[PerfLeadTime])
 def perf_lead_time(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfLeadTime]:
     return [PerfLeadTime(**r) for r in perf.lead_time(conn)]
-
-
-@app.get("/api/perf/mfe-mae", response_model=list[PerfExcursion])
-def perf_mfe_mae(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfExcursion]:
-    return [PerfExcursion(**r) for r in perf.excursions(conn)]
 
 
 @app.get("/api/perf/by-symbol", response_model=list[PerfSymbol])

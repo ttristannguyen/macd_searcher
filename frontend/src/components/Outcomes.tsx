@@ -12,8 +12,8 @@ import {
 import {
   usePerfByHorizon,
   usePerfBySymbol,
+  usePerfDistribution,
   usePerfLeadTime,
-  usePerfMfeMae,
   usePerfReadiness,
   usePerfSummary,
 } from '../api/client'
@@ -201,37 +201,69 @@ export function LeadTime() {
   )
 }
 
-// ---------- tradeability: MFE / MAE ----------
+// ---------- tradeability: MFE / MAE distribution ----------
+//
+// Median + tail quantiles, not means (excursions are fat-tailed). MFE is always
+// >= 0, so its p90 is the best-case upside; MAE is always <= 0, so its *p10* is
+// the worst-case drawdown (a stop-level read) — not p90. R:R = how the typical
+// favorable move compares to the typical adverse one.
 
 export function Excursions() {
-  const { data, isLoading, isError } = usePerfMfeMae()
-  const rows = data ?? []
+  const mfe = usePerfDistribution('mfe')
+  const mae = usePerfDistribution('mae')
+  const loading = mfe.isLoading || mae.isLoading
+  const error = mfe.isError || mae.isError
+
+  // MFE and MAE are scored together, so the stage×direction keys line up.
+  const maeBy = new Map((mae.data ?? []).map((r) => [`${r.stage}|${r.direction}`, r]))
+  const rows = (mfe.data ?? []).map((f) => ({ f, m: maeBy.get(`${f.stage}|${f.direction}`) }))
 
   return (
     <Card title="Favorable / adverse excursion">
-      <StateMsg loading={isLoading} error={isError} empty={rows.length === 0}>
+      <StateMsg loading={loading} error={error} empty={rows.length === 0}>
         <table className="w-full text-sm">
           <thead>
+            <tr className="text-xs uppercase tracking-wide text-slate-500">
+              <th colSpan={3} />
+              <th colSpan={2} className="border-b border-slate-800 pb-1 text-center font-medium text-emerald-400/80">Favorable</th>
+              <th colSpan={2} className="border-b border-slate-800 pb-1 text-center font-medium text-rose-400/80">Adverse</th>
+              <th className="border-b border-slate-800" />
+            </tr>
             <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="py-1.5 pr-2 font-medium">Stage</th>
               <th className="py-1.5 pr-2 font-medium">Dir</th>
               <th className="py-1.5 pr-2 text-right font-medium">n</th>
-              <th className="py-1.5 pr-2 text-right font-medium">MFE</th>
-              <th className="py-1.5 text-right font-medium">MAE</th>
+              <th className="py-1.5 pr-2 text-right font-medium">med</th>
+              <th className="py-1.5 pr-2 text-right font-medium">p90</th>
+              <th className="py-1.5 pr-2 text-right font-medium">med</th>
+              <th className="py-1.5 pr-2 text-right font-medium">p10</th>
+              <th className="py-1.5 text-right font-medium">R:R</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={`${r.stage}-${r.direction}`} className="border-b border-slate-800/50 last:border-0">
-                <td className="py-1.5 pr-2 text-slate-300">{stageShort(r.stage)}</td>
-                <td className="py-1.5 pr-2"><Badge color={dirColor(r.direction)}>{r.direction}</Badge></td>
-                <td className="py-1.5 pr-2 text-right tabular-nums text-slate-400">{r.n}</td>
-                <td className="py-1.5 pr-2 text-right tabular-nums text-emerald-400">{fmtPctPts(r.avg_mfe_pct, 2, true)}</td>
-                <td className="py-1.5 text-right tabular-nums text-rose-400">{fmtPctPts(r.avg_mae_pct, 2, true)}</td>
-              </tr>
-            ))}
+            {rows.map(({ f, m }) => {
+              const rr =
+                f.median != null && m?.median != null && m.median !== 0
+                  ? f.median / Math.abs(m.median)
+                  : null
+              return (
+                <tr key={`${f.stage}-${f.direction}`} className="border-b border-slate-800/50 last:border-0">
+                  <td className="py-1.5 pr-2 text-slate-300">{stageShort(f.stage)}</td>
+                  <td className="py-1.5 pr-2"><Badge color={dirColor(f.direction)}>{f.direction}</Badge></td>
+                  <td className="py-1.5 pr-2 text-right tabular-nums text-slate-400">{f.n}</td>
+                  <td className="py-1.5 pr-2 text-right tabular-nums text-emerald-400">{fmtPctPts(f.median, 1, true)}</td>
+                  <td className="py-1.5 pr-2 text-right tabular-nums text-emerald-400/70">{fmtPctPts(f.p90, 1, true)}</td>
+                  <td className="py-1.5 pr-2 text-right tabular-nums text-rose-400">{fmtPctPts(m?.median, 1, true)}</td>
+                  <td className="py-1.5 pr-2 text-right tabular-nums text-rose-400/70">{fmtPctPts(m?.p10, 1, true)}</td>
+                  <td className={`py-1.5 text-right tabular-nums ${tone(rr, 1)}`}>{rr == null ? '—' : `${rr.toFixed(2)}×`}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
+        <p className="mt-2 text-xs text-slate-600">
+          p90 = best-case favorable · p10 = worst-case adverse (stop guide) · R:R = median MFE ÷ |median MAE|
+        </p>
       </StateMsg>
     </Card>
   )

@@ -155,15 +155,6 @@ def test_lead_time(client):
     assert z["avg_bars_to_cross"] == 3.0
 
 
-def test_mfe_mae(client):
-    rows = client.get("/api/perf/mfe-mae").json()
-    by = {(r["stage"], r["direction"]): r for r in rows}
-    z = by[("zero_line_proximity", "bullish")]
-    assert z["n"] == 2
-    assert z["avg_mfe_pct"] == 7.5
-    assert z["avg_mae_pct"] == -4.0
-
-
 def test_by_symbol(client):
     rows = client.get("/api/perf/by-symbol?horizon=7d&min_n=1").json()
     syms = [r["symbol"] for r in rows]

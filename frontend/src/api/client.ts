@@ -5,9 +5,10 @@ import type {
   Health,
   Horizon,
   NotifyStatusRow,
-  PerfExcursion,
+  PerfDistribution,
   PerfHorizon,
   PerfLeadTime,
+  PerfMetric,
   PerfReadiness,
   PerfStageDirection,
   PerfSymbol,
@@ -132,10 +133,11 @@ export const usePerfLeadTime = () =>
     refetchInterval: PERF_REFRESH,
   })
 
-export const usePerfMfeMae = () =>
+export const usePerfDistribution = (metric: PerfMetric, minN = 1) =>
   useQuery({
-    queryKey: ['perf-mfe-mae'],
-    queryFn: () => fetchJson<PerfExcursion[]>('/api/perf/mfe-mae'),
+    queryKey: ['perf-distribution', metric, minN],
+    queryFn: () =>
+      fetchJson<PerfDistribution[]>(`/api/perf/distribution?metric=${metric}&min_n=${minN}`),
     refetchInterval: PERF_REFRESH,
   })
 

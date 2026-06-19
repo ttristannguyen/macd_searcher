@@ -130,12 +130,23 @@ export interface PerfLeadTime {
   max_bars: number | null
 }
 
-export interface PerfExcursion {
+export type PerfMetric = 'ret_1d' | 'ret_3d' | 'ret_7d' | 'ret_14d' | 'mfe' | 'mae'
+
+export interface PerfDistribution {
   stage: string
   direction: string
+  metric: string
   n: number
-  avg_mfe_pct: number | null
-  avg_mae_pct: number | null
+  min: number | null
+  p10: number | null
+  p25: number | null
+  median: number | null
+  p75: number | null
+  p90: number | null
+  max: number | null
+  mean: number | null
+  winsorized_mean: number | null
+  std: number | null
 }
 
 export interface PerfSymbol {

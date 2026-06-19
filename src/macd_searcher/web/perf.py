@@ -170,22 +170,6 @@ def lead_time(conn: sqlite3.Connection) -> list[dict]:
     return _rows(conn, sql, tuple(params))
 
 
-# ---------- tradeability: MFE / MAE (section H) ----------
-
-
-def excursions(conn: sqlite3.Connection) -> list[dict]:
-    """H1: average favorable (MFE) and adverse (MAE) excursion by stage x direction."""
-    cte, params = _base()
-    sql = cte + (
-        "SELECT stage, direction, COUNT(*) AS n, "
-        "ROUND(AVG(max_favorable_move_pct) * 100, 2) AS avg_mfe_pct, "
-        "ROUND(AVG(max_adverse_move_pct) * 100, 2) AS avg_mae_pct "
-        "FROM perf WHERE max_favorable_move_pct IS NOT NULL "
-        "GROUP BY stage, direction ORDER BY stage, direction"
-    )
-    return _rows(conn, sql, tuple(params))
-
-
 # ---------- per-symbol reliability (section I) ----------
 
 

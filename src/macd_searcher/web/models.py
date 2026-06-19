@@ -137,14 +137,6 @@ class PerfLeadTime(BaseModel):
     max_bars: Optional[int] = None
 
 
-class PerfExcursion(BaseModel):
-    stage: str
-    direction: str
-    n: int
-    avg_mfe_pct: Optional[float] = None
-    avg_mae_pct: Optional[float] = None
-
-
 class PerfSymbol(BaseModel):
     symbol: str
     asset_class: Optional[str] = None

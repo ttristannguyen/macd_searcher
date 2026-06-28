@@ -14,12 +14,11 @@ import {
   usePerfDistribution,
   usePerfLeadTime,
   usePerfReadiness,
-  usePerfScorecard,
   usePerfSummary,
 } from '../api/client'
 import type { Horizon } from '../api/types'
-import { ASSET_CLASS_COLOR, fmtPctPts, relativeTime, stageShort } from '../lib/format'
-import { Badge, Card, Metric, StateMsg } from './ui'
+import { fmtPctPts, relativeTime, stageShort } from '../lib/format'
+import { Badge, Card, Metric, StateMsg, tone } from './ui'
 
 const AXIS = '#64748b'
 const GRID = '#1e293b'
@@ -33,14 +32,6 @@ const tooltipStyle = {
   borderRadius: 8,
   color: '#e2e8f0',
   fontSize: 12,
-}
-
-/** Green for positive / winning, rose for negative / losing, slate at the line. */
-function tone(n: number | null | undefined, mid = 0): string {
-  if (n == null) return 'text-slate-500'
-  if (n > mid) return 'text-emerald-400'
-  if (n < mid) return 'text-rose-400'
-  return 'text-slate-300'
 }
 
 function dirColor(direction: string): string {
@@ -264,66 +255,6 @@ export function Excursions() {
         <p className="mt-2 text-xs text-slate-600">
           p90 = best-case favorable · p10 = worst-case adverse (stop guide) · R:R = median MFE ÷ |median MAE|
         </p>
-      </StateMsg>
-    </Card>
-  )
-}
-
-// ---------- per-symbol reliability scorecard ----------
-//
-// Win-rate with a Wilson 95% CI, and expectancy (EV = mean return) with a BCa
-// bootstrap CI. Ranked server-side by the EV lower bound — "reliably positive
-// EV", so a 100%/n=3 fluke can't top a steady performer. Read the muted [lo–hi]
-// as "how sure are we?" and the muted EV bound as the conservative number.
-
-export function SymbolPerf({ horizon }: { horizon: Horizon }) {
-  const { data, isLoading, isError } = usePerfScorecard(horizon, 3)
-  const rows = data ?? []
-
-  return (
-    <Card
-      title={`Per-symbol reliability · ${horizon}`}
-      right={<span className="text-xs text-slate-600">min 3 · ranked by EV lower bound</span>}
-    >
-      <StateMsg loading={isLoading} error={isError} empty={rows.length === 0}>
-        <div className="max-h-[24rem] overflow-y-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-slate-900/95">
-              <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
-                <th className="py-1.5 pr-2 font-medium">Symbol</th>
-                <th className="py-1.5 pr-2 font-medium">Class</th>
-                <th className="py-1.5 pr-2 text-right font-medium">n</th>
-                <th className="py-1.5 pr-2 text-right font-medium">Win (95% CI)</th>
-                <th className="py-1.5 text-right font-medium">EV (≥ lo)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.symbol} className="border-b border-slate-800/50 last:border-0">
-                  <td className="py-1.5 pr-2 text-slate-300">{r.symbol}</td>
-                  <td className="py-1.5 pr-2">
-                    {r.asset_class ? (
-                      <Badge color={ASSET_CLASS_COLOR[r.asset_class] ?? 'slate'}>{r.asset_class}</Badge>
-                    ) : (
-                      <span className="text-slate-600">—</span>
-                    )}
-                  </td>
-                  <td className="py-1.5 pr-2 text-right tabular-nums text-slate-400">{r.n}</td>
-                  <td className="py-1.5 pr-2 text-right tabular-nums whitespace-nowrap">
-                    <span className={tone(r.win_pct, 50)}>{fmtPctPts(r.win_pct)}</span>
-                    <span className="ml-1 text-xs text-slate-600">
-                      [{r.win_lo.toFixed(0)}–{r.win_hi.toFixed(0)}]
-                    </span>
-                  </td>
-                  <td className="py-1.5 text-right tabular-nums whitespace-nowrap">
-                    <span className={tone(r.ev_pct)}>{fmtPctPts(r.ev_pct, 1, true)}</span>
-                    <span className={`ml-1 text-xs ${tone(r.ev_lo)}`}>≥{fmtPctPts(r.ev_lo, 1, true)}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       </StateMsg>
     </Card>
   )

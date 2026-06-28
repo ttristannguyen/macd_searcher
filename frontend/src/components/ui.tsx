@@ -77,6 +77,15 @@ export function Metric({ label, value }: { label: string; value: ReactNode }) {
   )
 }
 
+/** Tailwind text colour by sign of `n` relative to `mid` (e.g. returns vs 0,
+ *  win% vs 50): emerald above, rose below, slate at the line. */
+export function tone(n: number | null | undefined, mid = 0): string {
+  if (n == null) return 'text-slate-500'
+  if (n > mid) return 'text-emerald-400'
+  if (n < mid) return 'text-rose-400'
+  return 'text-slate-300'
+}
+
 /** Loading / empty / error placeholder for chart and table bodies. */
 export function StateMsg({
   loading,

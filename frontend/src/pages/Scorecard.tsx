@@ -1,12 +1,6 @@
 import { useState } from 'react'
 import type { Horizon } from '../api/types'
-import {
-  Excursions,
-  HorizonChart,
-  LeadTime,
-  PerfSummary,
-  ReadinessBanner,
-} from '../components/Outcomes'
+import { ScorecardLegend, ScorecardTable } from '../components/Scorecard'
 import { Segmented } from '../components/ui'
 
 const HORIZONS: { value: Horizon; label: string }[] = [
@@ -16,16 +10,14 @@ const HORIZONS: { value: Horizon; label: string }[] = [
   { value: '14d', label: '14d' },
 ]
 
-export function Outcomes() {
+export function Scorecard() {
   const [horizon, setHorizon] = useState<Horizon>('7d')
 
   return (
     <div className="space-y-4">
-      <ReadinessBanner />
-
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">
-          A loose sanity gauge — a discretionary signalling aid, not a quantified edge.
+          Which tokens have a reliably positive expected value per signal — ranked, with confidence.
         </p>
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-500">horizon</span>
@@ -33,15 +25,8 @@ export function Outcomes() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <PerfSummary horizon={horizon} />
-        <HorizonChart />
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <LeadTime />
-        <Excursions />
-      </div>
+      <ScorecardLegend />
+      <ScorecardTable horizon={horizon} />
     </div>
   )
 }

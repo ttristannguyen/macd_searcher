@@ -1,13 +1,21 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Dashboard } from './pages/Dashboard'
 import { Outcomes } from './pages/Outcomes'
+import { Scorecard } from './pages/Scorecard'
 
-type Tab = 'dashboard' | 'outcomes'
+type Tab = 'dashboard' | 'outcomes' | 'scorecard'
 
 const TABS: { value: Tab; label: string }[] = [
   { value: 'dashboard', label: 'Dashboard' },
   { value: 'outcomes', label: 'Outcomes' },
+  { value: 'scorecard', label: 'Scorecard' },
 ]
+
+const PAGES: Record<Tab, ReactNode> = {
+  dashboard: <Dashboard />,
+  outcomes: <Outcomes />,
+  scorecard: <Scorecard />,
+}
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('dashboard')
@@ -39,9 +47,7 @@ export default function App() {
           <span className="text-xs text-slate-600">1D MACD zero-line scanner · Hyperliquid</span>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl p-4 md:p-6">
-        {tab === 'dashboard' ? <Dashboard /> : <Outcomes />}
-      </main>
+      <main className="mx-auto max-w-7xl p-4 md:p-6">{PAGES[tab]}</main>
     </div>
   )
 }

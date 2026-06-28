@@ -4,6 +4,14 @@ import type { Horizon } from '../api/types'
 import { ASSET_CLASS_COLOR, fmtPctPts } from '../lib/format'
 import { Badge, Card, StateMsg, tone } from './ui'
 
+/** Van Tharp SQN bands: ≥2 good, 1.6–2 average, below (or negative) poor. */
+function sqnTone(s: number | null): string {
+  if (s == null) return 'text-slate-500'
+  if (s >= 2) return 'text-emerald-400'
+  if (s >= 1.6) return 'text-amber-400'
+  return 'text-rose-400'
+}
+
 // ---------- the ranked table ----------
 
 export function ScorecardTable({ horizon, minN = 3 }: { horizon: Horizon; minN?: number }) {
@@ -24,7 +32,9 @@ export function ScorecardTable({ horizon, minN = 3 }: { horizon: Horizon; minN?:
                 <th className="py-1.5 pr-2 font-medium">Class</th>
                 <th className="py-1.5 pr-2 text-right font-medium">n</th>
                 <th className="py-1.5 pr-2 text-right font-medium">Win % (95% CI)</th>
-                <th className="py-1.5 text-right font-medium">EV % (95% CI)</th>
+                <th className="py-1.5 pr-2 text-right font-medium">EV % (95% CI)</th>
+                <th className="py-1.5 pr-2 text-right font-medium">Payoff</th>
+                <th className="py-1.5 text-right font-medium">SQN</th>
               </tr>
             </thead>
             <tbody>
@@ -45,11 +55,17 @@ export function ScorecardTable({ horizon, minN = 3 }: { horizon: Horizon; minN?:
                       [{r.win_lo.toFixed(0)}–{r.win_hi.toFixed(0)}]
                     </span>
                   </td>
-                  <td className="py-1.5 text-right tabular-nums whitespace-nowrap">
+                  <td className="py-1.5 pr-2 text-right tabular-nums whitespace-nowrap">
                     <span className={tone(r.ev_pct)}>{fmtPctPts(r.ev_pct, 1, true)}</span>
                     <span className="ml-1 text-xs text-slate-600">
                       [{r.ev_lo.toFixed(1)}, {r.ev_hi.toFixed(1)}]
                     </span>
+                  </td>
+                  <td className={`py-1.5 pr-2 text-right tabular-nums ${tone(r.payoff, 1)}`}>
+                    {r.payoff == null ? '—' : `${r.payoff.toFixed(2)}×`}
+                  </td>
+                  <td className={`py-1.5 text-right tabular-nums ${sqnTone(r.sqn)}`}>
+                    {r.sqn == null ? '—' : r.sqn.toFixed(2)}
                   </td>
                 </tr>
               ))}
@@ -90,9 +106,17 @@ export function ScorecardLegend() {
           bullish +2% and a bearish −2% drop both count as +2%). The number you'd
           average over many trades, with its bootstrap interval.
         </Def>
-        <Def term="Ranked by EV lower bound">
-          Sorted by the <em>bottom</em> of the EV interval, not the headline — so a
-          lucky 3-signal symbol can't outrank a proven one. Trust the lower bound.
+        <Def term="Payoff">
+          Average win ÷ average loss — win-rate's other half: how <em>big</em> wins
+          are vs losses. 1.8× means winners are ~1.8× the size of losers. A low
+          win-rate can still pay if payoff is high (and vice-versa); together they
+          make the EV. Shows “—” for a symbol with no losing signals yet.
+        </Def>
+        <Def term="SQN">
+          System Quality Number (Van Tharp) — one score blending edge (high mean),
+          consistency (low spread) and sample size: <code>mean ÷ std · √n</code>.
+          Bands: &lt;1.6 poor, 1.6–2 average, 2–3 good, &gt;3 excellent. The
+          closest thing to a single “how tradeable is this?” number.
         </Def>
       </dl>
       <p className="mt-3 text-xs text-amber-400/80">

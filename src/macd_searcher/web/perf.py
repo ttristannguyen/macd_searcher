@@ -227,6 +227,21 @@ def by_symbol_scorecard(
             except Exception:
                 pass  # keep the mean fallback; a stats edge case must not 500
 
+        # Payoff ratio = avg win / avg |loss|. None when there are no losses
+        # (undefined / infinite); 0 when there are no wins.
+        pos, neg = arr[arr > 0], arr[arr < 0]
+        if neg.size == 0:
+            payoff = None
+        elif pos.size == 0:
+            payoff = 0.0
+        else:
+            payoff = float(pos.mean() / -neg.mean())
+
+        # SQN (Van Tharp) = mean / std · √min(n,100): edge × consistency × sample.
+        # None when std is 0 (all-identical returns) — quality undefined.
+        std = float(arr.std(ddof=1)) if n >= 2 else 0.0
+        sqn = float(mean / std * np.sqrt(min(n, 100))) if std > 0 else None
+
         out.append({
             "symbol": symbol,
             "asset_class": g["cls"],
@@ -237,6 +252,8 @@ def by_symbol_scorecard(
             "ev_pct": round(mean * 100, 2),
             "ev_lo": round(ev_lo * 100, 2),
             "ev_hi": round(ev_hi * 100, 2),
+            "payoff": round(payoff, 2) if payoff is not None else None,
+            "sqn": round(sqn, 2) if sqn is not None else None,
         })
 
     out.sort(key=lambda d: d["ev_lo"], reverse=True)

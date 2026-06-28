@@ -92,15 +92,19 @@ def _seed(path: str) -> None:
 
 
 def _seed_multi(path: str) -> None:
-    """One symbol firing on several post-fix days, so the scorecard has n>=3 with
-    variance to exercise the Wilson + bootstrap intervals."""
+    """Symbols firing on several post-fix days to exercise the scorecard stats:
+    ACE has n=3 with a loss (real Wilson/bootstrap/payoff/SQN); WIN has two
+    all-positive, identical fires (no losses, zero variance) for the None paths."""
     conn = db.connect(path)
     db.init_schema(conn)
     db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
-    db.insert_snapshots(conn, "r1", {}, [_metrics("ACE", 0.001)])
+    db.insert_snapshots(conn, "r1", {}, [_metrics("ACE", 0.001), _metrics("WIN", 0.001)])
     for day, px7 in (("2026-06-12", 110.0), ("2026-06-13", 105.0), ("2026-06-14", 98.0)):
         _fire(conn, "ACE", "zero_line_proximity", "bullish", f"{day}T08:00:00+00:00",
               100.0, macd_pct=0.001, px_7d=px7, mfe=0.1, mae=-0.02, bars=2, finalized=True)
+    for day in ("2026-06-12", "2026-06-13"):
+        _fire(conn, "WIN", "zero_line_proximity", "bullish", f"{day}T08:00:00+00:00",
+              100.0, macd_pct=0.001, px_7d=105.0, mfe=0.05, mae=-0.01, bars=2, finalized=True)
     conn.close()
 
 
@@ -262,14 +266,25 @@ def test_scorecard_ranks_by_ev_lower_bound(client):
 def test_scorecard_confidence_bounds(multi_client):
     # ACE: 3 finalized fires, returns +10% / +5% / -2% → 2 wins of 3.
     rows = multi_client.get("/api/perf/scorecard?min_n=3").json()
-    assert len(rows) == 1
-    r = rows[0]
-    assert r["symbol"] == "ACE" and r["n"] == 3 and r["asset_class"] == "crypto"
-    assert abs(r["win_pct"] - 66.7) < 0.1
-    assert abs(r["ev_pct"] - 4.33) < 0.1                  # mean of 10/5/-2
-    assert r["win_lo"] <= r["win_pct"] <= r["win_hi"]     # Wilson brackets the point
-    assert r["ev_lo"] <= r["ev_pct"] <= r["ev_hi"]        # bootstrap brackets the mean
+    ace = next(r for r in rows if r["symbol"] == "ACE")
+    assert ace["n"] == 3 and ace["asset_class"] == "crypto"
+    assert abs(ace["win_pct"] - 66.7) < 0.1
+    assert abs(ace["ev_pct"] - 4.33) < 0.1                    # mean of 10/5/-2
+    assert ace["win_lo"] <= ace["win_pct"] <= ace["win_hi"]   # Wilson brackets the point
+    assert ace["ev_lo"] <= ace["ev_pct"] <= ace["ev_hi"]      # bootstrap brackets the mean
+    assert abs(ace["payoff"] - 3.75) < 0.01                   # avg win 7.5% / avg loss 2%
+    assert abs(ace["sqn"] - 1.25) < 0.05                      # mean/std·√3
+
+
+def test_scorecard_payoff_sqn_none_paths(multi_client):
+    # WIN: two identical +5% fires → no losses (payoff undefined) and zero
+    # variance (SQN undefined). Both must serialize as null, not crash.
+    rows = multi_client.get("/api/perf/scorecard?min_n=2").json()
+    win = next(r for r in rows if r["symbol"] == "WIN")
+    assert win["win_pct"] == 100.0
+    assert win["payoff"] is None
+    assert win["sqn"] is None
 
 
 def test_scorecard_min_n_gate(multi_client):
-    assert multi_client.get("/api/perf/scorecard?min_n=4").json() == []  # ACE has only 3
+    assert multi_client.get("/api/perf/scorecard?min_n=4").json() == []  # max n is 3

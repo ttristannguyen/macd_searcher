@@ -148,6 +148,8 @@ class PerfSymbolScore(BaseModel):
     ev_pct: float
     ev_lo: float
     ev_hi: float
+    payoff: Optional[float] = None  # avg win / avg |loss|; None if no losses
+    sqn: Optional[float] = None     # Van Tharp System Quality Number; None if std=0
 
 
 class PerfClassStage(BaseModel):

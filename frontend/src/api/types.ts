@@ -159,6 +159,8 @@ export interface PerfSymbolScore {
   ev_pct: number
   ev_lo: number
   ev_hi: number
+  payoff: number | null
+  sqn: number | null
 }
 
 export interface PerfClassStage {

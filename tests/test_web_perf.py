@@ -91,6 +91,19 @@ def _seed(path: str) -> None:
     conn.close()
 
 
+def _seed_multi(path: str) -> None:
+    """One symbol firing on several post-fix days, so the scorecard has n>=3 with
+    variance to exercise the Wilson + bootstrap intervals."""
+    conn = db.connect(path)
+    db.init_schema(conn)
+    db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
+    db.insert_snapshots(conn, "r1", {}, [_metrics("ACE", 0.001)])
+    for day, px7 in (("2026-06-12", 110.0), ("2026-06-13", 105.0), ("2026-06-14", 98.0)):
+        _fire(conn, "ACE", "zero_line_proximity", "bullish", f"{day}T08:00:00+00:00",
+              100.0, macd_pct=0.001, px_7d=px7, mfe=0.1, mae=-0.02, bars=2, finalized=True)
+    conn.close()
+
+
 def _conn_to(path: str):
     def _get():
         conn = db.connect(path)  # read/write here is fine; route only SELECTs
@@ -106,6 +119,15 @@ def _conn_to(path: str):
 def client(tmp_path):
     path = str(tmp_path / "perf.sqlite3")
     _seed(path)
+    app.dependency_overrides[get_conn] = _conn_to(path)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def multi_client(tmp_path):
+    path = str(tmp_path / "multi.sqlite3")
+    _seed_multi(path)
     app.dependency_overrides[get_conn] = _conn_to(path)
     yield TestClient(app)
     app.dependency_overrides.clear()
@@ -153,17 +175,6 @@ def test_lead_time(client):
     assert z["crossed_n"] == 1            # only BTC crossed
     assert z["cross_rate_pct"] == 50.0
     assert z["avg_bars_to_cross"] == 3.0
-
-
-def test_by_symbol(client):
-    rows = client.get("/api/perf/by-symbol?horizon=7d&min_n=1").json()
-    syms = [r["symbol"] for r in rows]
-    assert syms == ["BTC", "xyz:TSLA", "ETH"]  # ordered by avg_ret desc
-    by = {r["symbol"]: r for r in rows}
-    assert by["BTC"]["asset_class"] == "crypto"
-    assert by["xyz:TSLA"]["asset_class"] == "equity"
-    # min_n filter excludes everyone below threshold.
-    assert client.get("/api/perf/by-symbol?min_n=5").json() == []
 
 
 def test_by_class(client):
@@ -233,3 +244,32 @@ def test_pre_fix_signals_excluded(client):
     z = next(r for r in rows if r["stage"] == "zero_line_proximity" and r["direction"] == "bullish")
     assert z["n"] == 2
     assert client.get("/api/perf/readiness").json()["total"] == 5
+
+
+# ---- per-symbol scorecard (Wilson + bootstrap, ranked by EV lower bound) ----
+
+
+def test_scorecard_ranks_by_ev_lower_bound(client):
+    rows = client.get("/api/perf/scorecard?min_n=1").json()
+    # n=1 each → EV CI is degenerate, so ev_lo == ev_pct → ranks by EV: BTC>TSLA>ETH.
+    assert [r["symbol"] for r in rows] == ["BTC", "xyz:TSLA", "ETH"]
+    by = {r["symbol"]: r for r in rows}
+    assert by["BTC"]["win_pct"] == 100.0
+    assert by["ETH"]["win_pct"] == 0.0
+    assert by["BTC"]["ev_lo"] == by["BTC"]["ev_pct"]  # degenerate at n=1
+
+
+def test_scorecard_confidence_bounds(multi_client):
+    # ACE: 3 finalized fires, returns +10% / +5% / -2% → 2 wins of 3.
+    rows = multi_client.get("/api/perf/scorecard?min_n=3").json()
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["symbol"] == "ACE" and r["n"] == 3 and r["asset_class"] == "crypto"
+    assert abs(r["win_pct"] - 66.7) < 0.1
+    assert abs(r["ev_pct"] - 4.33) < 0.1                  # mean of 10/5/-2
+    assert r["win_lo"] <= r["win_pct"] <= r["win_hi"]     # Wilson brackets the point
+    assert r["ev_lo"] <= r["ev_pct"] <= r["ev_hi"]        # bootstrap brackets the mean
+
+
+def test_scorecard_min_n_gate(multi_client):
+    assert multi_client.get("/api/perf/scorecard?min_n=4").json() == []  # ACE has only 3

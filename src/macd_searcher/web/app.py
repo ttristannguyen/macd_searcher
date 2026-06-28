@@ -30,7 +30,7 @@ from .models import (
     PerfLeadTime,
     PerfReadiness,
     PerfStageDirection,
-    PerfSymbol,
+    PerfSymbolScore,
     ProximityHeadroom,
     RunRow,
     SignalRow,
@@ -169,13 +169,13 @@ def perf_lead_time(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfLea
     return [PerfLeadTime(**r) for r in perf.lead_time(conn)]
 
 
-@app.get("/api/perf/by-symbol", response_model=list[PerfSymbol])
-def perf_by_symbol(
+@app.get("/api/perf/scorecard", response_model=list[PerfSymbolScore])
+def perf_scorecard(
     horizon: Horizon = "7d",
     min_n: int = 5,
     conn: sqlite3.Connection = Depends(get_conn),
-) -> list[PerfSymbol]:
-    return [PerfSymbol(**r) for r in perf.by_symbol(conn, horizon, min_n)]
+) -> list[PerfSymbolScore]:
+    return [PerfSymbolScore(**r) for r in perf.by_symbol_scorecard(conn, horizon, min_n)]
 
 
 @app.get("/api/perf/by-class", response_model=list[PerfClassStage])

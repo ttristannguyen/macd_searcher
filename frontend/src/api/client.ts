@@ -11,7 +11,7 @@ import type {
   PerfMetric,
   PerfReadiness,
   PerfStageDirection,
-  PerfSymbol,
+  PerfSymbolScore,
   ProximityHeadroom,
   RunRow,
   SignalRow,
@@ -141,9 +141,9 @@ export const usePerfDistribution = (metric: PerfMetric, minN = 1) =>
     refetchInterval: PERF_REFRESH,
   })
 
-export const usePerfBySymbol = (horizon: Horizon = '7d', minN = 3) =>
+export const usePerfScorecard = (horizon: Horizon = '7d', minN = 3) =>
   useQuery({
-    queryKey: ['perf-by-symbol', horizon, minN],
-    queryFn: () => fetchJson<PerfSymbol[]>(`/api/perf/by-symbol?horizon=${horizon}&min_n=${minN}`),
+    queryKey: ['perf-scorecard', horizon, minN],
+    queryFn: () => fetchJson<PerfSymbolScore[]>(`/api/perf/scorecard?horizon=${horizon}&min_n=${minN}`),
     refetchInterval: PERF_REFRESH,
   })

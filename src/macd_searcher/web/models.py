@@ -137,12 +137,17 @@ class PerfLeadTime(BaseModel):
     max_bars: Optional[int] = None
 
 
-class PerfSymbol(BaseModel):
+class PerfSymbolScore(BaseModel):
     symbol: str
     asset_class: Optional[str] = None
     n: int
-    win_pct: Optional[float] = None
-    avg_ret_pct: Optional[float] = None
+    # all percent points; win_lo/hi = Wilson CI, ev_lo/hi = BCa bootstrap CI.
+    win_pct: float
+    win_lo: float
+    win_hi: float
+    ev_pct: float
+    ev_lo: float
+    ev_hi: float
 
 
 class PerfClassStage(BaseModel):

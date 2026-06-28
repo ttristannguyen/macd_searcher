@@ -11,10 +11,10 @@ import {
 } from 'recharts'
 import {
   usePerfByHorizon,
-  usePerfBySymbol,
   usePerfDistribution,
   usePerfLeadTime,
   usePerfReadiness,
+  usePerfScorecard,
   usePerfSummary,
 } from '../api/client'
 import type { Horizon } from '../api/types'
@@ -269,14 +269,22 @@ export function Excursions() {
   )
 }
 
-// ---------- per-symbol reliability ----------
+// ---------- per-symbol reliability scorecard ----------
+//
+// Win-rate with a Wilson 95% CI, and expectancy (EV = mean return) with a BCa
+// bootstrap CI. Ranked server-side by the EV lower bound — "reliably positive
+// EV", so a 100%/n=3 fluke can't top a steady performer. Read the muted [lo–hi]
+// as "how sure are we?" and the muted EV bound as the conservative number.
 
 export function SymbolPerf({ horizon }: { horizon: Horizon }) {
-  const { data, isLoading, isError } = usePerfBySymbol(horizon, 3)
+  const { data, isLoading, isError } = usePerfScorecard(horizon, 3)
   const rows = data ?? []
 
   return (
-    <Card title={`Per-symbol reliability · ${horizon}`} right={<span className="text-xs text-slate-600">min 3 signals</span>}>
+    <Card
+      title={`Per-symbol reliability · ${horizon}`}
+      right={<span className="text-xs text-slate-600">min 3 · ranked by EV lower bound</span>}
+    >
       <StateMsg loading={isLoading} error={isError} empty={rows.length === 0}>
         <div className="max-h-[24rem] overflow-y-auto">
           <table className="w-full text-sm">
@@ -285,8 +293,8 @@ export function SymbolPerf({ horizon }: { horizon: Horizon }) {
                 <th className="py-1.5 pr-2 font-medium">Symbol</th>
                 <th className="py-1.5 pr-2 font-medium">Class</th>
                 <th className="py-1.5 pr-2 text-right font-medium">n</th>
-                <th className="py-1.5 pr-2 text-right font-medium">Win</th>
-                <th className="py-1.5 text-right font-medium">Avg</th>
+                <th className="py-1.5 pr-2 text-right font-medium">Win (95% CI)</th>
+                <th className="py-1.5 text-right font-medium">EV (≥ lo)</th>
               </tr>
             </thead>
             <tbody>
@@ -301,8 +309,16 @@ export function SymbolPerf({ horizon }: { horizon: Horizon }) {
                     )}
                   </td>
                   <td className="py-1.5 pr-2 text-right tabular-nums text-slate-400">{r.n}</td>
-                  <td className={`py-1.5 pr-2 text-right tabular-nums ${tone(r.win_pct, 50)}`}>{fmtPctPts(r.win_pct)}</td>
-                  <td className={`py-1.5 text-right tabular-nums ${tone(r.avg_ret_pct)}`}>{fmtPctPts(r.avg_ret_pct, 2, true)}</td>
+                  <td className="py-1.5 pr-2 text-right tabular-nums whitespace-nowrap">
+                    <span className={tone(r.win_pct, 50)}>{fmtPctPts(r.win_pct)}</span>
+                    <span className="ml-1 text-xs text-slate-600">
+                      [{r.win_lo.toFixed(0)}–{r.win_hi.toFixed(0)}]
+                    </span>
+                  </td>
+                  <td className="py-1.5 text-right tabular-nums whitespace-nowrap">
+                    <span className={tone(r.ev_pct)}>{fmtPctPts(r.ev_pct, 1, true)}</span>
+                    <span className={`ml-1 text-xs ${tone(r.ev_lo)}`}>≥{fmtPctPts(r.ev_lo, 1, true)}</span>
+                  </td>
                 </tr>
               ))}
             </tbody>

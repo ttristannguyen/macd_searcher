@@ -1,4 +1,4 @@
-"""Unit tests for the robust stats helper (no DB / web needed)."""
+"""Unit tests for the robust stats helpers (no DB / web needed)."""
 
 from __future__ import annotations
 

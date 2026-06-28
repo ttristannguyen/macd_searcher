@@ -20,6 +20,8 @@ from __future__ import annotations
 import sqlite3
 from typing import Literal
 
+import numpy as np
+
 from ..stats import summarize
 
 # Horizon is whitelisted (not bound) because it names a column. The Literal is
@@ -173,22 +175,72 @@ def lead_time(conn: sqlite3.Connection) -> list[dict]:
 # ---------- per-symbol reliability (section I) ----------
 
 
-def by_symbol(
+# ---------- per-symbol scorecard with confidence bounds (section I + CIs) ----------
+
+
+def by_symbol_scorecard(
     conn: sqlite3.Connection,
     horizon: Horizon = "7d",
     min_n: int = 5,
 ) -> list[dict]:
-    """I1: which tickers' signals you can trust (min_n scored signals)."""
+    """Per-symbol reliability *with confidence bounds*, ranked by the lower bound
+    of expected value so small-n luck can't top the list.
+
+    For each symbol's deduped, direction-normalized returns: win-rate with a
+    **Wilson** interval and expectancy (mean return) with a **BCa bootstrap**
+    interval (both via scipy). EV is the plain mean — that *is* the expectation
+    per trade; the CI carries the skew/uncertainty. Ranked by `ev_lo` desc.
+    """
+    # Lazy import: the idle dashboard never loads scipy until this endpoint runs.
+    from scipy import stats as sps
+
+    col = f"ret_{horizon}"
     cte, params = _base()
-    ret = f"ret_{horizon}"
     sql = cte + (
-        f"SELECT symbol, MAX(asset_class) AS asset_class, COUNT(*) AS n, "
-        f"ROUND(AVG({ret} > 0) * 100, 1) AS win_pct, "
-        f"ROUND(AVG({ret}) * 100, 2) AS avg_ret_pct "
-        f"FROM perf WHERE {ret} IS NOT NULL "
-        f"GROUP BY symbol HAVING n >= ? ORDER BY avg_ret_pct DESC"
+        f"SELECT symbol, asset_class, {col} AS r FROM perf WHERE {col} IS NOT NULL"
     )
-    return _rows(conn, sql, (*params, min_n))
+
+    groups: dict[str, dict] = {}
+    for row in conn.execute(sql, tuple(params)):
+        g = groups.setdefault(row["symbol"], {"cls": None, "rs": []})
+        g["rs"].append(row["r"])
+        if g["cls"] is None:
+            g["cls"] = row["asset_class"]
+
+    out: list[dict] = []
+    for symbol, g in groups.items():
+        arr = np.asarray(g["rs"], dtype=float)
+        n = int(arr.size)
+        if n < min_n:
+            continue
+        wins = int((arr > 0).sum())
+        win_lo, win_hi = sps.binomtest(wins, n).proportion_ci(method="wilson")
+
+        mean = float(arr.mean())
+        ev_lo = ev_hi = mean  # degenerate fallback (n<2 or zero variance)
+        if n >= 2 and np.ptp(arr) > 0:
+            try:
+                ci = sps.bootstrap(
+                    (arr,), np.mean, method="BCa", random_state=0
+                ).confidence_interval
+                ev_lo, ev_hi = float(ci.low), float(ci.high)
+            except Exception:
+                pass  # keep the mean fallback; a stats edge case must not 500
+
+        out.append({
+            "symbol": symbol,
+            "asset_class": g["cls"],
+            "n": n,
+            "win_pct": round(wins / n * 100, 1),
+            "win_lo": round(win_lo * 100, 1),
+            "win_hi": round(win_hi * 100, 1),
+            "ev_pct": round(mean * 100, 2),
+            "ev_lo": round(ev_lo * 100, 2),
+            "ev_hi": round(ev_hi * 100, 2),
+        })
+
+    out.sort(key=lambda d: d["ev_lo"], reverse=True)
+    return out
 
 
 # ---------- win-rate by asset class x stage (section E2) ----------

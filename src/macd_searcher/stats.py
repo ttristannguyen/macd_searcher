@@ -6,6 +6,9 @@ helpers describe the whole distribution with quantiles (median + spread) and a
 *winsorized* mean (extremes capped at the p5/p95 fence, not deleted) so a few
 moonshots can't dominate without throwing the tail away.
 
+This is the project-specific aggregation; the standard stats (Wilson CI,
+bootstrap, Spearman) come from `scipy.stats` directly — see docs/research.md §0.
+
 Pure functions over plain sequences of floats: no DB or web import, so the
 dashboard API and any offline analysis script can share them.
 """

@@ -149,12 +149,16 @@ export interface PerfDistribution {
   std: number | null
 }
 
-export interface PerfSymbol {
+export interface PerfSymbolScore {
   symbol: string
   asset_class: string | null
   n: number
-  win_pct: number | null
-  avg_ret_pct: number | null
+  win_pct: number
+  win_lo: number
+  win_hi: number
+  ev_pct: number
+  ev_lo: number
+  ev_hi: number
 }
 
 export interface PerfClassStage {

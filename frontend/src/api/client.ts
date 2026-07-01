@@ -5,6 +5,8 @@ import type {
   Health,
   Horizon,
   NotifyStatusRow,
+  PerfBucket,
+  PerfClassStage,
   PerfDistribution,
   PerfHorizon,
   PerfLeadTime,
@@ -13,6 +15,7 @@ import type {
   PerfStageDirection,
   PerfSymbolScore,
   ProximityHeadroom,
+  ThresholdKind,
   RunRow,
   SignalRow,
   StageDirectionRow,
@@ -145,5 +148,19 @@ export const usePerfScorecard = (horizon: Horizon = '7d', minN = 3) =>
   useQuery({
     queryKey: ['perf-scorecard', horizon, minN],
     queryFn: () => fetchJson<PerfSymbolScore[]>(`/api/perf/scorecard?horizon=${horizon}&min_n=${minN}`),
+    refetchInterval: PERF_REFRESH,
+  })
+
+export const usePerfByClass = (horizon: Horizon = '7d', minN = 1) =>
+  useQuery({
+    queryKey: ['perf-by-class', horizon, minN],
+    queryFn: () => fetchJson<PerfClassStage[]>(`/api/perf/by-class?horizon=${horizon}&min_n=${minN}`),
+    refetchInterval: PERF_REFRESH,
+  })
+
+export const usePerfThresholds = (kind: ThresholdKind, horizon: Horizon = '7d') =>
+  useQuery({
+    queryKey: ['perf-thresholds', kind, horizon],
+    queryFn: () => fetchJson<PerfBucket[]>(`/api/perf/thresholds?kind=${kind}&horizon=${horizon}`),
     refetchInterval: PERF_REFRESH,
   })

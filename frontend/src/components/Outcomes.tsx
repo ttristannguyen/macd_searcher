@@ -9,16 +9,19 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { useState } from 'react'
 import {
+  usePerfByClass,
   usePerfByHorizon,
   usePerfDistribution,
   usePerfLeadTime,
   usePerfReadiness,
   usePerfSummary,
+  usePerfThresholds,
 } from '../api/client'
-import type { Horizon } from '../api/types'
-import { fmtPctPts, relativeTime, stageShort } from '../lib/format'
-import { Badge, Card, Metric, StateMsg, tone } from './ui'
+import type { Horizon, ThresholdKind } from '../api/types'
+import { ASSET_CLASS_COLOR, fmtPctPts, relativeTime, stageShort } from '../lib/format'
+import { Badge, Card, Metric, Segmented, StateMsg, tone } from './ui'
 
 const AXIS = '#64748b'
 const GRID = '#1e293b'
@@ -255,6 +258,96 @@ export function Excursions() {
         <p className="mt-2 text-xs text-slate-600">
           p90 = best-case favorable · p10 = worst-case adverse (stop guide) · R:R = median MFE ÷ |median MAE|
         </p>
+      </StateMsg>
+    </Card>
+  )
+}
+
+// ---------- performance by asset class (which markets work?) ----------
+
+export function ByClass({ horizon }: { horizon: Horizon }) {
+  const { data, isLoading, isError } = usePerfByClass(horizon, 1)
+  const rows = data ?? []
+
+  return (
+    <Card title={`By asset class · ${horizon}`} right={<span className="text-xs text-slate-600">win-rate & EV</span>}>
+      <StateMsg loading={isLoading} error={isError} empty={rows.length === 0}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
+              <th className="py-1.5 pr-2 font-medium">Class</th>
+              <th className="py-1.5 pr-2 font-medium">Stage</th>
+              <th className="py-1.5 pr-2 text-right font-medium">n</th>
+              <th className="py-1.5 pr-2 text-right font-medium">Win</th>
+              <th className="py-1.5 text-right font-medium">EV</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={`${r.asset_class}-${r.stage}`} className="border-b border-slate-800/50 last:border-0">
+                <td className="py-1.5 pr-2">
+                  {r.asset_class ? (
+                    <Badge color={ASSET_CLASS_COLOR[r.asset_class] ?? 'slate'}>{r.asset_class}</Badge>
+                  ) : (
+                    <span className="text-slate-600">—</span>
+                  )}
+                </td>
+                <td className="py-1.5 pr-2 text-slate-300">{stageShort(r.stage)}</td>
+                <td className="py-1.5 pr-2 text-right tabular-nums text-slate-400">{r.n}</td>
+                <td className={`py-1.5 pr-2 text-right tabular-nums ${tone(r.win_pct, 50)}`}>{fmtPctPts(r.win_pct)}</td>
+                <td className={`py-1.5 text-right tabular-nums ${tone(r.avg_ret_pct)}`}>{fmtPctPts(r.avg_ret_pct, 2, true)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </StateMsg>
+    </Card>
+  )
+}
+
+// ---------- threshold buckets (do tighter / deeper signals win more?) ----------
+
+const THRESHOLD_KINDS: { value: ThresholdKind; label: string }[] = [
+  { value: 'proximity', label: 'S3 proximity' },
+  { value: 'reduction', label: 'S1 reduction' },
+]
+
+export function Thresholds({ horizon }: { horizon: Horizon }) {
+  const [kind, setKind] = useState<ThresholdKind>('proximity')
+  const { data, isLoading, isError } = usePerfThresholds(kind, horizon)
+  const rows = data ?? []
+  const hint =
+    kind === 'proximity'
+      ? 'Stage 3 by MACD-to-zero distance — tighter buckets winning more ⇒ lower the threshold.'
+      : 'Stage 1 by histogram reduction from peak — deeper buckets winning more ⇒ raise the threshold.'
+
+  return (
+    <Card
+      title={`Threshold buckets · ${horizon}`}
+      right={<Segmented options={THRESHOLD_KINDS} value={kind} onChange={setKind} />}
+    >
+      <StateMsg loading={isLoading} error={isError} empty={rows.length === 0}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
+              <th className="py-1.5 pr-2 font-medium">Bucket</th>
+              <th className="py-1.5 pr-2 text-right font-medium">n</th>
+              <th className="py-1.5 pr-2 text-right font-medium">Win</th>
+              <th className="py-1.5 text-right font-medium">EV</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.bucket} className="border-b border-slate-800/50 last:border-0">
+                <td className="py-1.5 pr-2 text-slate-300">{r.bucket}</td>
+                <td className="py-1.5 pr-2 text-right tabular-nums text-slate-400">{r.n}</td>
+                <td className={`py-1.5 pr-2 text-right tabular-nums ${tone(r.win_pct, 50)}`}>{fmtPctPts(r.win_pct)}</td>
+                <td className={`py-1.5 text-right tabular-nums ${tone(r.avg_ret_pct)}`}>{fmtPctPts(r.avg_ret_pct, 2, true)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-2 text-xs text-slate-600">{hint}</p>
       </StateMsg>
     </Card>
   )

@@ -12,8 +12,9 @@ Forward roadmap for macd_searcher. Companion to [PLAN.md](PLAN.md) (backend) and
 - [x] New `/api/perf/*` endpoints wrapping `docs/queries.sql` E–I: readiness, win-rate & return by stage×direction, return-by-horizon, lead-time (S1 vs S3), MFE/MAE, per-symbol, by-class, threshold buckets. (`web/perf.py`; tests in `tests/test_web_perf.py`.)
 - [x] A second tab/page rendering those (`pages/Outcomes.tsx`, `components/Outcomes.tsx`), with an **"accumulating data…"** readiness banner until outcomes mature (~1–2 weeks).
 - [x] **Dedup per asset-day** baked into every perf query (earliest fire per symbol/stage/direction/UTC-day).
-- [~] Post-fix filtering: implemented as an optional `since` (ISO date) param on the perf endpoints rather than `runs.code_version` (git short-SHAs aren't chronologically orderable). Not yet wired into the UI — add a "since fix date" toggle when ready.
-- [ ] Carry-overs: sortable tables (order-bys), asset-class / symbol-search filters, Recharts label casing (by-class axis, dispatch legend, health "Dispatch" value). The by-class & threshold-bucket endpoints exist but aren't rendered in the tab yet.
+- [x] Post-fix filtering: hard-wired to `DETECTOR_FIX_CUTOFF` in `web/perf.py` (pre-fix Stage-1 data is simply excluded from every perf query — no UI knob, per KISS).
+- [x] **by-class** (win/EV by asset class × stage) and **threshold buckets** (win/EV by proximity/reduction bucket, with a kind toggle) rendered on the Outcomes tab (`ByClass`, `Thresholds`).
+- [ ] Carry-overs: **sortable** tables (order-bys), asset-class / symbol-search filters, Recharts label casing (by-class axis, dispatch legend, health "Dispatch" value).
 
 ## 2. Analysis & outcome engine
 - [ ] ★ **Benchmark column** in `update_outcomes` — forward return vs buy-and-hold (or BTC) over the same window. The honest "is there edge" test.

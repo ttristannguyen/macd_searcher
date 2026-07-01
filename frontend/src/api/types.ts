@@ -170,3 +170,12 @@ export interface PerfClassStage {
   win_pct: number | null
   avg_ret_pct: number | null
 }
+
+export type ThresholdKind = 'proximity' | 'reduction'
+
+export interface PerfBucket {
+  bucket: string
+  n: number
+  win_pct: number | null
+  avg_ret_pct: number | null
+}

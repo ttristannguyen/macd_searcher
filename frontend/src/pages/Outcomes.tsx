@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import type { Horizon } from '../api/types'
 import {
+  ByClass,
   Excursions,
   HorizonChart,
   LeadTime,
   PerfSummary,
   ReadinessBanner,
+  Thresholds,
 } from '../components/Outcomes'
 import { Segmented } from '../components/ui'
 
@@ -41,6 +43,11 @@ export function Outcomes() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <LeadTime />
         <Excursions />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <ByClass horizon={horizon} />
+        <Thresholds horizon={horizon} />
       </div>
     </div>
   )

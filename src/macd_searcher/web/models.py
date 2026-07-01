@@ -167,6 +167,16 @@ class PerfBucket(BaseModel):
     avg_ret_pct: Optional[float] = None
 
 
+class PerfReductionCounterfactual(BaseModel):
+    bucket: str
+    n: int
+    # EV/win reconstructed from snapshot closes (faithful); drawdown is a
+    # close-based proxy that understates true intraday MAE. All percent points.
+    win_pct: float
+    ev_pct: float
+    drawdown_proxy_pct: float
+
+
 class PerfDistribution(BaseModel):
     stage: str
     direction: str

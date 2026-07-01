@@ -12,6 +12,7 @@ import type {
   PerfLeadTime,
   PerfMetric,
   PerfReadiness,
+  PerfReductionCounterfactual,
   PerfStageDirection,
   PerfSymbolScore,
   ProximityHeadroom,
@@ -162,5 +163,15 @@ export const usePerfThresholds = (kind: ThresholdKind, horizon: Horizon = '7d') 
   useQuery({
     queryKey: ['perf-thresholds', kind, horizon],
     queryFn: () => fetchJson<PerfBucket[]>(`/api/perf/thresholds?kind=${kind}&horizon=${horizon}`),
+    refetchInterval: PERF_REFRESH,
+  })
+
+export const usePerfReductionCounterfactual = (horizon: Horizon = '7d') =>
+  useQuery({
+    queryKey: ['perf-reduction-counterfactual', horizon],
+    queryFn: () =>
+      fetchJson<PerfReductionCounterfactual[]>(
+        `/api/perf/reduction-counterfactual?horizon=${horizon}`,
+      ),
     refetchInterval: PERF_REFRESH,
   })

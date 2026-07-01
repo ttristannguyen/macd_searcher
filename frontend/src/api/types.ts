@@ -179,3 +179,13 @@ export interface PerfBucket {
   win_pct: number | null
   avg_ret_pct: number | null
 }
+
+// Counterfactual reduction buckets from asset_snapshots (extends below the 0.3
+// fire threshold). EV/win are faithful; drawdown_proxy is a close-based floor.
+export interface PerfReductionCounterfactual {
+  bucket: string
+  n: number
+  win_pct: number
+  ev_pct: number
+  drawdown_proxy_pct: number
+}

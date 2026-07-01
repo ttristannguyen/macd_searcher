@@ -29,6 +29,7 @@ from .models import (
     PerfHorizon,
     PerfLeadTime,
     PerfReadiness,
+    PerfReductionCounterfactual,
     PerfStageDirection,
     PerfSymbolScore,
     ProximityHeadroom,
@@ -203,6 +204,20 @@ def perf_distribution(
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfDistribution]:
     return [PerfDistribution(**r) for r in perf.distribution(conn, metric, min_n)]
+
+
+@app.get(
+    "/api/perf/reduction-counterfactual",
+    response_model=list[PerfReductionCounterfactual],
+)
+def perf_reduction_counterfactual(
+    horizon: Horizon = "7d",
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfReductionCounterfactual]:
+    return [
+        PerfReductionCounterfactual(**r)
+        for r in perf.reduction_counterfactual(conn, horizon)
+    ]
 
 
 # Serve the built React app at / when it exists (production / one-port mode).

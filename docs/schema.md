@@ -55,7 +55,7 @@ Every asset that passed the liquidity filter and had enough candles for MACD, **
 | `live_hist` | REAL | Histogram including the forming bar (live view). |
 | `live_hist_pct_of_price` | REAL | `|live_hist| / live_close`. |
 | `hist_recent_peak` | REAL | The signed peak of `hist` within the peak-lookback window (live view) — the high/low the histogram reached before flattening. |
-| `hist_reduction_from_peak` | REAL | `1 − |live_hist| / |hist_recent_peak|` — fraction the histogram has shrunk from its peak. The **Stage 1** trigger metric (NULL if no valid peak). |
+| `hist_reduction_from_peak` | REAL | `1 − |live_hist| / |hist_recent_peak|` — fraction the histogram has shrunk from its peak. The **Stage 1** trigger metric (NULL if no valid peak). Since the same-sign-excursion alignment (`SNAPSHOT_FIX_CUTOFF`) this uses the detector's excursion-confined peak, matching what would have fired; earlier rows used a raw `peak_lookback`-window peak and can read higher. |
 | `hist_shrinking_n_bars` | INTEGER | Consecutive most-recent bars where `|hist|` strictly decreased, live view. |
 
 ---

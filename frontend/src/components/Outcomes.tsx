@@ -16,6 +16,7 @@ import {
   usePerfDistribution,
   usePerfLeadTime,
   usePerfReadiness,
+  usePerfReductionCounterfactual,
   usePerfSummary,
   usePerfThresholds,
 } from '../api/client'
@@ -348,6 +349,66 @@ export function Thresholds({ horizon }: { horizon: Horizon }) {
           </tbody>
         </table>
         <p className="mt-2 text-xs text-slate-600">{hint}</p>
+      </StateMsg>
+    </Card>
+  )
+}
+
+// ---------- counterfactual reduction buckets (below the 0.3 fire threshold) ----
+//
+// Reads asset_snapshots (not fired signals), so it reaches into the 0.1-0.3 band
+// that flattens but never fires. EV/win are reconstructed from stored closes
+// (faithful); the drawdown is only a close-based proxy that understates true MAE.
+// The 0.3+ rows overlap the fired reduction panel as a sanity cross-check.
+
+function belowFireThreshold(bucket: string): boolean {
+  const tag = bucket[0] // sort prefix: a/b/c are the <0.3 bands
+  return tag === 'a' || tag === 'b' || tag === 'c'
+}
+
+export function ReductionCounterfactual({ horizon }: { horizon: Horizon }) {
+  const { data, isLoading, isError } = usePerfReductionCounterfactual(horizon)
+  const rows = data ?? []
+
+  return (
+    <Card
+      title={`Reduction counterfactual · ${horizon}`}
+      right={<span className="text-xs text-slate-600">would-have-fired · S1</span>}
+    >
+      <StateMsg loading={isLoading} error={isError} empty={rows.length === 0}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
+              <th className="py-1.5 pr-2 font-medium">Reduction</th>
+              <th className="py-1.5 pr-2 text-right font-medium">n</th>
+              <th className="py-1.5 pr-2 text-right font-medium">Win</th>
+              <th className="py-1.5 pr-2 text-right font-medium">EV</th>
+              <th className="py-1.5 text-right font-medium">~Draw</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const below = belowFireThreshold(r.bucket)
+              return (
+                <tr key={r.bucket} className="border-b border-slate-800/50 last:border-0">
+                  <td className={`py-1.5 pr-2 ${below ? 'text-sky-300' : 'text-slate-300'}`}>
+                    {r.bucket}
+                    {below && <span className="ml-1 text-[10px] text-sky-500/70">•below fire</span>}
+                  </td>
+                  <td className="py-1.5 pr-2 text-right tabular-nums text-slate-400">{r.n}</td>
+                  <td className={`py-1.5 pr-2 text-right tabular-nums ${tone(r.win_pct, 50)}`}>{fmtPctPts(r.win_pct)}</td>
+                  <td className={`py-1.5 pr-2 text-right tabular-nums ${tone(r.ev_pct)}`}>{fmtPctPts(r.ev_pct, 2, true)}</td>
+                  <td className={`py-1.5 text-right tabular-nums ${tone(r.drawdown_proxy_pct)}`}>{fmtPctPts(r.drawdown_proxy_pct, 1, true)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        <p className="mt-2 text-xs text-slate-600">
+          Counterfactual from snapshots: EV/win are faithful, ~Draw is a close-based floor (understates
+          the true intraday drawdown). Sub-0.3 rows never fire today; 0.3+ overlap the fired reduction
+          panel as a cross-check. Accumulates since the metric-alignment fix.
+        </p>
       </StateMsg>
     </Card>
   )

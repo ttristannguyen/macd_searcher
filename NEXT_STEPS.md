@@ -18,8 +18,8 @@ Forward roadmap for macd_searcher. Companion to [PLAN.md](PLAN.md) (backend) and
 
 ## 2. Analysis & outcome engine
 - [ ] ★ **Benchmark column** in `update_outcomes` — forward return vs buy-and-hold (or BTC) over the same window. The honest "is there edge" test.
-- [ ] **Counterfactual loosening** — score `asset_snapshots` (not just fired signals) so "what if thresholds were looser?" is answerable with real returns. Needs outcome storage on snapshots + generalized scoring.
-- [ ] Decide the **`compute_asset_metrics` peak** question — keep as the raw 10-bar window (analysis substrate) or align to the detector's new same-sign excursion.
+- [~] **Counterfactual loosening** — score `asset_snapshots` (not just fired signals) so "what if thresholds were looser?" is answerable with real returns. *(S1/reduction first cut shipped: `/api/perf/reduction-counterfactual` + the Reduction-counterfactual panel — self-join forward returns from stored closes, extending the reduction buckets below the 0.3 fire threshold. EV/win faithful; drawdown is a close-based proxy. Still open: bar-based true MAE, and the Stage-3 proximity counterfactual.)*
+- [x] Decide the **`compute_asset_metrics` peak** question — **aligned to the detector's same-sign excursion** (shared `_excursion_peak` in `signals.py`), so a snapshot's `hist_reduction_from_peak` matches what would have fired. Counterfactual snapshots are counted only from `SNAPSHOT_FIX_CUTOFF` onward (pre-fix used the old raw-window peak).
 - [ ] Small **Python analysis script/notebook** for medians + binomial confidence intervals (SQLite lacks `MEDIAN`; means are outlier-skewed).
 - [~] ★ **Per-symbol edge / expectancy scorecard** — rank tokens by *reliably positive expected value* per signal (long or short, per the fired direction). **Key insight: win-rate alone ≠ EV** — 40% winners can beat 70% if the winners are bigger, so rank by expectancy, not hit-rate. *(First cut shipped: `/api/perf/scorecard` + the per-symbol panel.)*
   - [x] **Expectancy (EV)** — mean direction-normalized return per signal (the EV *is* the mean; the CI carries the skew).

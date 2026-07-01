@@ -95,6 +95,23 @@ def _trailing_same_sign_len(hist_vals, last_hist: float) -> int:
     return n
 
 
+def _excursion_peak(hist: pd.Series, peak_lookback: int) -> float | None:
+    """Signed peak of the current same-sign histogram excursion, capped at
+    ``peak_lookback`` bars. None if the last bar is exactly zero.
+
+    Confining the peak to the trailing same-sign run (since the last zero-cross)
+    is what stops a stale peak from a prior excursion — or a green↔red flip —
+    from inflating the reduction-from-peak. Shared by the Stage-1 detector and
+    the per-asset snapshot metrics so the two never drift out of agreement.
+    """
+    last = float(hist.iloc[-1])
+    if last == 0:
+        return None
+    seg = _trailing_same_sign_len(hist.to_numpy(), last)
+    seg_window = hist.iloc[-min(seg, peak_lookback):]
+    return float(seg_window.max()) if last > 0 else float(seg_window.min())
+
+
 def _strictly_increasing(series: pd.Series) -> bool:
     if len(series) < 2:
         return False
@@ -133,9 +150,9 @@ def _check_histogram_flattening(
     direction: Direction = "bearish" if last_hist > 0 else "bullish"
 
     # Peak = extreme of THIS excursion only, capped at peak_lookback bars.
-    look = min(seg, s.peak_lookback)
-    seg_window = hist.iloc[-look:]
-    peak = float(seg_window.max()) if last_hist > 0 else float(seg_window.min())
+    # last_hist != 0 was checked above, so the peak is never None here.
+    peak = _excursion_peak(hist, s.peak_lookback)
+    assert peak is not None
 
     abs_peak = abs(peak)
     abs_last = abs(last_hist)
@@ -419,12 +436,10 @@ def compute_asset_metrics(name: str, df: pd.DataFrame, cfg: AppConfig) -> AssetM
     l_hist = float(lm["hist"].iloc[-1])
     l_hist_pct = abs(l_hist) / l_close if l_close > 0 else None
 
-    window = lm["hist"].iloc[-cfg.signal.histogram_flattening.peak_lookback:]
-    peak: float | None = None
-    if l_hist > 0 and float(window.max()) > 0:
-        peak = float(window.max())
-    elif l_hist < 0 and float(window.min()) < 0:
-        peak = float(window.min())
+    # Same-sign-excursion peak — identical logic to the Stage-1 detector (via the
+    # shared _excursion_peak), so a snapshot's reduction matches what would have
+    # fired. NULL when the last bar is at/through zero (no valid current peak).
+    peak = _excursion_peak(lm["hist"], cfg.signal.histogram_flattening.peak_lookback)
     reduction = 1.0 - abs(l_hist) / abs(peak) if peak not in (None, 0) else None
     hist_shrink = _consecutive_shrink_count(lm["hist"])
 

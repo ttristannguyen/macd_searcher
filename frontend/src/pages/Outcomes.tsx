@@ -7,6 +7,7 @@ import {
   LeadTime,
   PerfSummary,
   ReadinessBanner,
+  ReductionCounterfactual,
   Thresholds,
 } from '../components/Outcomes'
 import { Segmented } from '../components/ui'
@@ -49,6 +50,8 @@ export function Outcomes() {
         <ByClass horizon={horizon} />
         <Thresholds horizon={horizon} />
       </div>
+
+      <ReductionCounterfactual horizon={horizon} />
     </div>
   )
 }

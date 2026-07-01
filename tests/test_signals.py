@@ -9,14 +9,17 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from macd_searcher.config import AppConfig
 from macd_searcher.signals import (
     _check_histogram_flattening,
     _check_zero_line_proximity,
     _consecutive_shrink_count,
+    _excursion_peak,
     _last_bar_is_forming,
     _view,
+    compute_asset_metrics,
     evaluate_all,
 )
 from macd_searcher.indicators import macd as compute_macd
@@ -346,6 +349,38 @@ def test_stage1_fires_bullish_on_clean_same_sign_shrink():
     assert sig is not None
     assert sig.direction == "bullish"
     assert sig.hist_peak == -0.6
+
+
+def test_excursion_peak_confines_to_current_same_sign_run():
+    """A larger positive spike before a zero-crossing is ignored; the peak is the
+    extreme of the current (trailing) same-sign run only."""
+    hist = pd.Series([0.9, 0.8, -0.2, 0.1, 0.3, 0.5, 0.4, 0.3, 0.2, 0.1])
+    assert _excursion_peak(hist, peak_lookback=10) == 0.5
+
+
+def test_excursion_peak_none_when_last_bar_zero():
+    assert _excursion_peak(pd.Series([0.5, 0.3, 0.0]), peak_lookback=10) is None
+
+
+def test_excursion_peak_capped_by_lookback():
+    """peak_lookback trims the window even inside one long same-sign run."""
+    hist = pd.Series([0.9, 0.8, 0.5, 0.3, 0.2])  # all positive
+    assert _excursion_peak(hist, peak_lookback=2) == 0.3  # only the last 2 bars
+
+
+def test_snapshot_reduction_matches_fired_signal():
+    """compute_asset_metrics and the Stage-1 detector share _excursion_peak, so a
+    snapshot's reduction-from-peak equals what the detector would have fired with."""
+    cfg = AppConfig()
+    df = _df_from_close(_rally_then_fade())  # non-forming last bar → live == full view
+    macd_df = compute_macd(df["close"], cfg.macd.fast, cfg.macd.slow, cfg.macd.signal)
+    sig = _check_histogram_flattening("TEST", float(df["close"].iloc[-1]), macd_df, cfg)
+    assert sig is not None and sig.reduction_from_peak is not None
+
+    m = compute_asset_metrics("TEST", df, cfg)
+    assert m is not None
+    assert m.hist_reduction_from_peak == pytest.approx(sig.reduction_from_peak)
+    assert m.hist_recent_peak == pytest.approx(sig.hist_peak)
 
 
 def test_consecutive_shrink_count_resets_on_sign_flip():

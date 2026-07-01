@@ -18,6 +18,7 @@ detector emitted false signals, so that data is simply excluded.
 from __future__ import annotations
 
 import sqlite3
+from datetime import date, timedelta
 from typing import Literal
 
 import numpy as np
@@ -47,6 +48,14 @@ _METRIC_COL: dict[str, str] = {
 # crossings, so every perf query filters to fired_at >= this. Placed inside the
 # deploy gap, in the DB's stored timestamp format.
 DETECTOR_FIX_CUTOFF = "2026-06-09T14:00:00+00:00"
+
+# Boundary of the compute_asset_metrics same-sign-excursion alignment. Before it,
+# asset_snapshots.hist_reduction_from_peak was measured against the raw
+# peak_lookback window, which a stale prior-excursion peak could inflate — so its
+# reductions don't match the detector. The counterfactual reduction query counts
+# only snapshots at/after this. Pin to the first post-fix run once deployed
+# (same procedure as DETECTOR_FIX_CUTOFF); until then this is the deploy date.
+SNAPSHOT_FIX_CUTOFF = "2026-07-01T00:00:00+00:00"
 
 
 def _rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:
@@ -319,6 +328,135 @@ def thresholds(
         f"GROUP BY bucket ORDER BY bucket"
     )
     return _rows(conn, sql, tuple(params))
+
+
+# ---------- counterfactual reduction buckets (below the 0.3 fire threshold) ------
+
+
+# Detector-gate proxies for a "would have fired" Stage-1 setup, matching
+# config.yaml's histogram_flattening (shrink_lookback, min_peak_pct_of_price).
+_CF_MIN_SHRINK = 2
+_CF_MIN_PEAK_PCT = 0.002
+
+_HORIZON_DAYS: dict[str, int] = {"1d": 1, "3d": 3, "7d": 7, "14d": 14}
+
+
+def _norm_ret(px: float, entry: float, bullish: bool) -> float:
+    """Direction-normalized return: positive means the predicted move happened
+    (bullish up / bearish down). Mirrors the `perf` CTE's normalization."""
+    return px / entry - 1 if bullish else 1 - px / entry
+
+
+def _reduction_bucket(red: float) -> str:
+    """Extends the fired reduction buckets DOWN past the 0.3 fire threshold."""
+    if red < 0.1:
+        return "a <0.1"
+    if red < 0.2:
+        return "b 0.1-0.2"
+    if red < 0.3:
+        return "c 0.2-0.3"
+    if red < 0.4:
+        return "d 0.3-0.4"
+    if red < 0.6:
+        return "e 0.4-0.6"
+    if red < 0.8:
+        return "f 0.6-0.8"
+    return "g 0.8-1.0"
+
+
+def reduction_counterfactual(
+    conn: sqlite3.Connection,
+    horizon: Horizon = "7d",
+) -> list[dict]:
+    """Reduction buckets read from `asset_snapshots` (not `signals`), so the
+    analysis reaches BELOW the detector's 0.3 fire threshold — the 0.1-0.3 band
+    that flattened but never fired.
+
+    Forward returns are reconstructed by self-join: the price N days after a
+    snapshot is just the same symbol's later snapshot. EV and win-rate are
+    faithful this way, but the drawdown is only a **close-based proxy** —
+    snapshots store closes, not the intraday high/low path — so it understates
+    the true MAE.
+
+    Only snapshots at/after SNAPSHOT_FIX_CUTOFF are counted (before it,
+    hist_reduction_from_peak used the old raw-window peak). Deduped to the
+    earliest snapshot per symbol/UTC-day, and gated to approximate a Stage-1
+    setup. Horizon uses calendar days: exact for 24/7 crypto, approximate for
+    assets that don't trade every day.
+    """
+    n_days = _HORIZON_DAYS[horizon]
+
+    # Deduped daily snapshots (earliest run per symbol/UTC-day), post-fix only.
+    sql = """
+    WITH snap AS (
+        SELECT a.symbol, a.live_close, a.live_hist,
+               a.hist_reduction_from_peak AS red, a.hist_recent_peak AS peak,
+               a.hist_shrinking_n_bars AS shrink,
+               substr(r.started_at, 1, 10) AS d, r.started_at AS ts
+        FROM asset_snapshots a
+        JOIN runs r ON r.run_id = a.run_id
+        WHERE r.started_at >= ? AND a.live_close > 0
+    ),
+    first_snap AS (
+        SELECT symbol, d, MIN(ts) AS first_ts FROM snap GROUP BY symbol, d
+    )
+    SELECT s.symbol, s.d, s.live_close, s.live_hist, s.red, s.peak, s.shrink
+    FROM snap s
+    JOIN first_snap f ON s.symbol = f.symbol AND s.d = f.d AND s.ts = f.first_ts
+    """
+
+    # Full per-symbol daily close series (for the drawdown scan) + the entry rows
+    # that pass the Stage-1 gates.
+    prices: dict[str, dict[str, float]] = {}
+    entries: list[dict] = []
+    for row in conn.execute(sql, (SNAPSHOT_FIX_CUTOFF,)):
+        prices.setdefault(row["symbol"], {})[row["d"]] = row["live_close"]
+        if (
+            row["red"] is not None
+            and row["shrink"] is not None and row["shrink"] >= _CF_MIN_SHRINK
+            and row["peak"] is not None
+            and abs(row["peak"]) / row["live_close"] >= _CF_MIN_PEAK_PCT
+        ):
+            entries.append(row)
+
+    buckets: dict[str, dict[str, list[float]]] = {}
+    for e in entries:
+        entry_px = e["live_close"]
+        bullish = e["live_hist"] < 0
+        series = prices[e["symbol"]]
+        start = date.fromisoformat(e["d"])
+
+        exit_px = series.get((start + timedelta(days=n_days)).isoformat())
+        if exit_px is None:
+            continue  # horizon hasn't elapsed / no forward snapshot — not scorable
+
+        ret = _norm_ret(exit_px, entry_px, bullish)
+        # Drawdown proxy: worst normalized close over the window's available days.
+        path = []
+        for k in range(1, n_days + 1):
+            px = series.get((start + timedelta(days=k)).isoformat())
+            if px is not None:
+                path.append(_norm_ret(px, entry_px, bullish))
+        drawdown = min(path) if path else ret
+
+        g = buckets.setdefault(_reduction_bucket(e["red"]), {"ret": [], "dd": []})
+        g["ret"].append(ret)
+        g["dd"].append(drawdown)
+
+    out: list[dict] = []
+    for bucket, g in buckets.items():
+        arr = np.asarray(g["ret"], dtype=float)
+        dd = np.asarray(g["dd"], dtype=float)
+        out.append({
+            "bucket": bucket,
+            "n": int(arr.size),
+            "win_pct": round(float((arr > 0).mean()) * 100, 1),
+            "ev_pct": round(float(arr.mean()) * 100, 2),
+            # Median (not mean): a typical worst-case, robust to a single blow-up.
+            "drawdown_proxy_pct": round(float(np.median(dd)) * 100, 2),
+        })
+    out.sort(key=lambda d: d["bucket"])
+    return out
 
 
 # ---------- robust distribution (median + quantiles, not just the mean) ----------

@@ -288,3 +288,83 @@ def test_scorecard_payoff_sqn_none_paths(multi_client):
 
 def test_scorecard_min_n_gate(multi_client):
     assert multi_client.get("/api/perf/scorecard?min_n=4").json() == []  # max n is 3
+
+
+# ---- counterfactual reduction buckets (snapshot self-join, below 0.3) ----
+
+# Snapshot dates after SNAPSHOT_FIX_CUTOFF (2026-07-01); CF_PRE is before it.
+CF_D0 = "2026-07-02"
+CF_D7 = "2026-07-09"
+CF_PRE = "2026-06-29"
+
+
+def _snap(name, *, red, live_close, live_hist=-0.4, peak=-1.0, shrink=2) -> AssetMetrics:
+    """Snapshot metrics for the counterfactual query. red/peak = None makes a pure
+    forward price point (in the price map, but not a scorable entry)."""
+    return AssetMetrics(
+        name=name, close=live_close, macd=-1.0, macd_signal=-0.5, hist=-0.5, atr=2.0,
+        macd_pct_of_price=0.004, macd_shrinking_n_bars=shrink,
+        live_close=live_close, live_hist=live_hist, live_hist_pct_of_price=0.004,
+        hist_recent_peak=peak, hist_reduction_from_peak=red, hist_shrinking_n_bars=shrink,
+    )
+
+
+def _snap_run(conn, run_id, started_at, metrics) -> None:
+    db.start_run(conn, run_id, started_at, "abc", "h", "{}")
+    db.insert_snapshots(conn, run_id, {}, metrics)
+
+
+def _seed_cf(path: str) -> None:
+    conn = db.connect(path)
+    db.init_schema(conn)
+    # Day 0 — AAA reduction 0.15 (bullish), BBB reduction 0.5 (bearish).
+    _snap_run(conn, "cf1", f"{CF_D0}T08:00:00+00:00", [
+        _snap("AAA", red=0.15, live_close=100.0, live_hist=-0.4, peak=-1.0),
+        _snap("BBB", red=0.50, live_close=200.0, live_hist=0.4, peak=2.0),
+    ])
+    # Same day, later run — AAA reduction 0.9: dedup must drop it (keep the 08:00).
+    _snap_run(conn, "cf2", f"{CF_D0}T12:00:00+00:00", [
+        _snap("AAA", red=0.90, live_close=100.0, live_hist=-0.4, peak=-1.0),
+    ])
+    # Day +7 — forward price points only (red=None → not their own entries).
+    _snap_run(conn, "cf3", f"{CF_D7}T08:00:00+00:00", [
+        _snap("AAA", red=None, live_close=110.0, peak=None),  # +10% bullish → win
+        _snap("BBB", red=None, live_close=190.0, peak=None),  # 1-190/200 = +5% bearish → win
+    ])
+    # Pre-fix — reduction 0.05 would land in 'a <0.1' but is before the cutoff.
+    _snap_run(conn, "cf0", f"{CF_PRE}T08:00:00+00:00", [
+        _snap("CCC", red=0.05, live_close=100.0, live_hist=-0.4, peak=-1.0),
+    ])
+    conn.close()
+
+
+@pytest.fixture
+def cf_client(tmp_path):
+    path = str(tmp_path / "cf.sqlite3")
+    _seed_cf(path)
+    app.dependency_overrides[get_conn] = _conn_to(path)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_reduction_counterfactual_buckets(cf_client):
+    rows = cf_client.get("/api/perf/reduction-counterfactual?horizon=7d").json()
+    by = {r["bucket"]: r for r in rows}
+    # Only the two post-fix entries; dedup kept AAA's 0.15 (not the 0.9 → no 'g').
+    assert set(by) == {"b 0.1-0.2", "e 0.4-0.6"}
+    assert by["b 0.1-0.2"]["n"] == 1
+    assert by["b 0.1-0.2"]["win_pct"] == 100.0
+    assert by["b 0.1-0.2"]["ev_pct"] == 10.0          # AAA bullish +10%
+    assert by["b 0.1-0.2"]["drawdown_proxy_pct"] == 10.0
+    assert by["e 0.4-0.6"]["ev_pct"] == 5.0           # BBB bearish 1-190/200
+
+
+def test_reduction_counterfactual_excludes_pre_fix(cf_client):
+    rows = cf_client.get("/api/perf/reduction-counterfactual?horizon=7d").json()
+    # CCC (reduction 0.05) fired before SNAPSHOT_FIX_CUTOFF → 'a <0.1' never appears.
+    assert "a <0.1" not in {r["bucket"] for r in rows}
+
+
+def test_reduction_counterfactual_unscorable_when_no_forward(cf_client):
+    # 14d horizon: CF_D0 + 14 = 2026-07-16 has no snapshot, so nothing is scorable.
+    assert cf_client.get("/api/perf/reduction-counterfactual?horizon=14d").json() == []

@@ -55,7 +55,7 @@ DETECTOR_FIX_CUTOFF = "2026-06-09T14:00:00+00:00"
 # reductions don't match the detector. The counterfactual reduction query counts
 # only snapshots at/after this. Pin to the first post-fix run once deployed
 # (same procedure as DETECTOR_FIX_CUTOFF); until then this is the deploy date.
-SNAPSHOT_FIX_CUTOFF = "2026-07-01T00:00:00+00:00"
+SNAPSHOT_FIX_CUTOFF = "2026-07-01T13:00:00+00:00"
 
 
 def _rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:

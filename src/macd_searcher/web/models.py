@@ -65,7 +65,6 @@ class SignalRow(BaseModel):
     direction: str
     fire_close: Optional[float] = None
     fire_macd: Optional[float] = None
-    fire_macd_pct_of_price: Optional[float] = None
     fire_reduction_from_peak: Optional[float] = None
 
 
@@ -83,12 +82,6 @@ class ClassCountRow(BaseModel):
 class SymbolCountRow(BaseModel):
     symbol: str
     fires: int
-
-
-class ProximityHeadroom(BaseModel):
-    avg_assets_under_0_2pct: Optional[float] = None
-    avg_assets_under_0_5pct: Optional[float] = None
-    avg_assets_under_1pct: Optional[float] = None
 
 
 # ---------- performance / outcomes (/api/perf/*) ----------

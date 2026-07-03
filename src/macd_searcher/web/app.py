@@ -32,14 +32,13 @@ from .models import (
     PerfReductionCounterfactual,
     PerfStageDirection,
     PerfSymbolScore,
-    ProximityHeadroom,
     RunRow,
     SignalRow,
     StageDirectionRow,
     SymbolCountRow,
     TableCounts,
 )
-from .perf import Horizon, Metric, ThresholdKind
+from .perf import Horizon, Metric
 
 # The scan cron runs every 4h; used to judge whether the latest run is fresh.
 EXPECTED_INTERVAL_SECONDS = 4 * 60 * 60
@@ -134,11 +133,6 @@ def signals_per_day(days: int = 14, conn: sqlite3.Connection = Depends(get_conn)
     return [DayCount(**r) for r in queries.signals_per_day(conn, days)]
 
 
-@app.get("/api/stats/proximity-headroom", response_model=ProximityHeadroom)
-def proximity_headroom(conn: sqlite3.Connection = Depends(get_conn)) -> ProximityHeadroom:
-    return ProximityHeadroom(**queries.proximity_headroom(conn))
-
-
 # ---------- performance / outcomes ----------
 #
 # All /api/perf endpoints read a deduped (one-per-asset-day) view of post-fix
@@ -190,11 +184,10 @@ def perf_by_class(
 
 @app.get("/api/perf/thresholds", response_model=list[PerfBucket])
 def perf_thresholds(
-    kind: ThresholdKind = "proximity",
     horizon: Horizon = "7d",
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfBucket]:
-    return [PerfBucket(**r) for r in perf.thresholds(conn, kind, horizon)]
+    return [PerfBucket(**r) for r in perf.thresholds(conn, horizon)]
 
 
 @app.get("/api/perf/distribution", response_model=list[PerfDistribution])

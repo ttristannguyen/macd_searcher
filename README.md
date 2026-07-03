@@ -22,15 +22,15 @@ Quiet hours (`Australia/Melbourne` 00:00–08:00 by default) suppress the Telegr
 
 ---
 
-## How it works: the two-stage model
+## How it works: histogram flattening
 
-A MACD zero-line cross is a momentum regime change. By the time it happens you're often late to the trade — so the scanner emits *graduated warnings* before the cross:
+A MACD zero-line cross is a momentum regime change. By the time it happens you're often late to the trade — so the scanner warns *before* the cross, when the MACD histogram flattens.
 
-### Stage 1 — Histogram flattening (earliest warning)
+### Histogram flattening
 
 The MACD histogram (`macd - signal_line`) peaks *before* MACD itself reaches zero. When `|hist|` has been strictly shrinking from a meaningful peak, momentum is exhausting — the cross is coming, you still have time to research the setup.
 
-This is the **fast/live** detector: it reads today's still-forming daily bar so it can join momentum intraday, and uses a short 2-bar shrink window (today vs. yesterday). It therefore *repaints* — a signal can appear, change, or disappear across the day's runs as price moves. That's the intended trade-off for early entry.
+This is a **fast/live** detector: it reads today's still-forming daily bar so it can join momentum intraday, and uses a short 2-bar shrink window (today vs. yesterday). It therefore *repaints* — a signal can appear, change, or disappear across the day's runs as price moves. That's the intended trade-off for early entry.
 
 **Direction:**
 - Hist peaked positive, now shrinking → **bearish setup** (top forming, expect cross down)
@@ -40,26 +40,9 @@ Guards (all tunable):
 - **Noise floor**: `|hist|_peak / close >= 0.2%` so micro-wiggles don't fire
 - **Reduction**: current `|hist|` must be at least 30% below the recent peak
 - **Strict shrink**: `|hist|` strictly decreasing over the last 2 bars (incl. today's forming bar)
-- **Peak window**: peak located within the last 10 bars
+- **Peak window**: peak located within the last 10 bars — confined to the current same-sign excursion (since the last zero-cross) so a stale prior peak can't inflate the reduction
 
-### Stage 3 — Zero-line proximity (latest warning)
-
-MACD is near zero **and** strictly moving toward it. The cross is imminent. This is the **confirmed** detector: it reads only closed daily bars (ignores today's forming bar), so its "imminent cross" alerts are stable and don't repaint intraday.
-
-Three modes for what "near" means:
-| Mode | Definition | Default |
-|---|---|---|
-| `price_pct` | `\|MACD\| / close < threshold` | 0.5% |
-| `atr` | `\|MACD\| < multiple × ATR(14)` | 0.25× |
-| `rank` | Top N closest-to-zero across the universe | top 15 |
-
-Direction classifier (shared across modes):
-- MACD < 0 and strictly rising for last 3 bars → **bullish**
-- MACD > 0 and strictly falling for last 3 bars → **bearish**
-
-### Priority pick
-
-When both stages fire on the same asset, the later stage wins (the cross is closer, more actionable). This keeps each asset to one line in the alert.
+> **Note:** an earlier "Stage 3 — zero-line proximity" detector was removed (it wasn't performing). Histogram flattening is now the sole signal. Historical Stage-3 rows remain in the DB but are never surfaced.
 
 ---
 
@@ -67,18 +50,9 @@ When both stages fire on the same asset, the later stage wins (the cross is clos
 
 ```
 📊 MACD scan — 2026-05-29 06:49 UTC
-142 assets scanned, 31 signal(s)
+142 assets scanned, 26 signal(s)
 
-🎯 Stage 3 — zero-line proximity (5)
-🔴 BEARISH (3)
-  PENDLE     MACD +0.003725   |M|/px 0.26%   px $1.4576
-  ASTER      MACD +0.002852   |M|/px 0.42%   px $0.6756
-  BNB        MACD +2.908      |M|/px 0.46%   px $638.07
-🟢 BULLISH (2)
-  xyz:META   MACD -0.1598     |M|/px 0.03%   px $633.46
-  ICP        MACD -0.006782   |M|/px 0.25%   px $2.7326
-
-📉 Stage 1 — histogram flattening (26)
+📉 histogram flattening (26)
 🔴 BEARISH (13)
   PURR       hist +0.000148 (↓98% from +0.006445)  px $0.0949
   ATOM       hist +0.001451 (↓86% from +0.01061)   px $2.0588
@@ -117,7 +91,7 @@ All tunables live in [config.yaml](config.yaml); secrets in `.env`. Highlights:
 
 | Section | Purpose |
 |---|---|
-| `signal` | Stage 1 / Stage 3 thresholds, modes, shrink lookbacks |
+| `signal` | histogram_flattening thresholds & shrink lookback |
 | `macd` | EMA periods (default 12/26/9) |
 | `candles` | Interval, lookback depth, whether to include the still-forming current bar |
 | `hyperliquid` | Base URL, concurrency, retries, `extra_dexes` (HIP-3 DEX list) |
@@ -187,7 +161,7 @@ CRON_TZ=UTC
 
 `config.yaml` and `.env` are located relative to the project root (not the cwd), so they're always found. The SQLite DB and logs are written under the project dir **because** the cron line `cd`s there first — keep that `cd` (or set `database.path` to an absolute path).
 
-The 1-day candles close at 00:00 UTC: Stage 1 reads today's forming bar (fresh every 4h run); Stage 3 reads only closed bars (changes once daily at the 00:00 UTC close).
+The 1-day candles close at 00:00 UTC: the detector reads today's still-forming bar, so signals refresh on every 4h run.
 
 ### 6. Log rotation (optional)
 
@@ -214,7 +188,7 @@ cd ~/macd_searcher && git pull && uv sync
 
 ## Data logging
 
-The scanner persists everything it observes — not just alerts — to a local SQLite file (`state/macd_searcher.sqlite3`). The point is to enable **empirical tuning**: instead of guessing whether `price_pct_threshold: 0.005` is the right value, you query historical snapshots and find out what *would* have fired at any other threshold, and what happened to the price afterwards.
+The scanner persists everything it observes — not just alerts — to a local SQLite file (`state/macd_searcher.sqlite3`). The point is to enable **empirical tuning**: instead of guessing whether `min_reduction_from_peak: 0.3` is the right value, you query historical snapshots and find out what *would* have fired at any other threshold, and what happened to the price afterwards.
 
 Three tables. Each one exists for a specific analytical purpose:
 
@@ -238,9 +212,9 @@ One row per fired alert. Captures the detector state at fire time (close, MACD, 
 
 **Why this exists:** this is the table that tells you whether the model *works*. With a few months of these rows you can answer:
 
-- Win-rate by stage × direction × asset class (does Stage 1 beat random? Do equities behave differently from crypto?)
-- Distribution of bars-to-cross for Stage 1 — how much real lead time it gives you
-- Whether Stage 3 hits closer to zero correspond to faster / larger subsequent moves
+- Win-rate by direction × asset class (does it beat random? Do equities behave differently from crypto?)
+- Distribution of bars-to-cross — how much real lead time the flattening signal gives you
+- Whether deeper histogram reductions correspond to faster / larger subsequent moves
 - Per-symbol reliability — which tickers' signals you can trust
 
 Outcomes are computed by a separate daily job rather than the main scan because they need bars that haven't formed yet at fire time.
@@ -266,7 +240,7 @@ Full column-by-column reference: [docs/schema.md](docs/schema.md). Ready-made an
 | Config loader + .env handling | ✅ done |
 | Hyperliquid client (core + HIP-3 DEXes) | ✅ done |
 | MACD + ATR indicators + tests | ✅ done |
-| Stage 1 + Stage 3 detectors + tests | ✅ done |
+| Histogram-flattening detector + tests | ✅ done |
 | Telegram formatter + quiet hours + dry-run | ✅ done |
 | `__main__` entrypoint + CLI | ✅ done |
 | SQLite data logging (3 tables above) | ✅ done |

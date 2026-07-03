@@ -237,9 +237,11 @@ def insert_signals(
 ) -> None:
     rows = []
     for s in signals:
+        # fire_macd_pct_of_price / fire_atr_multiple are legacy Stage-3 columns,
+        # retained for historical rows; always NULL now (S1 has no such metric).
         rows.append((
             uuid.uuid4().hex, run_id, s.name, s.stage, s.direction, fired_at,
-            s.close, s.macd, s.hist, s.macd_pct_of_price, s.atr_multiple,
+            s.close, s.macd, s.hist, None, None,
             s.hist_peak, s.reduction_from_peak,
         ))
     conn.executemany(

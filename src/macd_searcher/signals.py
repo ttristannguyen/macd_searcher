@@ -1,18 +1,10 @@
 """Signal detection.
 
-Two stages, each per-asset:
+One stage, per-asset:
 
-  Stage 1 — histogram_flattening (earliest)
+  Stage 1 — histogram_flattening
     MACD histogram (macd - signal_line) peaked above the noise floor and is
     now shrinking strictly toward zero. Fires before MACD itself crosses zero.
-
-  Stage 3 — zero_line_proximity (latest)
-    MACD is near zero AND |MACD| has been strictly shrinking. Three modes
-    decide what "near" means: price_pct, atr, rank.
-
-When an asset triggers both stages on the same bar, the highest-priority
-(latest-stage) signal is returned, since later stages imply the earlier
-one already fired.
 """
 
 from __future__ import annotations
@@ -30,13 +22,8 @@ from .indicators import atr, macd
 
 log = logging.getLogger(__name__)
 
-Stage = Literal["histogram_flattening", "zero_line_proximity"]
+Stage = Literal["histogram_flattening"]
 Direction = Literal["bullish", "bearish"]
-
-_STAGE_PRIORITY: dict[Stage, int] = {
-    "histogram_flattening": 1,
-    "zero_line_proximity": 3,
-}
 
 
 @dataclass(frozen=True)
@@ -47,12 +34,8 @@ class Signal:
     close: float
     macd: float
     hist: float
-    # Stage 1 fields
     hist_peak: float | None = None
     reduction_from_peak: float | None = None
-    # Stage 3 fields
-    macd_pct_of_price: float | None = None
-    atr_multiple: float | None = None
 
 
 def _strictly_decreasing(series: pd.Series) -> bool:
@@ -110,13 +93,6 @@ def _excursion_peak(hist: pd.Series, peak_lookback: int) -> float | None:
     seg = _trailing_same_sign_len(hist.to_numpy(), last)
     seg_window = hist.iloc[-min(seg, peak_lookback):]
     return float(seg_window.max()) if last > 0 else float(seg_window.min())
-
-
-def _strictly_increasing(series: pd.Series) -> bool:
-    if len(series) < 2:
-        return False
-    diffs = series.diff().iloc[1:]
-    return bool((diffs > 0).all())
 
 
 def _check_histogram_flattening(
@@ -184,71 +160,6 @@ def _check_histogram_flattening(
     )
 
 
-def _check_zero_line_proximity(
-    name: str,
-    close: float,
-    macd_df: pd.DataFrame,
-    atr_series: pd.Series | None,
-    cfg: AppConfig,
-) -> Signal | None:
-    """Stage 3: MACD near zero AND |MACD| strictly shrinking.
-
-    In rank mode, returns a candidate without applying a magnitude threshold
-    — the cross-asset filter in `evaluate_all` keeps only the top-N.
-    """
-    macd_line = macd_df["macd"]
-    lookback = cfg.signal.shrink_lookback
-    if len(macd_line) < lookback + 1:
-        return None
-
-    last_macd = float(macd_line.iloc[-1])
-    if last_macd == 0:
-        return None
-
-    recent = macd_line.iloc[-lookback:]
-
-    # Direction: |MACD| must strictly shrink AND sign must imply approach to zero.
-    if last_macd < 0 and _strictly_increasing(recent):
-        direction: Direction = "bullish"
-    elif last_macd > 0 and _strictly_decreasing(recent):
-        direction = "bearish"
-    else:
-        return None
-
-    abs_macd = abs(last_macd)
-    pct = abs_macd / close if close > 0 else float("inf")
-    atr_mult: float | None = None
-
-    if cfg.signal.mode == "price_pct":
-        if pct >= cfg.signal.price_pct_threshold:
-            return None
-    elif cfg.signal.mode == "atr":
-        if atr_series is None or len(atr_series) == 0:
-            return None
-        last_atr = float(atr_series.iloc[-1])
-        if last_atr <= 0:
-            return None
-        atr_mult = abs_macd / last_atr
-        if atr_mult >= cfg.signal.atr_multiple:
-            return None
-    elif cfg.signal.mode == "rank":
-        # No per-asset threshold; cross-asset filter selects top-N later.
-        pass
-    else:
-        raise ValueError(f"Unknown signal.mode: {cfg.signal.mode!r}")
-
-    return Signal(
-        name=name,
-        stage="zero_line_proximity",
-        direction=direction,
-        close=close,
-        macd=last_macd,
-        hist=float(macd_df["hist"].iloc[-1]),
-        macd_pct_of_price=pct,
-        atr_multiple=atr_mult,
-    )
-
-
 _INTERVAL_MS: dict[str, int] = {
     "1m": 60_000,
     "5m": 300_000,
@@ -287,96 +198,43 @@ def _view(
     return macd_df, float(df["close"].iloc[-1]), atr_series
 
 
-def _detect_stages_for_asset(
+def _detect_for_asset(
     name: str,
     df: pd.DataFrame,
     cfg: AppConfig,
-) -> list[Signal]:
-    """Return all stages that fire for this asset on the latest bar (0–2 entries).
+) -> Signal | None:
+    """Run the histogram_flattening detector on this asset's latest bar.
 
-    Stage 1 and Stage 3 each choose whether to include today's forming bar
-    (Stage 1 via `histogram_flattening.use_forming_candle`, Stage 3 via the
-    global `candles.use_forming_candle`), so they may evaluate on different
-    "latest" bars.
+    Stage 1 reads today's still-forming daily bar when
+    `histogram_flattening.use_forming_candle` is set, so it can join momentum
+    intraday.
     """
-    min_bars = cfg.macd.slow + max(
-        cfg.signal.shrink_lookback,
-        cfg.signal.histogram_flattening.peak_lookback,
-    ) + 5
+    hf = cfg.signal.histogram_flattening
+    if not hf.enabled:
+        return None
+    min_bars = cfg.macd.slow + max(hf.shrink_lookback, hf.peak_lookback) + 5
     if len(df) < min_bars:
-        return []
+        return None
 
     macd_df = macd(df["close"], cfg.macd.fast, cfg.macd.slow, cfg.macd.signal)
-    atr_series = (
-        atr(df["high"], df["low"], df["close"])
-        if cfg.signal.zero_line_enabled and cfg.signal.mode == "atr"
-        else None
-    )
     last_is_forming = _last_bar_is_forming(df, cfg)
-
-    sigs: list[Signal] = []
-    if cfg.signal.histogram_flattening.enabled:
-        m, c, _ = _view(
-            df, macd_df, None, last_is_forming,
-            cfg.signal.histogram_flattening.use_forming_candle,
-        )
-        s = _check_histogram_flattening(name, c, m, cfg)
-        if s is not None:
-            sigs.append(s)
-    if cfg.signal.zero_line_enabled:
-        m, c, a = _view(
-            df, macd_df, atr_series, last_is_forming,
-            cfg.candles.use_forming_candle,
-        )
-        s = _check_zero_line_proximity(name, c, m, a, cfg)
-        if s is not None:
-            sigs.append(s)
-    return sigs
+    m, c, _ = _view(df, macd_df, None, last_is_forming, hf.use_forming_candle)
+    return _check_histogram_flattening(name, c, m, cfg)
 
 
 def evaluate_all(
     candles: dict[str, pd.DataFrame],
     cfg: AppConfig,
 ) -> list[Signal]:
-    """Evaluate every asset; return one Signal per asset (its highest-priority stage).
-
-    In rank mode for Stage 3, applies a global top-N filter on `macd_pct_of_price`
-    BEFORE picking the highest-priority stage. Assets dropped from Stage 3 by
-    the rank filter can still surface via Stage 1.
-    """
-    per_asset: dict[str, list[Signal]] = {}
+    """Evaluate every asset; return at most one histogram_flattening Signal each."""
+    out: list[Signal] = []
     for name, df in candles.items():
         if df is None or df.empty:
             continue
-        sigs = _detect_stages_for_asset(name, df, cfg)
-        if sigs:
-            per_asset[name] = sigs
-
-    # Rank-mode global filter for Stage 3 only.
-    if cfg.signal.zero_line_enabled and cfg.signal.mode == "rank":
-        s3_with_pct: list[tuple[str, float]] = []
-        for name, sigs in per_asset.items():
-            for s in sigs:
-                if s.stage == "zero_line_proximity" and s.macd_pct_of_price is not None:
-                    s3_with_pct.append((name, s.macd_pct_of_price))
-        s3_with_pct.sort(key=lambda x: x[1])
-        keep = {n for n, _ in s3_with_pct[: cfg.signal.rank_top_n]}
-        for name in list(per_asset.keys()):
-            if name in keep:
-                continue
-            per_asset[name] = [s for s in per_asset[name] if s.stage != "zero_line_proximity"]
-            if not per_asset[name]:
-                del per_asset[name]
-
-    out: list[Signal] = []
-    for name, sigs in per_asset.items():
-        out.append(max(sigs, key=lambda s: _STAGE_PRIORITY[s.stage]))
-    log.info(
-        "Signals: %d total (%d stage3, %d stage1)",
-        len(out),
-        sum(1 for s in out if s.stage == "zero_line_proximity"),
-        sum(1 for s in out if s.stage == "histogram_flattening"),
-    )
+        s = _detect_for_asset(name, df, cfg)
+        if s is not None:
+            out.append(s)
+    log.info("Signals: %d stage1", len(out))
     return out
 
 

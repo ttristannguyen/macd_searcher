@@ -7,14 +7,12 @@ of 0.2% of price.
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 import pytest
 
 from macd_searcher.config import AppConfig
 from macd_searcher.signals import (
     _check_histogram_flattening,
-    _check_zero_line_proximity,
     _consecutive_shrink_count,
     _excursion_peak,
     _last_bar_is_forming,
@@ -90,18 +88,6 @@ def _selloff_then_fade(drop_n: int = 30, step: float = 2.0, fade_n: int = 4) -> 
     return out
 
 
-def _rally_then_flat(rally_n: int = 30, top: float = 130.0, flat_n: int = 60) -> list[float]:
-    """Rally, then long flat — MACD decays back toward zero from above (Stage 3 bearish)."""
-    rally = list(np.linspace(100.0, top, rally_n))
-    return rally + [top] * flat_n
-
-
-def _selloff_then_flat(drop_n: int = 30, bottom: float = 70.0, flat_n: int = 60) -> list[float]:
-    """Mirror — MACD decays back toward zero from below (Stage 3 bullish)."""
-    drop = list(np.linspace(100.0, bottom, drop_n))
-    return drop + [bottom] * flat_n
-
-
 # ---------- Stage 1: histogram flattening ----------
 
 
@@ -157,80 +143,29 @@ def test_stage1_silent_during_pure_rally():
     assert _check_histogram_flattening("TEST", float(df["close"].iloc[-1]), macd_df, cfg) is None
 
 
-# ---------- Stage 3: zero-line proximity ----------
-
-
-def test_stage3_silent_during_strong_uptrend():
-    cfg = AppConfig()
-    df = _df_from_close([100.0 + i for i in range(60)])
-    macd_df = compute_macd(df["close"], cfg.macd.fast, cfg.macd.slow, cfg.macd.signal)
-    assert _check_zero_line_proximity("TEST", float(df["close"].iloc[-1]), macd_df, None, cfg) is None
-
-
-def test_stage3_fires_bearish_on_rally_then_flat():
-    """After a rally, a long flat lets MACD decay back to near zero from above."""
-    cfg = AppConfig()
-    df = _df_from_close(_rally_then_flat())
-    macd_df = compute_macd(df["close"], cfg.macd.fast, cfg.macd.slow, cfg.macd.signal)
-    sig = _check_zero_line_proximity("TEST", float(df["close"].iloc[-1]), macd_df, None, cfg)
-    assert sig is not None
-    assert sig.stage == "zero_line_proximity"
-    assert sig.direction == "bearish"
-    assert 0 < sig.macd < 1.0
-    assert sig.macd_pct_of_price is not None and sig.macd_pct_of_price < cfg.signal.price_pct_threshold
-
-
-def test_stage3_fires_bullish_on_selloff_then_flat():
-    cfg = AppConfig()
-    df = _df_from_close(_selloff_then_flat())
-    macd_df = compute_macd(df["close"], cfg.macd.fast, cfg.macd.slow, cfg.macd.signal)
-    sig = _check_zero_line_proximity("TEST", float(df["close"].iloc[-1]), macd_df, None, cfg)
-    assert sig is not None
-    assert sig.direction == "bullish"
-    assert -1.0 < sig.macd < 0
-
-
-def test_stage3_rank_mode_emits_without_threshold():
-    """In rank mode, Stage 3 passes the per-asset threshold gate unconditionally."""
-    base = AppConfig()
-    cfg = base.model_copy(update={
-        "signal": base.signal.model_copy(update={"mode": "rank"})
-    })
-    df = _df_from_close(_rally_then_flat())
-    macd_df = compute_macd(df["close"], cfg.macd.fast, cfg.macd.slow, cfg.macd.signal)
-    sig = _check_zero_line_proximity("TEST", float(df["close"].iloc[-1]), macd_df, None, cfg)
-    assert sig is not None
-    assert sig.macd_pct_of_price is not None  # carried for the cross-asset ranking step
-
-
 # ---------- evaluate_all integration ----------
 
 
 def test_evaluate_all_one_signal_per_asset():
-    """Each asset appears at most once in the output, regardless of which stage(s) fire."""
+    """Each asset appears at most once in the output; non-signals are excluded."""
     cfg = AppConfig()
     candles = {
         "S1B": _df_from_close(_rally_then_fade()),       # Stage 1 bearish
         "S1L": _df_from_close(_selloff_then_fade()),     # Stage 1 bullish
-        "S3B": _df_from_close(_rally_then_flat()),       # Stage 3 bearish
-        "S3L": _df_from_close(_selloff_then_flat()),     # Stage 3 bullish
         "NONE": _df_from_close([100.0 + i for i in range(60)]),  # strong trend, no signal
     }
     out = evaluate_all(candles, cfg)
     names = [s.name for s in out]
     assert len(names) == len(set(names)), "Same asset appeared twice in output"
     assert "NONE" not in names, "Strong-trend series should not emit a signal"
+    assert all(s.stage == "histogram_flattening" for s in out)
 
 
-def test_evaluate_all_returns_correct_stages():
+def test_evaluate_all_emits_stage1():
     cfg = AppConfig()
-    candles = {
-        "RALLY_FADE": _df_from_close(_rally_then_fade()),
-        "RALLY_FLAT": _df_from_close(_rally_then_flat()),
-    }
+    candles = {"RALLY_FADE": _df_from_close(_rally_then_fade())}
     out = {s.name: s for s in evaluate_all(candles, cfg)}
     assert out["RALLY_FADE"].stage == "histogram_flattening"
-    assert out["RALLY_FLAT"].stage == "zero_line_proximity"
 
 
 def test_evaluate_all_skips_short_series():
@@ -241,27 +176,10 @@ def test_evaluate_all_handles_empty_dict():
     assert evaluate_all({}, AppConfig()) == []
 
 
-def test_evaluate_all_rank_mode_limits_to_top_n():
-    """rank_top_n=1 ⇒ at most one Stage 3 signal across qualifying assets."""
-    base = AppConfig()
-    cfg = base.model_copy(update={
-        "signal": base.signal.model_copy(update={"mode": "rank", "rank_top_n": 1}),
-    })
-    candles = {
-        "A": _df_from_close(_rally_then_flat(top=110, flat_n=60)),
-        "B": _df_from_close(_rally_then_flat(top=130, flat_n=60)),
-        "C": _df_from_close(_rally_then_flat(top=150, flat_n=60)),
-    }
-    out = evaluate_all(candles, cfg)
-    s3 = [s for s in out if s.stage == "zero_line_proximity"]
-    assert len(s3) <= 1
-
-
-def test_evaluate_all_disabled_stages_emit_nothing():
+def test_evaluate_all_disabled_stage_emits_nothing():
     base = AppConfig()
     cfg = base.model_copy(update={
         "signal": base.signal.model_copy(update={
-            "zero_line_enabled": False,
             "histogram_flattening": base.signal.histogram_flattening.model_copy(
                 update={"enabled": False}
             ),
@@ -269,7 +187,7 @@ def test_evaluate_all_disabled_stages_emit_nothing():
     })
     candles = {
         "X": _df_from_close(_rally_then_fade()),
-        "Y": _df_from_close(_rally_then_flat()),
+        "Y": _df_from_close(_selloff_then_fade()),
     }
     assert evaluate_all(candles, cfg) == []
 
@@ -393,13 +311,10 @@ def test_consecutive_shrink_count_resets_on_sign_flip():
 def test_shorter_shrink_lookback_is_a_superset():
     """A 2-bar shrink is a strict relaxation of 3-bar: any asset that fires
     Stage 1 at lookback 3 must also fire at lookback 2 (other guards equal)."""
-    base = AppConfig().model_copy(update={
-        "signal": AppConfig().signal.model_copy(update={"zero_line_enabled": False}),
-    })
-    cfg3 = base  # default shrink_lookback is 3
-    cfg2 = base.model_copy(update={
-        "signal": base.signal.model_copy(update={
-            "histogram_flattening": base.signal.histogram_flattening.model_copy(
+    cfg3 = AppConfig()  # default shrink_lookback is 3
+    cfg2 = cfg3.model_copy(update={
+        "signal": cfg3.signal.model_copy(update={
+            "histogram_flattening": cfg3.signal.histogram_flattening.model_copy(
                 update={"shrink_lookback": 2}
             )
         })
@@ -407,8 +322,8 @@ def test_shorter_shrink_lookback_is_a_superset():
     candles = {
         "A": _df_from_close(_rally_then_fade()),
         "B": _df_from_close(_selloff_then_fade()),
-        "C": _df_from_close(_rally_then_flat()),
-        "D": _df_from_close([100.0 + 0.5 * i for i in range(60)]),
+        "C": _df_from_close([100.0 + 0.5 * i for i in range(60)]),
+        "D": _df_from_close([100.0 - 0.5 * i for i in range(60)]),
     }
     fired3 = {s.name for s in evaluate_all(candles, cfg3) if s.stage == "histogram_flattening"}
     fired2 = {s.name for s in evaluate_all(candles, cfg2) if s.stage == "histogram_flattening"}

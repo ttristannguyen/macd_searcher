@@ -49,7 +49,7 @@ Every asset that passed the liquidity filter and had enough candles for MACD, **
 | `macd_signal` | REAL | Signal line (EMA of MACD), confirmed view. |
 | `hist` | REAL | Histogram (`macd − macd_signal`), confirmed view. |
 | `atr` | REAL | Wilder's ATR(14), confirmed view. |
-| `macd_pct_of_price` | REAL | `|macd| / close`, confirmed. The **Stage 3** proximity metric — how close MACD is to zero. |
+| `macd_pct_of_price` | REAL | `|macd| / close`, confirmed. (Was the Stage-3 proximity metric; retained as general MACD state now that Stage 3 is removed.) |
 | `macd_shrinking_n_bars` | INTEGER | Consecutive most-recent bars where `|macd|` strictly decreased, confirmed view. |
 | `live_close` | REAL | Latest price **including** today's forming bar (live view). |
 | `live_hist` | REAL | Histogram including the forming bar (live view). |
@@ -71,14 +71,14 @@ One asset that triggered an alert in a given run. The `fire_*` columns capture t
 | `signal_id` | TEXT (PK) | Unique id for the alert (`uuid4` hex). |
 | `run_id` | TEXT (FK→runs) | The run that produced this alert. |
 | `symbol` | TEXT | The asset. |
-| `stage` | TEXT | `histogram_flattening` (Stage 1, earliest) or `zero_line_proximity` (Stage 3, imminent). Only the higher-priority stage is recorded when both fire. |
+| `stage` | TEXT | Always `histogram_flattening` for new rows. `zero_line_proximity` appears only in **legacy** rows from the removed Stage-3 detector — the dashboard filters those out. |
 | `direction` | TEXT | `bullish` (expecting an upward cross) or `bearish` (downward). |
 | `fired_at` | TEXT | When the signal fired (equals the run's `started_at`). |
 | `fire_close` | REAL | Price used at fire time — **live** price for Stage 1, **closed** close for Stage 3. The entry reference for return calculations. |
 | `fire_macd` | REAL | MACD value at fire. |
 | `fire_hist` | REAL | Histogram value at fire. |
-| `fire_macd_pct_of_price` | REAL | `|macd|/price` at fire. Populated for Stage 3; NULL for Stage 1. |
-| `fire_atr_multiple` | REAL | `|macd|/ATR` at fire. Populated only for Stage 3 in `atr` mode; NULL otherwise. |
+| `fire_macd_pct_of_price` | REAL | **Legacy Stage-3 column** — NULL for all new (Stage-1) rows; retained for historical data. |
+| `fire_atr_multiple` | REAL | **Legacy Stage-3 column** (`atr` mode) — NULL for all new rows; retained for historical data. |
 | `fire_hist_peak` | REAL | Histogram peak at fire (Stage 1); NULL for Stage 3. |
 | `fire_reduction_from_peak` | REAL | Reduction-from-peak at fire (Stage 1); NULL for Stage 3. |
 

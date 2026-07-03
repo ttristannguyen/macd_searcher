@@ -57,7 +57,6 @@ export interface SignalRow {
   direction: string
   fire_close: number | null
   fire_macd: number | null
-  fire_macd_pct_of_price: number | null
   fire_reduction_from_peak: number | null
 }
 
@@ -77,11 +76,6 @@ export interface SymbolCountRow {
   fires: number
 }
 
-export interface ProximityHeadroom {
-  avg_assets_under_0_2pct: number | null
-  avg_assets_under_0_5pct: number | null
-  avg_assets_under_1pct: number | null
-}
 
 // ---------- performance / outcomes (/api/perf/*) ----------
 
@@ -170,8 +164,6 @@ export interface PerfClassStage {
   win_pct: number | null
   avg_ret_pct: number | null
 }
-
-export type ThresholdKind = 'proximity' | 'reduction'
 
 export interface PerfBucket {
   bucket: string

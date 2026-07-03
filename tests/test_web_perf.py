@@ -39,14 +39,13 @@ def _metrics(name: str, macd_pct: float) -> AssetMetrics:
     )
 
 
-def _fire(conn, symbol, stage, direction, fired_at, fire_close, *,
-          macd_pct=None, reduction=None, px_7d=None, mfe=None, mae=None,
+def _fire(conn, symbol, direction, fired_at, fire_close, *,
+          reduction=0.5, px_7d=None, mfe=None, mae=None,
           bars=None, finalized=False):
+    """Insert one histogram_flattening signal and backfill its outcome columns."""
     sig = Signal(
-        symbol, stage, direction, close=fire_close, macd=-0.5, hist=-0.1,
-        macd_pct_of_price=macd_pct,
-        hist_peak=0.5 if reduction is not None else None,
-        reduction_from_peak=reduction,
+        symbol, "histogram_flattening", direction, close=fire_close,
+        macd=-0.5, hist=-0.1, hist_peak=0.5, reduction_from_peak=reduction,
     )
     db.insert_signals(conn, "r1", [sig], fired_at)
     conn.execute(
@@ -72,22 +71,21 @@ def _seed(path: str) -> None:
 
     # Day A — BTC fires twice (same asset-day): dedup must keep only the
     # earlier 08:00 win and drop the 12:00 loss.
-    _fire(conn, "BTC", "zero_line_proximity", "bullish", f"{DAY_A}T08:00:00+00:00",
-          100.0, macd_pct=0.0005, px_7d=110.0, mfe=0.12, mae=-0.02, bars=3, finalized=True)
-    _fire(conn, "BTC", "zero_line_proximity", "bullish", f"{DAY_A}T12:00:00+00:00",
-          100.0, macd_pct=0.0005, px_7d=90.0, mfe=0.0, mae=-0.10, bars=1, finalized=True)
+    _fire(conn, "BTC", "bullish", f"{DAY_A}T08:00:00+00:00",
+          100.0, reduction=0.5, px_7d=110.0, mfe=0.12, mae=-0.02, bars=3, finalized=True)
+    _fire(conn, "BTC", "bullish", f"{DAY_A}T12:00:00+00:00",
+          100.0, reduction=0.5, px_7d=90.0, mfe=0.0, mae=-0.10, bars=1, finalized=True)
     # Day A — ETH loss, never crossed zero within horizon (bars NULL).
-    _fire(conn, "ETH", "zero_line_proximity", "bullish", f"{DAY_A}T08:00:00+00:00",
-          200.0, macd_pct=0.0025, px_7d=190.0, mfe=0.03, mae=-0.06, bars=None, finalized=True)
-    # Day B — TSLA bearish win (1 - 380/400 = +5%).
-    _fire(conn, "xyz:TSLA", "histogram_flattening", "bearish", f"{DAY_B}T08:00:00+00:00",
+    _fire(conn, "ETH", "bullish", f"{DAY_A}T08:00:00+00:00",
+          200.0, reduction=0.5, px_7d=190.0, mfe=0.03, mae=-0.06, bars=None, finalized=True)
+    # Day B — TSLA bearish win (1 - 380/400 = +5%), reduction 0.6.
+    _fire(conn, "xyz:TSLA", "bearish", f"{DAY_B}T08:00:00+00:00",
           400.0, reduction=0.6, px_7d=380.0, mfe=0.06, mae=-0.01, bars=2, finalized=True)
     # Day B — SOL still pending (no outcome yet).
-    _fire(conn, "SOL", "zero_line_proximity", "bullish", f"{DAY_B}T08:00:00+00:00",
-          50.0, macd_pct=0.001, finalized=False)
-    # PRE-FIX — a contaminated Stage-1-era signal; must be excluded by default.
-    _fire(conn, "OLD", "zero_line_proximity", "bullish", f"{PRE_FIX}T08:00:00+00:00",
-          100.0, macd_pct=0.001, px_7d=130.0, mfe=0.30, mae=-0.01, bars=1, finalized=True)
+    _fire(conn, "SOL", "bullish", f"{DAY_B}T08:00:00+00:00", 50.0, finalized=False)
+    # PRE-FIX — before DETECTOR_FIX_CUTOFF; must be excluded by default.
+    _fire(conn, "OLD", "bullish", f"{PRE_FIX}T08:00:00+00:00",
+          100.0, px_7d=130.0, mfe=0.30, mae=-0.01, bars=1, finalized=True)
     conn.close()
 
 
@@ -100,11 +98,11 @@ def _seed_multi(path: str) -> None:
     db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
     db.insert_snapshots(conn, "r1", {}, [_metrics("ACE", 0.001), _metrics("WIN", 0.001)])
     for day, px7 in (("2026-06-12", 110.0), ("2026-06-13", 105.0), ("2026-06-14", 98.0)):
-        _fire(conn, "ACE", "zero_line_proximity", "bullish", f"{day}T08:00:00+00:00",
-              100.0, macd_pct=0.001, px_7d=px7, mfe=0.1, mae=-0.02, bars=2, finalized=True)
+        _fire(conn, "ACE", "bullish", f"{day}T08:00:00+00:00",
+              100.0, px_7d=px7, mfe=0.1, mae=-0.02, bars=2, finalized=True)
     for day in ("2026-06-12", "2026-06-13"):
-        _fire(conn, "WIN", "zero_line_proximity", "bullish", f"{day}T08:00:00+00:00",
-              100.0, macd_pct=0.001, px_7d=105.0, mfe=0.05, mae=-0.01, bars=2, finalized=True)
+        _fire(conn, "WIN", "bullish", f"{day}T08:00:00+00:00",
+              100.0, px_7d=105.0, mfe=0.05, mae=-0.01, bars=2, finalized=True)
     conn.close()
 
 
@@ -149,8 +147,8 @@ def test_readiness(client):
 def test_summary_dedup(client):
     rows = client.get("/api/perf/summary?horizon=7d").json()
     by = {(r["stage"], r["direction"]): r for r in rows}
-    # BTC duplicate dropped → zero_line bullish = BTC(+10%) + ETH(-5%): n=2.
-    z = by[("zero_line_proximity", "bullish")]
+    # BTC duplicate dropped → S1 bullish = BTC(+10%) + ETH(-5%): n=2.
+    z = by[("histogram_flattening", "bullish")]
     assert z["n"] == 2
     assert z["win_pct"] == 50.0
     assert z["avg_ret_pct"] == 2.5
@@ -166,36 +164,35 @@ def test_summary_dedup(client):
 def test_by_horizon(client):
     rows = client.get("/api/perf/by-horizon").json()
     by = {r["stage"]: r for r in rows}
-    assert by["zero_line_proximity"]["n_7d"] == 2
-    assert by["zero_line_proximity"]["ret_7d"] == 2.5
-    assert by["histogram_flattening"]["ret_7d"] == 5.0
+    # One stage now; deduped BTC(+10) + ETH(-5) + TSLA(+5) → mean 3.33 over n=3.
+    assert by["histogram_flattening"]["n_7d"] == 3
+    assert by["histogram_flattening"]["ret_7d"] == 3.33
 
 
 def test_lead_time(client):
     rows = client.get("/api/perf/lead-time").json()
     by = {r["stage"]: r for r in rows}
-    z = by["zero_line_proximity"]
-    assert z["finalized_n"] == 2          # BTC#1 + ETH (dup dropped)
-    assert z["crossed_n"] == 1            # only BTC crossed
-    assert z["cross_rate_pct"] == 50.0
-    assert z["avg_bars_to_cross"] == 3.0
+    z = by["histogram_flattening"]
+    assert z["finalized_n"] == 3          # BTC#1 + ETH + TSLA (BTC dup dropped)
+    assert z["crossed_n"] == 2            # BTC (3 bars) + TSLA (2 bars); ETH never crossed
+    assert z["cross_rate_pct"] == 66.7
+    assert z["avg_bars_to_cross"] == 2.5
 
 
 def test_by_class(client):
     rows = client.get("/api/perf/by-class?horizon=7d&min_n=1").json()
     by = {(r["asset_class"], r["stage"]): r for r in rows}
-    assert by[("crypto", "zero_line_proximity")]["n"] == 2
-    assert by[("crypto", "zero_line_proximity")]["avg_ret_pct"] == 2.5
+    assert by[("crypto", "histogram_flattening")]["n"] == 2
+    assert by[("crypto", "histogram_flattening")]["avg_ret_pct"] == 2.5
     assert by[("equity", "histogram_flattening")]["avg_ret_pct"] == 5.0
 
 
 def test_thresholds(client):
-    prox = client.get("/api/perf/thresholds?kind=proximity").json()
-    buckets = {r["bucket"]: r for r in prox}
-    assert buckets["a <0.1%"]["n"] == 1     # BTC at 0.0005
-    assert buckets["c 0.2-0.3%"]["n"] == 1   # ETH at 0.0025
-    red = client.get("/api/perf/thresholds?kind=reduction").json()
-    assert {r["bucket"] for r in red} == {"c 0.6-0.8"}  # TSLA reduction 0.6 (not < 0.6)
+    red = client.get("/api/perf/thresholds").json()
+    by = {r["bucket"]: r for r in red}
+    assert set(by) == {"b 0.4-0.6", "c 0.6-0.8"}
+    assert by["b 0.4-0.6"]["n"] == 2   # BTC + ETH at reduction 0.5 (dedup drops BTC dup)
+    assert by["c 0.6-0.8"]["n"] == 1   # TSLA at reduction 0.6 (not < 0.6)
 
 
 def test_invalid_horizon_422(client):
@@ -205,8 +202,8 @@ def test_invalid_horizon_422(client):
 def test_distribution_ret7d(client):
     rows = client.get("/api/perf/distribution?metric=ret_7d").json()
     by = {(r["stage"], r["direction"]): r for r in rows}
-    # zero_line bullish: deduped BTC(+10%) + ETH(-5%), dup dropped.
-    z = by[("zero_line_proximity", "bullish")]
+    # S1 bullish: deduped BTC(+10%) + ETH(-5%), dup dropped.
+    z = by[("histogram_flattening", "bullish")]
     assert z["n"] == 2
     assert z["median"] == 2.5
     assert z["mean"] == 2.5
@@ -220,17 +217,18 @@ def test_distribution_ret7d(client):
 def test_distribution_metric_switch(client):
     rows = client.get("/api/perf/distribution?metric=mfe").json()
     by = {(r["stage"], r["direction"]): r for r in rows}
-    assert by[("zero_line_proximity", "bullish")]["median"] == 7.5  # BTC 12% / ETH 3%
+    assert by[("histogram_flattening", "bullish")]["median"] == 7.5  # BTC 12% / ETH 3%
 
     mae = client.get("/api/perf/distribution?metric=mae").json()
     by_mae = {(r["stage"], r["direction"]): r for r in mae}
-    assert by_mae[("zero_line_proximity", "bullish")]["median"] == -4.0
+    assert by_mae[("histogram_flattening", "bullish")]["median"] == -4.0
 
 
 def test_distribution_min_n_drops_small_groups(client):
     rows = client.get("/api/perf/distribution?metric=ret_7d&min_n=2").json()
-    assert len(rows) == 1
-    assert rows[0]["stage"] == "zero_line_proximity"
+    assert len(rows) == 1  # only S1 bullish has n=2 (BTC+ETH); bearish TSLA is n=1
+    assert rows[0]["stage"] == "histogram_flattening"
+    assert rows[0]["direction"] == "bullish"
 
 
 def test_distribution_invalid_metric_422(client):
@@ -245,7 +243,7 @@ def test_pre_fix_signals_excluded(client):
     # zero_line bullish stays BTC + ETH (would be 3 if OLD leaked in), and
     # readiness counts 5 of the 6 seeded signals.
     rows = client.get("/api/perf/summary").json()
-    z = next(r for r in rows if r["stage"] == "zero_line_proximity" and r["direction"] == "bullish")
+    z = next(r for r in rows if r["stage"] == "histogram_flattening" and r["direction"] == "bullish")
     assert z["n"] == 2
     assert client.get("/api/perf/readiness").json()["total"] == 5
 

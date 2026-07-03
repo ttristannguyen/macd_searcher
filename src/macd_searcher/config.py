@@ -9,18 +9,14 @@ from __future__ import annotations
 import os
 from datetime import time
 from pathlib import Path
-from typing import Literal
 
 import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-SignalMode = Literal["price_pct", "atr", "rank"]
-
-
 class HistogramFlatteningConfig(BaseModel):
-    """Stage 1 detector — earliest warning.
+    """The histogram_flattening detector — our sole signal.
 
     Fires when the MACD histogram (macd - signal) has peaked above the noise
     floor and is now shrinking back toward zero. Direction is set by which
@@ -32,25 +28,13 @@ class HistogramFlatteningConfig(BaseModel):
     min_peak_pct_of_price: float = Field(0.002, ge=0)
     min_reduction_from_peak: float = Field(0.3, ge=0, le=1)
     peak_lookback: int = Field(10, ge=2)
-    # Stage 1 is the "fast/live" detector: it reads today's still-forming daily
-    # bar so it can join momentum intraday. Stage 3 stays on closed bars
-    # (controlled by candles.use_forming_candle) so its "imminent cross" alerts
-    # don't repaint.
+    # Reads today's still-forming daily bar so it can join momentum intraday.
     use_forming_candle: bool = True
 
 
 class SignalConfig(BaseModel):
-    """Stage 3 detector lives at the top level; Stage 1 is nested."""
+    """Detector configuration — histogram_flattening only."""
 
-    # Stage 3: zero-line proximity
-    zero_line_enabled: bool = True
-    mode: SignalMode = "price_pct"
-    price_pct_threshold: float = Field(0.005, gt=0)
-    atr_multiple: float = Field(0.25, gt=0)
-    rank_top_n: int = Field(15, gt=0)
-    shrink_lookback: int = Field(3, ge=2)
-
-    # Stage 1: histogram flattening
     histogram_flattening: HistogramFlatteningConfig = HistogramFlatteningConfig()
 
 
@@ -68,7 +52,6 @@ class MACDConfig(BaseModel):
 
 class CandlesConfig(BaseModel):
     interval: str = "1d"
-    use_forming_candle: bool = False
     lookback_days: int = Field(200, ge=35)
 
 

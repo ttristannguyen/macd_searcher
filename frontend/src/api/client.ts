@@ -15,8 +15,6 @@ import type {
   PerfReductionCounterfactual,
   PerfStageDirection,
   PerfSymbolScore,
-  ProximityHeadroom,
-  ThresholdKind,
   RunRow,
   SignalRow,
   StageDirectionRow,
@@ -97,13 +95,6 @@ export const useSignalsPerDay = (days = 14) =>
     refetchInterval: STATS_REFRESH,
   })
 
-export const useProximityHeadroom = () =>
-  useQuery({
-    queryKey: ['headroom'],
-    queryFn: () => fetchJson<ProximityHeadroom>('/api/stats/proximity-headroom'),
-    refetchInterval: STATS_REFRESH,
-  })
-
 // ---------- performance / outcomes ----------
 //
 // Outcomes mature ~14 days after a signal fires, so these refresh slowly.
@@ -159,10 +150,10 @@ export const usePerfByClass = (horizon: Horizon = '7d', minN = 1) =>
     refetchInterval: PERF_REFRESH,
   })
 
-export const usePerfThresholds = (kind: ThresholdKind, horizon: Horizon = '7d') =>
+export const usePerfThresholds = (horizon: Horizon = '7d') =>
   useQuery({
-    queryKey: ['perf-thresholds', kind, horizon],
-    queryFn: () => fetchJson<PerfBucket[]>(`/api/perf/thresholds?kind=${kind}&horizon=${horizon}`),
+    queryKey: ['perf-thresholds', horizon],
+    queryFn: () => fetchJson<PerfBucket[]>(`/api/perf/thresholds?horizon=${horizon}`),
     refetchInterval: PERF_REFRESH,
   })
 

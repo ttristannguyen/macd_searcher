@@ -1,6 +1,5 @@
 import { ByClassChart, NotifyStatusChart, RunsPerDayChart, SignalsPerDayChart, StageDirectionChart } from '../components/Charts'
 import { HealthBanner } from '../components/HealthBanner'
-import { Headroom } from '../components/Headroom'
 import { RunsTable } from '../components/RunsTable'
 import { SignalsFeed } from '../components/SignalsFeed'
 import { TopSymbols } from '../components/TopSymbols'
@@ -28,12 +27,7 @@ export function Dashboard() {
 
       <SignalsFeed />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <Headroom />
-        </div>
-        <TopSymbols />
-      </div>
+      <TopSymbols />
     </div>
   )
 }

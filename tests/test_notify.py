@@ -91,22 +91,19 @@ def test_format_message_empty_signals():
     assert "No assets" in text
 
 
-def test_format_message_groups_by_stage_and_direction():
+def test_format_message_groups_by_direction():
     signals = [
-        _mk_signal("BTC", "zero_line_proximity", "bearish",
-                   macd=120, hist=-5, close=60000, macd_pct_of_price=0.002),
         _mk_signal("ETH", "histogram_flattening", "bullish",
                    macd=-50, hist=-10, close=2000, hist_peak=-25, reduction_from_peak=0.6),
         _mk_signal("SOL", "histogram_flattening", "bearish",
                    macd=2, hist=0.1, close=85, hist_peak=0.5, reduction_from_peak=0.8),
     ]
     text = format_message(signals, scanned_count=50, cfg=AppConfig())
-    # Stage 3 must appear before Stage 1 in the output.
-    s3_idx = text.index("Stage 3")
-    s1_idx = text.index("Stage 1")
-    assert s3_idx < s1_idx
+    assert "histogram flattening" in text
+    # No Stage-3 vestiges.
+    assert "zero-line" not in text and "Stage 3" not in text
     # Each signal name should appear exactly once.
-    for name in ("BTC", "ETH", "SOL"):
+    for name in ("ETH", "SOL"):
         assert text.count(name) == 1
     # Direction headers should be present.
     assert "BEARISH" in text
@@ -161,8 +158,8 @@ async def test_send_signals_dry_run_prints_to_stdout():
     buf = io.StringIO()
     with redirect_stdout(buf):
         await send_signals(
-            [_mk_signal("BTC", "zero_line_proximity", "bearish",
-                        macd=120, hist=-1, close=60000, macd_pct_of_price=0.002)],
+            [_mk_signal("BTC", "histogram_flattening", "bearish",
+                        macd=120, hist=5, close=60000, hist_peak=10, reduction_from_peak=0.6)],
             scanned_count=99,
             cfg=cfg,
         )
@@ -207,8 +204,8 @@ async def test_send_signals_missing_credentials_prints_warning_and_text():
     buf = io.StringIO()
     with redirect_stdout(buf):
         await send_signals(
-            [_mk_signal("TEST", "zero_line_proximity", "bullish",
-                        macd=-0.1, hist=0.01, close=100, macd_pct_of_price=0.001)],
+            [_mk_signal("TEST", "histogram_flattening", "bullish",
+                        macd=-0.1, hist=-0.01, close=100, hist_peak=-0.05, reduction_from_peak=0.5)],
             scanned_count=1,
             cfg=cfg,
         )

@@ -2,6 +2,8 @@
 
 A Python service that scans every asset listed on Hyperliquid (crypto perps + HIP-3 / equity-style perps) on the **1-day** timeframe and posts a Telegram alert when an asset's MACD line is approaching the zero line, classifying the cross as bullish or bearish.
 
+> **Historical note:** the **Stage 3 (zero-line proximity)** detector described below has been **removed** — histogram_flattening (Stage 1) is now the sole signal. Sections referring to Stage 3 / `price_pct` / `atr` / `rank` modes are kept for design history only. See [docs/s3_removal.md](docs/s3_removal.md).
+
 ---
 
 ## 1. Scope & Decisions (confirmed)

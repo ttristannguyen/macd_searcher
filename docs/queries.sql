@@ -1,5 +1,10 @@
 -- macd_searcher — analytical query pack
 -- =====================================================================
+-- NOTE: Stage 3 (zero_line_proximity) has been removed. Queries/sections that
+-- filter on stage = 'zero_line_proximity' or the proximity metric
+-- (macd_pct_of_price / fire_macd_pct_of_price) apply only to legacy historical
+-- rows; new data is all histogram_flattening. See docs/s3_removal.md.
+-- =====================================================================
 -- Usage:
 --   Run the whole file:   sqlite3 state/macd_searcher.sqlite3 < docs/queries.sql
 --   Or open the DB:       sqlite3 state/macd_searcher.sqlite3

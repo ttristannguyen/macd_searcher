@@ -32,10 +32,7 @@ log = logging.getLogger(__name__)
 # Telegram's hard cap is 4096 chars; chunk well below for safety.
 _CHUNK_SOFT_CAP = 3800
 
-_STAGE_LABELS = {
-    "zero_line_proximity": "🎯 Stage 3 — zero-line proximity",
-    "histogram_flattening": "📉 Stage 1 — histogram flattening",
-}
+_STAGE_HEADER = "📉 histogram flattening"
 _DIRECTION_EMOJI = {"bullish": "🟢", "bearish": "🔴"}
 
 
@@ -78,22 +75,9 @@ def _fmt_stage1_row(s: Signal) -> str:
     )
 
 
-def _fmt_stage3_row(s: Signal, mode: str) -> str:
-    metric = ""
-    if mode == "atr" and s.atr_multiple is not None:
-        metric = f"|M|/ATR {s.atr_multiple:.2f}"
-    elif s.macd_pct_of_price is not None:
-        metric = f"|M|/px {s.macd_pct_of_price:.2%}"
-    return f"  {s.name:<10} MACD {s.macd:+.4g}   {metric}   px {_fmt_price(s.close)}"
-
-
 def _strength_key(s: Signal) -> float:
-    """Sort order within a bucket — strongest first."""
-    if s.stage == "zero_line_proximity":
-        return s.macd_pct_of_price if s.macd_pct_of_price is not None else float("inf")
-    if s.stage == "histogram_flattening":
-        return -(s.reduction_from_peak or 0.0)
-    return 0.0
+    """Sort order within a direction bucket — deepest reduction from peak first."""
+    return -(s.reduction_from_peak or 0.0)
 
 
 def format_message(
@@ -114,26 +98,18 @@ def format_message(
         lines.append("No assets met the configured criteria this cycle.")
         return "\n".join(lines)
 
-    # Group: stage 3 first (closer to actual cross), then stage 1.
-    for stage in ("zero_line_proximity", "histogram_flattening"):
-        bucket = [s for s in signals if s.stage == stage]
-        if not bucket:
+    lines.append("")
+    lines.append(f"{_STAGE_HEADER} ({len(signals)})")
+    for direction in ("bearish", "bullish"):
+        rows = sorted(
+            [s for s in signals if s.direction == direction],
+            key=_strength_key,
+        )
+        if not rows:
             continue
-        lines.append("")
-        lines.append(f"{_STAGE_LABELS[stage]} ({len(bucket)})")
-        for direction in ("bearish", "bullish"):
-            rows = sorted(
-                [s for s in bucket if s.direction == direction],
-                key=_strength_key,
-            )
-            if not rows:
-                continue
-            lines.append(f"{_DIRECTION_EMOJI[direction]} {direction.upper()} ({len(rows)})")
-            for s in rows:
-                if stage == "zero_line_proximity":
-                    lines.append(_fmt_stage3_row(s, cfg.signal.mode))
-                else:
-                    lines.append(_fmt_stage1_row(s))
+        lines.append(f"{_DIRECTION_EMOJI[direction]} {direction.upper()} ({len(rows)})")
+        for s in rows:
+            lines.append(_fmt_stage1_row(s))
 
     return "\n".join(lines)
 

@@ -2,6 +2,8 @@
 
 A web dashboard to monitor the scanner and explore its findings. Companion to the backend [PLAN.md](PLAN.md); reads the same SQLite DB. This is a living document — items get checked off and amended as we build.
 
+> **Note:** the dashboard is now **Stage-1-only** — the Stage-3 detector was removed, the proximity/headroom panels are gone, and every read query filters to `stage = 'histogram_flattening'`. See [docs/s3_removal.md](docs/s3_removal.md).
+
 ---
 
 ## 1. Decisions (from requirements Q&A)

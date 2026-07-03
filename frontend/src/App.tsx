@@ -44,7 +44,7 @@ export default function App() {
               ))}
             </nav>
           </div>
-          <span className="text-xs text-slate-600">1D MACD zero-line scanner · Hyperliquid</span>
+          <span className="text-xs text-slate-600">1D MACD histogram scanner · Hyperliquid</span>
         </div>
       </header>
       <main className="mx-auto max-w-7xl p-4 md:p-6">{PAGES[tab]}</main>

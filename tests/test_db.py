@@ -94,9 +94,8 @@ def test_insert_signals_roundtrip_with_null_outcomes():
     conn = _conn()
     db.start_run(conn, "r1", "t0", None, None, None)
     sigs = [
-        Signal(name="xyz:TSLA", stage="zero_line_proximity", direction="bearish",
-               close=400.0, macd=0.1, hist=-0.2, macd_pct_of_price=0.00025,
-               atr_multiple=None, hist_peak=None, reduction_from_peak=None),
+        Signal(name="xyz:TSLA", stage="histogram_flattening", direction="bearish",
+               close=400.0, macd=0.1, hist=-0.2, hist_peak=0.3, reduction_from_peak=0.5),
         Signal(name="ETH", stage="histogram_flattening", direction="bullish",
                close=2000.0, macd=-50.0, hist=-10.0, hist_peak=-25.0,
                reduction_from_peak=0.6),
@@ -104,12 +103,13 @@ def test_insert_signals_roundtrip_with_null_outcomes():
     db.insert_signals(conn, "r1", sigs, "2026-01-01T00:00:00+00:00")
 
     rows = conn.execute(
-        "SELECT symbol, stage, direction, fire_macd, outcome_updated_at "
+        "SELECT symbol, stage, direction, fire_macd, fire_macd_pct_of_price, outcome_updated_at "
         "FROM signals ORDER BY symbol"
     ).fetchall()
+    # fire_macd_pct_of_price is a legacy Stage-3 column — always NULL now.
     assert rows == [
-        ("ETH", "histogram_flattening", "bullish", -50.0, None),
-        ("xyz:TSLA", "zero_line_proximity", "bearish", 0.1, None),
+        ("ETH", "histogram_flattening", "bullish", -50.0, None, None),
+        ("xyz:TSLA", "histogram_flattening", "bearish", 0.1, None, None),
     ]
     # Each signal row gets a unique id.
     ids = [r[0] for r in conn.execute("SELECT signal_id FROM signals")]
@@ -132,8 +132,8 @@ def test_pending_signals_and_outcome_update_roundtrip():
     conn = _conn()
     db.start_run(conn, "r1", "t0", None, None, None)
     sigs = [
-        Signal(name="BTC", stage="zero_line_proximity", direction="bullish",
-               close=100.0, macd=-0.1, hist=0.0, macd_pct_of_price=0.001),
+        Signal(name="BTC", stage="histogram_flattening", direction="bullish",
+               close=100.0, macd=-0.1, hist=0.0, hist_peak=-0.3, reduction_from_peak=0.5),
         Signal(name="ETH", stage="histogram_flattening", direction="bearish",
                close=200.0, macd=0.1, hist=0.05),
     ]
@@ -169,7 +169,7 @@ def test_partial_outcome_leaves_signal_pending():
     conn = _conn()
     db.start_run(conn, "r1", "t0", None, None, None)
     db.insert_signals(conn, "r1", [
-        Signal(name="SOL", stage="zero_line_proximity", direction="bullish",
+        Signal(name="SOL", stage="histogram_flattening", direction="bullish",
                close=50.0, macd=-0.01, hist=0.0)
     ], "2026-01-01T00:00:00+00:00")
     sid = db.fetch_pending_signals(conn)[0]["signal_id"]

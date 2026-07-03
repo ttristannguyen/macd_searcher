@@ -12,7 +12,9 @@ mirrors the `signal_perf` view in docs/queries.sql, inlined here because the
 dashboard connection is read-only and can't CREATE VIEW.
 
 Every query filters to fired_at >= DETECTOR_FIX_CUTOFF — the pre-fix Stage 1
-detector emitted false signals, so that data is simply excluded.
+detector emitted false signals, so that data is simply excluded — and to
+stage = 'histogram_flattening'. Stage 3 (zero-line proximity) has been removed;
+its historical rows stay in the DB but are never surfaced here.
 """
 
 from __future__ import annotations
@@ -28,7 +30,6 @@ from ..stats import summarize
 # Horizon is whitelisted (not bound) because it names a column. The Literal is
 # enforced at the FastAPI layer, so only these four values ever reach the SQL.
 Horizon = Literal["1d", "3d", "7d", "14d"]
-ThresholdKind = Literal["proximity", "reduction"]
 
 # Metrics whose distribution can be summarized. Maps the API name to the column
 # exposed by the `perf` CTE; whitelisted so only these reach the SQL.
@@ -74,7 +75,7 @@ def _base() -> tuple[str, list]:
     WITH first_fire AS (
         SELECT symbol, stage, direction, MIN(fired_at) AS first_fired
         FROM signals
-        WHERE fired_at >= ?
+        WHERE fired_at >= ? AND stage = 'histogram_flattening'
         GROUP BY symbol, stage, direction, substr(fired_at, 1, 10)
     ),
     perf AS (
@@ -101,7 +102,8 @@ def readiness(conn: sqlite3.Connection) -> dict:
 
     Counts raw post-fix signals (no dedup) — this measures whether the
     update_outcomes job is keeping up, not performance. Filtered to
-    fired_at >= DETECTOR_FIX_CUTOFF so the banner matches the rest of the tab.
+    fired_at >= DETECTOR_FIX_CUTOFF and stage = 'histogram_flattening' so the
+    banner matches the rest of the (S1-only) tab.
     """
     p = (DETECTOR_FIX_CUTOFF,)
     row = conn.execute(
@@ -111,12 +113,13 @@ def readiness(conn: sqlite3.Connection) -> dict:
         "COALESCE(SUM(px_3d  IS NOT NULL), 0) AS have_3d, "
         "COALESCE(SUM(px_7d  IS NOT NULL), 0) AS have_7d, "
         "COALESCE(SUM(px_14d IS NOT NULL), 0) AS have_14d "
-        "FROM signals WHERE fired_at >= ?",
+        "FROM signals WHERE fired_at >= ? AND stage = 'histogram_flattening'",
         p,
     ).fetchone()
     pend = conn.execute(
         "SELECT MIN(fired_at) AS oldest_pending, COUNT(*) AS pending "
-        "FROM signals WHERE outcome_updated_at IS NULL AND fired_at >= ?",
+        "FROM signals WHERE outcome_updated_at IS NULL AND fired_at >= ? "
+        "AND stage = 'histogram_flattening'",
         p,
     ).fetchone()
     out = dict(row)
@@ -295,36 +298,24 @@ def by_class(
 
 def thresholds(
     conn: sqlite3.Connection,
-    kind: ThresholdKind,
     horizon: Horizon = "7d",
 ) -> list[dict]:
-    """G1/G2: win-rate by proximity-to-zero (Stage 3) or reduction-from-peak
-    (Stage 1) bucket. If the tightest/deepest buckets win more, the threshold
-    is loose."""
+    """G2: win-rate by histogram reduction-from-peak bucket over FIRED signals
+    (reduction >= 0.3). If the deepest buckets win more, the fire threshold is
+    loose. See `reduction_counterfactual` for the below-0.3 (never-fired) band."""
     cte, params = _base()
     ret = f"ret_{horizon}"
-    if kind == "proximity":
-        bucket = (
-            "CASE WHEN fire_macd_pct_of_price < 0.001 THEN 'a <0.1%' "
-            "WHEN fire_macd_pct_of_price < 0.002 THEN 'b 0.1-0.2%' "
-            "WHEN fire_macd_pct_of_price < 0.003 THEN 'c 0.2-0.3%' "
-            "WHEN fire_macd_pct_of_price < 0.005 THEN 'd 0.3-0.5%' "
-            "ELSE 'e >=0.5%' END"
-        )
-        cond = "stage = 'zero_line_proximity' AND fire_macd_pct_of_price IS NOT NULL"
-    else:  # reduction
-        bucket = (
-            "CASE WHEN fire_reduction_from_peak < 0.4 THEN 'a 0.3-0.4' "
-            "WHEN fire_reduction_from_peak < 0.6 THEN 'b 0.4-0.6' "
-            "WHEN fire_reduction_from_peak < 0.8 THEN 'c 0.6-0.8' "
-            "ELSE 'd 0.8-1.0' END"
-        )
-        cond = "stage = 'histogram_flattening' AND fire_reduction_from_peak IS NOT NULL"
+    bucket = (
+        "CASE WHEN fire_reduction_from_peak < 0.4 THEN 'a 0.3-0.4' "
+        "WHEN fire_reduction_from_peak < 0.6 THEN 'b 0.4-0.6' "
+        "WHEN fire_reduction_from_peak < 0.8 THEN 'c 0.6-0.8' "
+        "ELSE 'd 0.8-1.0' END"
+    )
     sql = cte + (
         f"SELECT {bucket} AS bucket, COUNT(*) AS n, "
         f"ROUND(AVG({ret} > 0) * 100, 1) AS win_pct, "
         f"ROUND(AVG({ret}) * 100, 2) AS avg_ret_pct "
-        f"FROM perf WHERE {cond} AND {ret} IS NOT NULL "
+        f"FROM perf WHERE fire_reduction_from_peak IS NOT NULL AND {ret} IS NOT NULL "
         f"GROUP BY bucket ORDER BY bucket"
     )
     return _rows(conn, sql, tuple(params))

@@ -38,13 +38,11 @@ export function fmtPctPts(n: number | null | undefined, digits = 1, signed = fal
 
 export function stageLabel(stage: string): string {
   if (stage === 'histogram_flattening') return 'Stage 1 · histogram'
-  if (stage === 'zero_line_proximity') return 'Stage 3 · zero-line'
   return stage
 }
 
 export function stageShort(stage: string): string {
   if (stage === 'histogram_flattening') return 'S1 hist'
-  if (stage === 'zero_line_proximity') return 'S3 zero'
   return stage
 }
 

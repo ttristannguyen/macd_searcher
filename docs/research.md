@@ -5,6 +5,10 @@ A methods reference for the analytical and signal-quality items in
 quality). For each, the concrete algorithm/indicator/pattern, the formula, and
 how it lands in *our* stack — so this is a build sheet, not a reading list.
 
+> **Note:** Stage 3 (zero-line proximity) has been removed; histogram_flattening
+> is the sole detector. Anything below referencing Stage 3 or its proximity
+> threshold applies to legacy data only. See [s3_removal.md](s3_removal.md).
+
 ## Ground rules for this codebase
 
 - **Stack:** `numpy` + `pandas` + **`scipy`** (the standard scientific-Python

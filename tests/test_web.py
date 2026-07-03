@@ -42,8 +42,9 @@ def _seed(path: str) -> None:
     db.insert_snapshots(conn, "r1", assets,
                         [_metrics("BTC", 0.0001), _metrics("xyz:TSLA", 0.02)])
     db.insert_signals(conn, "r1", [
+        # A legacy Stage-3 row (historical) — must be hidden from every S1-only view.
         Signal("BTC", "zero_line_proximity", "bullish", close=60000.0,
-               macd=-0.5, hist=-0.1, macd_pct_of_price=0.0002),
+               macd=-0.5, hist=-0.1),
         Signal("xyz:TSLA", "histogram_flattening", "bearish", close=400.0,
                macd=1.0, hist=0.2, hist_peak=0.5, reduction_from_peak=0.6),
     ], now)
@@ -92,25 +93,23 @@ def test_runs(client):
 def test_recent_signals_has_asset_class(client):
     r = client.get("/api/signals/recent?limit=10")
     rows = r.json()
-    assert len(rows) == 2
-    by_symbol = {row["symbol"]: row for row in rows}
-    assert by_symbol["BTC"]["asset_class"] == "crypto"
-    assert by_symbol["xyz:TSLA"]["asset_class"] == "equity"
-    assert by_symbol["xyz:TSLA"]["direction"] == "bearish"
+    assert len(rows) == 1  # only the S1 signal; the legacy S3 row is hidden
+    row = rows[0]
+    assert row["symbol"] == "xyz:TSLA"
+    assert row["asset_class"] == "equity"
+    assert row["direction"] == "bearish"
 
 
 def test_by_stage_direction(client):
     rows = client.get("/api/stats/by-stage-direction").json()
     keys = {(r["stage"], r["direction"]): r["n"] for r in rows}
-    assert keys[("zero_line_proximity", "bullish")] == 1
-    assert keys[("histogram_flattening", "bearish")] == 1
+    assert keys == {("histogram_flattening", "bearish"): 1}  # S3 row excluded
 
 
 def test_by_class(client):
     rows = client.get("/api/stats/by-class").json()
     counts = {r["asset_class"]: r["n"] for r in rows}
-    assert counts["crypto"] == 1
-    assert counts["equity"] == 1
+    assert counts == {"equity": 1}  # BTC (crypto) is a legacy S3 row → excluded
 
 
 def test_notify_status(client):
@@ -121,15 +120,7 @@ def test_notify_status(client):
 def test_top_symbols(client):
     rows = client.get("/api/stats/top-symbols?limit=10").json()
     fires = {r["symbol"]: r["fires"] for r in rows}
-    assert fires["BTC"] == 1
-    assert fires["xyz:TSLA"] == 1
-
-
-def test_proximity_headroom(client):
-    body = client.get("/api/stats/proximity-headroom").json()
-    # Only BTC (0.0001) is under every band; TSLA (0.02) is under none.
-    assert body["avg_assets_under_0_2pct"] == 1.0
-    assert body["avg_assets_under_1pct"] == 1.0
+    assert fires == {"xyz:TSLA": 1}  # BTC S3 row excluded
 
 
 def test_missing_db_returns_503(monkeypatch, tmp_path):

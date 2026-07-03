@@ -2,15 +2,7 @@
 # Edit values here; secrets go in .env (see .env.example).
 
 signal:
-  # Stage 3 — zero-line proximity (the original target, latest warning)
-  zero_line_enabled: true
-  mode: price_pct              # price_pct | atr | rank
-  price_pct_threshold: 0.005   # Mode A: |MACD| / close < this
-  atr_multiple: 0.25           # Mode B: |MACD| < this * ATR(14)
-  rank_top_n: 15               # Mode C: top-N closest-to-zero, ascending |MACD|/close
-  shrink_lookback: 3           # bars over which |MACD| must be strictly decreasing toward zero
-
-  # Stage 1 — histogram flattening (earliest warning)
+  # histogram flattening — our sole detector.
   # Hist = macd - signal_line. Peaks before MACD reaches zero, so a shrinking
   # |hist| from a meaningful peak is an early read on momentum exhaustion.
   histogram_flattening:
@@ -28,11 +20,6 @@ macd:
 
 candles:
   interval: "1d"
-  # The forming (current, incomplete) bar is always fetched; each detector
-  # decides whether to use it. This flag is the DEFAULT and governs Stage 3
-  # (zero-line proximity): false = Stage 3 uses only closed bars, so its
-  # "imminent cross" alerts are stable and never repaint intraday.
-  use_forming_candle: false
   lookback_days: 200           # >= 35 needed for stable MACD; 200 leaves headroom
 
 hyperliquid:

@@ -9,7 +9,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { useState } from 'react'
 import {
   usePerfByClass,
   usePerfByHorizon,
@@ -20,9 +19,9 @@ import {
   usePerfSummary,
   usePerfThresholds,
 } from '../api/client'
-import type { Horizon, ThresholdKind } from '../api/types'
+import type { Horizon } from '../api/types'
 import { ASSET_CLASS_COLOR, fmtPctPts, relativeTime, stageShort } from '../lib/format'
-import { Badge, Card, Metric, Segmented, StateMsg, tone } from './ui'
+import { Badge, Card, Metric, StateMsg, tone } from './ui'
 
 const AXIS = '#64748b'
 const GRID = '#1e293b'
@@ -306,27 +305,14 @@ export function ByClass({ horizon }: { horizon: Horizon }) {
   )
 }
 
-// ---------- threshold buckets (do tighter / deeper signals win more?) ----------
-
-const THRESHOLD_KINDS: { value: ThresholdKind; label: string }[] = [
-  { value: 'proximity', label: 'S3 proximity' },
-  { value: 'reduction', label: 'S1 reduction' },
-]
+// ---------- reduction buckets (do deeper fired signals win more?) ----------
 
 export function Thresholds({ horizon }: { horizon: Horizon }) {
-  const [kind, setKind] = useState<ThresholdKind>('proximity')
-  const { data, isLoading, isError } = usePerfThresholds(kind, horizon)
+  const { data, isLoading, isError } = usePerfThresholds(horizon)
   const rows = data ?? []
-  const hint =
-    kind === 'proximity'
-      ? 'Stage 3 by MACD-to-zero distance — tighter buckets winning more ⇒ lower the threshold.'
-      : 'Stage 1 by histogram reduction from peak — deeper buckets winning more ⇒ raise the threshold.'
 
   return (
-    <Card
-      title={`Threshold buckets · ${horizon}`}
-      right={<Segmented options={THRESHOLD_KINDS} value={kind} onChange={setKind} />}
-    >
+    <Card title={`Reduction buckets · ${horizon}`} right={<span className="text-xs text-slate-600">fired · S1</span>}>
       <StateMsg loading={isLoading} error={isError} empty={rows.length === 0}>
         <table className="w-full text-sm">
           <thead>
@@ -348,7 +334,9 @@ export function Thresholds({ horizon }: { horizon: Horizon }) {
             ))}
           </tbody>
         </table>
-        <p className="mt-2 text-xs text-slate-600">{hint}</p>
+        <p className="mt-2 text-xs text-slate-600">
+          Fired signals by histogram reduction from peak — deeper buckets winning more ⇒ raise the threshold.
+        </p>
       </StateMsg>
     </Card>
   )

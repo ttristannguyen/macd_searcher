@@ -4,14 +4,10 @@ import type { SignalRow } from '../api/types'
 import { ASSET_CLASS_COLOR, fmtNum, fmtPct, fmtPrice, relativeTime, stageShort } from '../lib/format'
 import { Badge, Card, Segmented, StateMsg } from './ui'
 
-type StageFilter = 'all' | 'zero_line_proximity' | 'histogram_flattening'
 type DirFilter = 'all' | 'bullish' | 'bearish'
 
 function keyMetric(s: SignalRow): string {
-  if (s.stage === 'zero_line_proximity' && s.fire_macd_pct_of_price != null) {
-    return `${fmtPct(s.fire_macd_pct_of_price)} to zero`
-  }
-  if (s.stage === 'histogram_flattening' && s.fire_reduction_from_peak != null) {
+  if (s.fire_reduction_from_peak != null) {
     return `↓${fmtPct(s.fire_reduction_from_peak, 0)} from peak`
   }
   return '—'
@@ -19,25 +15,13 @@ function keyMetric(s: SignalRow): string {
 
 export function SignalsFeed() {
   const { data, isLoading, isError } = useRecentSignals(100)
-  const [stage, setStage] = useState<StageFilter>('all')
   const [dir, setDir] = useState<DirFilter>('all')
 
   const all = data ?? []
-  const rows = all.filter(
-    (s) => (stage === 'all' || s.stage === stage) && (dir === 'all' || s.direction === dir),
-  )
+  const rows = all.filter((s) => dir === 'all' || s.direction === dir)
 
   const filters = (
     <div className="flex flex-wrap items-center gap-2">
-      <Segmented<StageFilter>
-        value={stage}
-        onChange={setStage}
-        options={[
-          { value: 'all', label: 'All' },
-          { value: 'zero_line_proximity', label: 'S3' },
-          { value: 'histogram_flattening', label: 'S1' },
-        ]}
-      />
       <Segmented<DirFilter>
         value={dir}
         onChange={setDir}

@@ -18,7 +18,8 @@ import { Card, StateMsg } from './ui'
 // Recessive axes/grid + a dark tooltip — matches HorizonChart on the tables view.
 const AXIS = '#64748b'
 const GRID = '#1e293b'
-const ACCENT = '#38bdf8' // sky-400 — single-series hue
+const ACCENT = '#38bdf8' // sky-400 — win-rate line
+const RETURN_HUE = '#a78bfa' // violet-400 — return line + spread bands
 const tooltipStyle = {
   background: '#0f172a',
   border: '1px solid #1e293b',
@@ -91,14 +92,14 @@ export function ReturnCurve() {
               <YAxis stroke={AXIS} fontSize={12} unit="%" />
               <ReferenceLine y={0} stroke={AXIS} strokeDasharray="3 3" />
               <Tooltip contentStyle={tooltipStyle} formatter={fmt} />
-              <Area name="best–worst" dataKey="range" stroke="none" fill={ACCENT} fillOpacity={0.08} connectNulls />
-              <Area name="p25–p75" dataKey="iqr" stroke="none" fill={ACCENT} fillOpacity={0.18} connectNulls />
-              <Line name="avg" type="monotone" dataKey="avg" stroke={ACCENT} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+              <Area name="worst–best" dataKey="range" stroke={RETURN_HUE} strokeOpacity={0.25} strokeWidth={1} fill={RETURN_HUE} fillOpacity={0.10} connectNulls />
+              <Area name="p25–p75" dataKey="iqr" stroke={RETURN_HUE} strokeOpacity={0.55} strokeWidth={1} fill={RETURN_HUE} fillOpacity={0.24} connectNulls />
+              <Line name="avg" type="monotone" dataKey="avg" stroke={RETURN_HUE} strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
         <p className="mt-2 text-xs text-slate-600">
-          Line = average return · inner band = p25–p75 (typical spread) · outer band = worst–best. Above the dashed 0% line is net positive.
+          <span className="text-violet-300">Violet line</span> = average return · shaded inner band = p25–p75 (typical spread) · faint outer band = worst–best. Above the dashed 0% line is net positive.
         </p>
       </StateMsg>
     </Card>
@@ -177,7 +178,7 @@ function ReductionHeatmap({ metric }: { metric: 'win' | 'ev' }) {
                         {value == null ? '—' : (
                           <>
                             <div>{fmtPctPts(value, metric === 'win' ? 1 : 2, metric === 'ev')}</div>
-                            <div className="text-[10px] text-slate-300/70">n{n}</div>
+                            <div className="text-[10px] text-slate-300/70">n={n}</div>
                           </>
                         )}
                       </td>
@@ -189,7 +190,10 @@ function ReductionHeatmap({ metric }: { metric: 'win' | 'ev' }) {
           </table>
         </div>
         <p className="mt-2 text-xs text-slate-600">
-          {metric === 'win' ? 'Green ≥ 50% wins, red < 50%.' : 'Green = positive EV, red = negative.'} Cell = value / n · neutral slate at the midpoint.
+          {metric === 'win'
+            ? 'Colour: green ≥ 50% win-rate, red < 50%, slate at the 50% midpoint.'
+            : 'Colour: green = positive EV, red = negative, slate at the 0% midpoint.'}{' '}
+          <span className="text-slate-400">n=</span> under each cell is the sample size — how many signals fell in that reduction bucket at that horizon. Small n is noisy; trust the big-n cells.
         </p>
       </StateMsg>
     </Card>

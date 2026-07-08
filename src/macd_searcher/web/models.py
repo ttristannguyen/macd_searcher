@@ -120,6 +120,20 @@ class PerfHorizon(BaseModel):
     n_14d: int
 
 
+class PerfHorizonPoint(BaseModel):
+    horizon: str
+    n: int
+    # all percent points; avg=mean, best=max, worst=min over the deduped returns.
+    win_pct: float
+    avg_ret_pct: float
+    median_pct: float
+    p25_pct: float
+    p75_pct: float
+    best_pct: float
+    worst_pct: float
+    std_pct: Optional[float] = None
+
+
 class PerfLeadTime(BaseModel):
     stage: str
     finalized_n: int

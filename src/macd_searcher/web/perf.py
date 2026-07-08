@@ -165,6 +165,42 @@ def by_horizon(conn: sqlite3.Connection) -> list[dict]:
     return _rows(conn, sql, tuple(params))
 
 
+def horizon_curve(conn: sqlite3.Connection) -> list[dict]:
+    """Overall win-rate + return distribution at each horizon (for the Charts view).
+
+    One row per horizon over the deduped, direction-normalized `perf` rows — the
+    whole strategy, not split by stage/direction. Reuses `stats.summarize`, so the
+    return chart gets avg + best/worst *and* a p25/p75 (std-like) band for free.
+    """
+    cte, params = _base()
+    out: list[dict] = []
+    for h in ("1d", "3d", "7d", "14d"):
+        col = f"ret_{h}"
+        vals = [
+            row["v"] for row in conn.execute(
+                cte + f"SELECT {col} AS v FROM perf WHERE {col} IS NOT NULL",
+                tuple(params),
+            )
+        ]
+        s = summarize(vals)
+        if s is None:
+            continue
+        wins = sum(1 for v in vals if v > 0)
+        out.append({
+            "horizon": h,
+            "n": s["n"],
+            "win_pct": round(wins / s["n"] * 100, 1),
+            "avg_ret_pct": round(s["mean"] * 100, 2),
+            "median_pct": round(s["median"] * 100, 2),
+            "p25_pct": round(s["p25"] * 100, 2),
+            "p75_pct": round(s["p75"] * 100, 2),
+            "best_pct": round(s["max"] * 100, 2),
+            "worst_pct": round(s["min"] * 100, 2),
+            "std_pct": round(s["std"] * 100, 2) if s["std"] is not None else None,
+        })
+    return out
+
+
 # ---------- lead time (section F) ----------
 
 

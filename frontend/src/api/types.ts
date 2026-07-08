@@ -114,6 +114,20 @@ export interface PerfHorizon {
   n_14d: number
 }
 
+// One row per horizon for the Charts view (overall strategy). All percent points.
+export interface PerfHorizonPoint {
+  horizon: string
+  n: number
+  win_pct: number
+  avg_ret_pct: number
+  median_pct: number
+  p25_pct: number
+  p75_pct: number
+  best_pct: number
+  worst_pct: number
+  std_pct: number | null
+}
+
 export interface PerfLeadTime {
   stage: string
   finalized_n: number

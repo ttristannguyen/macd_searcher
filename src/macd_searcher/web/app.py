@@ -27,6 +27,7 @@ from .models import (
     PerfClassStage,
     PerfDistribution,
     PerfHorizon,
+    PerfHorizonPoint,
     PerfLeadTime,
     PerfReadiness,
     PerfReductionCounterfactual,
@@ -157,6 +158,11 @@ def perf_summary(
 @app.get("/api/perf/by-horizon", response_model=list[PerfHorizon])
 def perf_by_horizon(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfHorizon]:
     return [PerfHorizon(**r) for r in perf.by_horizon(conn)]
+
+
+@app.get("/api/perf/horizon-curve", response_model=list[PerfHorizonPoint])
+def perf_horizon_curve(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfHorizonPoint]:
+    return [PerfHorizonPoint(**r) for r in perf.horizon_curve(conn)]
 
 
 @app.get("/api/perf/lead-time", response_model=list[PerfLeadTime])

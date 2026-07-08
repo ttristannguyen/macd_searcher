@@ -169,6 +169,22 @@ def test_by_horizon(client):
     assert by["histogram_flattening"]["ret_7d"] == 3.33
 
 
+def test_horizon_curve(client):
+    rows = client.get("/api/perf/horizon-curve").json()
+    by = {r["horizon"]: r for r in rows}
+    # px_1d=px_3d=px_7d=px_14d in the seed, so every horizon is identical:
+    # deduped BTC(+10) + ETH(-5) + TSLA(+5); SOL pending excluded.
+    assert set(by) == {"1d", "3d", "7d", "14d"}
+    for h in ("1d", "3d", "7d", "14d"):
+        r = by[h]
+        assert r["n"] == 3
+        assert r["win_pct"] == 66.7
+        assert r["avg_ret_pct"] == 3.33
+        assert r["best_pct"] == 10.0
+        assert r["worst_pct"] == -5.0
+        assert r["median_pct"] == 5.0
+
+
 def test_lead_time(client):
     rows = client.get("/api/perf/lead-time").json()
     by = {r["stage"]: r for r in rows}

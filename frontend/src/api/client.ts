@@ -9,6 +9,7 @@ import type {
   PerfClassStage,
   PerfDistribution,
   PerfHorizon,
+  PerfHorizonPoint,
   PerfLeadTime,
   PerfMetric,
   PerfReadiness,
@@ -118,6 +119,13 @@ export const usePerfByHorizon = () =>
   useQuery({
     queryKey: ['perf-by-horizon'],
     queryFn: () => fetchJson<PerfHorizon[]>('/api/perf/by-horizon'),
+    refetchInterval: PERF_REFRESH,
+  })
+
+export const usePerfHorizonCurve = () =>
+  useQuery({
+    queryKey: ['perf-horizon-curve'],
+    queryFn: () => fetchJson<PerfHorizonPoint[]>('/api/perf/horizon-curve'),
     refetchInterval: PERF_REFRESH,
   })
 

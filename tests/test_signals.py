@@ -14,6 +14,7 @@ from macd_searcher.config import AppConfig
 from macd_searcher.signals import (
     _check_histogram_flattening,
     _consecutive_shrink_count,
+    _detect_for_asset,
     _excursion_peak,
     _last_bar_is_forming,
     _view,
@@ -141,6 +142,19 @@ def test_stage1_silent_during_pure_rally():
     df = _df_from_close([100.0 + 0.5 * i for i in range(25)])
     macd_df = compute_macd(df["close"], cfg.macd.fast, cfg.macd.slow, cfg.macd.signal)
     assert _check_histogram_flattening("TEST", float(df["close"].iloc[-1]), macd_df, cfg) is None
+
+
+# ---------- RSI at fire time ----------
+
+
+def test_signal_carries_rsi_at_fire():
+    cfg = AppConfig()
+    sig = _detect_for_asset("TEST", _df_from_close(_rally_then_fade()), cfg)
+    assert sig is not None
+    assert sig.rsi_14 is not None and 0.0 <= sig.rsi_14 <= 100.0
+    # A decelerating rally is a bearish top-forming setup and reads overbought-ish.
+    assert sig.direction == "bearish"
+    assert sig.rsi_14 > 50.0
 
 
 # ---------- evaluate_all integration ----------

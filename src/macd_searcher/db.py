@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS signals (
     fire_atr_multiple         REAL,
     fire_hist_peak            REAL,
     fire_reduction_from_peak  REAL,
+    fire_rsi_14               REAL,
     bars_to_zero_cross        INTEGER,
     zero_cross_observed_at    TEXT,
     px_1d                     REAL,
@@ -106,8 +107,23 @@ def connect(path: str) -> sqlite3.Connection:
     return conn
 
 
+def _add_missing_columns(
+    conn: sqlite3.Connection, table: str, columns: dict[str, str]
+) -> None:
+    """Idempotently ALTER-add columns absent from `table` (SQLite has no
+    'ADD COLUMN IF NOT EXISTS'). Lets an existing DB pick up new columns without
+    a rebuild — non-destructive; existing rows keep their data (NULL in the new column).
+    """
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for col, decl in columns.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+
+
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_SQL)
+    # Migrations for DBs created before a column existed (see _add_missing_columns).
+    _add_missing_columns(conn, "signals", {"fire_rsi_14": "REAL"})
     conn.commit()
 
 
@@ -242,14 +258,14 @@ def insert_signals(
         rows.append((
             uuid.uuid4().hex, run_id, s.name, s.stage, s.direction, fired_at,
             s.close, s.macd, s.hist, None, None,
-            s.hist_peak, s.reduction_from_peak,
+            s.hist_peak, s.reduction_from_peak, s.rsi_14,
         ))
     conn.executemany(
         "INSERT INTO signals ("
         "signal_id, run_id, symbol, stage, direction, fired_at, "
         "fire_close, fire_macd, fire_hist, fire_macd_pct_of_price, fire_atr_multiple, "
-        "fire_hist_peak, fire_reduction_from_peak"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "fire_hist_peak, fire_reduction_from_peak, fire_rsi_14"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
     conn.commit()

@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from macd_searcher.indicators import atr, macd
+from macd_searcher.indicators import atr, macd, rsi
 
 
 def _ema_adjust_false(values: list[float], span: int) -> list[float]:
@@ -153,3 +153,49 @@ def test_atr_rejects_bad_period():
     s = pd.Series([1.0, 2.0, 3.0])
     with pytest.raises(ValueError):
         atr(s, s, s, period=0)
+
+
+# ---------- RSI ----------
+
+
+def test_rsi_pure_uptrend_is_100():
+    """Monotonically rising closes ⇒ no losses ⇒ RSI = 100 (after the first bar)."""
+    close = pd.Series([100.0 + i for i in range(30)])
+    out = rsi(close, period=14)
+    np.testing.assert_allclose(out.iloc[1:].values, 100.0, atol=1e-9)
+
+
+def test_rsi_pure_downtrend_is_0():
+    close = pd.Series([100.0 - i for i in range(30)])
+    out = rsi(close, period=14)
+    np.testing.assert_allclose(out.iloc[1:].values, 0.0, atol=1e-9)
+
+
+def test_rsi_stays_in_range_and_near_midline_for_symmetric_moves():
+    """Alternating ±1 moves ⇒ avg gain ≈ avg loss ⇒ RSI hovers near 50, always in [0,100]."""
+    prices = [100.0]
+    for i in range(60):
+        prices.append(prices[-1] + (1.0 if i % 2 == 0 else -1.0))
+    out = rsi(pd.Series(prices), period=14).iloc[20:]
+    assert ((out >= 0) & (out <= 100)).all()
+    assert abs(out.iloc[-1] - 50.0) < 12.0
+
+
+def test_rsi_matches_reference():
+    """Cross-check pandas EWM RSI against hand-rolled Wilder smoothing."""
+    prices = [100.0, 101.5, 103.0, 102.0, 105.5, 107.0, 106.0, 108.5, 110.0, 109.0,
+              111.5, 113.0, 112.0, 114.5, 116.0, 115.0, 117.5, 119.0, 118.0, 120.5]
+    deltas = [prices[i] - prices[i - 1] for i in range(1, len(prices))]  # aligns to index 1..n-1
+    gains = [max(d, 0.0) for d in deltas]
+    losses = [max(-d, 0.0) for d in deltas]
+    ag = _wilders_ewm(gains, 14)
+    al = _wilders_ewm(losses, 14)
+    expected = [100.0 - 100.0 / (1.0 + g / l) if l != 0 else 100.0 for g, l in zip(ag, al)]
+
+    out = rsi(pd.Series(prices), period=14)
+    np.testing.assert_allclose(out.iloc[1:].values, expected, atol=1e-9)
+
+
+def test_rsi_rejects_bad_period():
+    with pytest.raises(ValueError):
+        rsi(pd.Series([1.0, 2.0, 3.0]), period=0)

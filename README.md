@@ -42,6 +42,8 @@ Guards (all tunable):
 - **Strict shrink**: `|hist|` strictly decreasing over the last 2 bars (incl. today's forming bar)
 - **Peak window**: peak located within the last 10 bars — confined to the current same-sign excursion (since the last zero-cross) so a stale prior peak can't inflate the reduction
 
+Every fired signal also records the token's **14-day RSI at fire time** — shown in the alert and logged to the DB (`fire_rsi_14`). It's *context*, not a firing condition (e.g. a bearish flatten at RSI 70 is a stronger read than at 40); we bank it to later test whether it sharpens signal quality.
+
 > **Note:** an earlier "Stage 3 — zero-line proximity" detector was removed (it wasn't performing). Histogram flattening is now the sole signal. Historical Stage-3 rows remain in the DB but are never surfaced.
 
 ---
@@ -54,12 +56,12 @@ Guards (all tunable):
 
 📉 histogram flattening (26)
 🔴 BEARISH (13)
-  PURR       hist +0.000148 (↓98% from +0.006445)  px $0.0949
-  ATOM       hist +0.001451 (↓86% from +0.01061)   px $2.0588
+  PURR       hist +0.000148 (↓98% from +0.006445)  RSI 71  px $0.0949
+  ATOM       hist +0.001451 (↓86% from +0.01061)   RSI 64  px $2.0588
   ...
 🟢 BULLISH (13)
-  xyz:CRWV   hist -0.115 (↓95% from -2.435)   px $107.58
-  xyz:AMZN   hist -0.1233 (↓95% from -2.579)  px $272.89
+  xyz:CRWV   hist -0.115 (↓95% from -2.435)   RSI 32  px $107.58
+  xyz:AMZN   hist -0.1233 (↓95% from -2.579)  RSI 29  px $272.89
   ...
 ```
 

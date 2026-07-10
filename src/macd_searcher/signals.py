@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import pandas as pd
 
 from .config import AppConfig
-from .indicators import atr, macd
+from .indicators import atr, macd, rsi
 
 
 log = logging.getLogger(__name__)
@@ -36,6 +36,9 @@ class Signal:
     hist: float
     hist_peak: float | None = None
     reduction_from_peak: float | None = None
+    # 14-day Wilder RSI at fire time (0–100). Context for later signal-quality
+    # analysis — not a firing condition. None if the value is NaN.
+    rsi_14: float | None = None
 
 
 def _strictly_decreasing(series: pd.Series) -> bool:
@@ -219,7 +222,15 @@ def _detect_for_asset(
     macd_df = macd(df["close"], cfg.macd.fast, cfg.macd.slow, cfg.macd.signal)
     last_is_forming = _last_bar_is_forming(df, cfg)
     m, c, _ = _view(df, macd_df, None, last_is_forming, hf.use_forming_candle)
-    return _check_histogram_flattening(name, c, m, cfg)
+    sig = _check_histogram_flattening(name, c, m, cfg)
+    if sig is None:
+        return None
+
+    # 14-day RSI at the same fire bar. RSI uses causal Wilder smoothing, so the
+    # closed-bar value is iloc[-2] when the forming bar was dropped, else iloc[-1].
+    drop_forming = last_is_forming and not hf.use_forming_candle
+    rsi_val = float(rsi(df["close"]).iloc[-2 if drop_forming else -1])
+    return replace(sig, rsi_14=None if pd.isna(rsi_val) else rsi_val)
 
 
 def evaluate_all(

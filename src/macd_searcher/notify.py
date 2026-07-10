@@ -69,9 +69,10 @@ def _fmt_price(px: float) -> str:
 def _fmt_stage1_row(s: Signal) -> str:
     assert s.hist_peak is not None and s.reduction_from_peak is not None
     pct = s.reduction_from_peak * 100
+    rsi = f"  RSI {s.rsi_14:.0f}" if s.rsi_14 is not None else ""
     return (
         f"  {s.name:<10} hist {s.hist:+.4g} "
-        f"(↓{pct:.0f}% from {s.hist_peak:+.4g})  px {_fmt_price(s.close)}"
+        f"(↓{pct:.0f}% from {s.hist_peak:+.4g}){rsi}  px {_fmt_price(s.close)}"
     )
 
 

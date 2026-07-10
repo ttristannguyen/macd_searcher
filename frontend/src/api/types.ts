@@ -58,6 +58,7 @@ export interface SignalRow {
   fire_close: number | null
   fire_macd: number | null
   fire_reduction_from_peak: number | null
+  fire_rsi_14: number | null
 }
 
 export interface StageDirectionRow {

@@ -1,7 +1,8 @@
-"""Technical indicators: MACD and ATR.
+"""Technical indicators: MACD, ATR, and RSI.
 
-Both use pandas EWM directly — no TA-Lib dependency. MACD uses standard
-exponential smoothing (`adjust=False`); ATR uses Wilder's smoothing (alpha = 1/N).
+All use pandas EWM directly — no TA-Lib dependency. MACD uses standard
+exponential smoothing (`adjust=False`); ATR and RSI use Wilder's smoothing
+(alpha = 1/N).
 """
 
 from __future__ import annotations
@@ -64,3 +65,23 @@ def atr(
     ).max(axis=1)
 
     return tr.ewm(alpha=1.0 / period, adjust=False).mean()
+
+
+def rsi(close: pd.Series, period: int = 14) -> pd.Series:
+    """Wilder's Relative Strength Index (0–100).
+
+    RSI = 100 − 100 / (1 + avg_gain / avg_loss), where the averages use Wilder's
+    smoothing (EWM alpha = 1/period, adjust=False) — the same causal smoothing as
+    `atr`, so the closed-bar value is `rsi(close).iloc[:-1]` (drop the forming bar).
+    Conventions at the edges: no losses → 100 (pure uptrend), no gains → 0.
+    """
+    if period <= 0:
+        raise ValueError(f"period ({period}) must be positive")
+
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1.0 / period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / period, adjust=False).mean()
+    rs = avg_gain / avg_loss
+    return 100.0 - 100.0 / (1.0 + rs)

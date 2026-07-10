@@ -53,6 +53,7 @@ export function SignalsFeed() {
                   <th className="py-2 pr-3 font-medium">Stage</th>
                   <th className="py-2 pr-3 font-medium">Direction</th>
                   <th className="py-2 pr-3 font-medium">MACD</th>
+                  <th className="py-2 pr-3 font-medium">RSI</th>
                   <th className="py-2 pr-3 font-medium">Signal Detail</th>
                   <th className="py-2 pr-3 font-medium">Price</th>
                 </tr>
@@ -70,6 +71,7 @@ export function SignalsFeed() {
                       <Badge color={s.direction === 'bullish' ? 'green' : 'red'}>{s.direction}</Badge>
                     </td>
                     <td className="py-1.5 pr-3 tabular-nums text-slate-300">{fmtNum(s.fire_macd)}</td>
+                    <td className="py-1.5 pr-3 tabular-nums text-slate-300">{s.fire_rsi_14 != null ? Math.round(s.fire_rsi_14) : '—'}</td>
                     <td className="whitespace-nowrap py-1.5 pr-3 text-slate-400">{keyMetric(s)}</td>
                     <td className="py-1.5 pr-3 tabular-nums text-slate-300">{fmtPrice(s.fire_close)}</td>
                   </tr>

@@ -110,6 +110,15 @@ def test_format_message_groups_by_direction():
     assert "BULLISH" in text
 
 
+def test_format_message_includes_rsi_when_present():
+    signals = [
+        _mk_signal("BTC", "histogram_flattening", "bearish",
+                   hist=0.2, close=100, hist_peak=0.5, reduction_from_peak=0.6, rsi_14=68.0),
+    ]
+    text = format_message(signals, scanned_count=1, cfg=AppConfig())
+    assert "RSI 68" in text
+
+
 def test_format_message_sorts_within_bucket_by_strength():
     """Stage 1 bucket should be sorted by descending reduction_from_peak."""
     signals = [

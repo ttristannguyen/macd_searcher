@@ -66,6 +66,7 @@ class SignalRow(BaseModel):
     fire_close: Optional[float] = None
     fire_macd: Optional[float] = None
     fire_reduction_from_peak: Optional[float] = None
+    fire_rsi_14: Optional[float] = None
 
 
 class StageDirectionRow(BaseModel):

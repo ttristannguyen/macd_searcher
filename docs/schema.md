@@ -81,6 +81,7 @@ One asset that triggered an alert in a given run. The `fire_*` columns capture t
 | `fire_atr_multiple` | REAL | **Legacy Stage-3 column** (`atr` mode) — NULL for all new rows; retained for historical data. |
 | `fire_hist_peak` | REAL | Histogram peak at fire (Stage 1); NULL for Stage 3. |
 | `fire_reduction_from_peak` | REAL | Reduction-from-peak at fire (Stage 1); NULL for Stage 3. |
+| `fire_rsi_14` | REAL | 14-day Wilder RSI (0–100) of the token at fire time. Context for later signal-quality analysis — *not* a firing condition. NULL for rows logged before this column existed (added via an idempotent `init_schema` migration). |
 
 ### Outcome columns (backfilled by `update_outcomes`)
 

@@ -67,7 +67,7 @@ def recent_signals(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
     return _rows(
         conn,
         "SELECT s.fired_at, s.symbol, a.asset_class, s.stage, s.direction, "
-        "s.fire_close, s.fire_macd, s.fire_reduction_from_peak "
+        "s.fire_close, s.fire_macd, s.fire_reduction_from_peak, s.fire_rsi_14 "
         "FROM signals s "
         "LEFT JOIN asset_snapshots a ON a.run_id = s.run_id AND a.symbol = s.symbol "
         "WHERE s.stage = 'histogram_flattening' "

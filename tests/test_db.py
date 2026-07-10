@@ -24,6 +24,33 @@ def test_init_schema_creates_tables_and_indexes():
     assert "idx_signals_outcome_pending" in indexes
 
 
+def test_init_schema_signals_has_rsi_column():
+    conn = _conn()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(signals)")}
+    assert "fire_rsi_14" in cols
+
+
+def test_add_missing_columns_is_idempotent():
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE t (a INTEGER)")
+    db._add_missing_columns(conn, "t", {"a": "INTEGER", "b": "REAL"})
+    assert {r[1] for r in conn.execute("PRAGMA table_info(t)")} == {"a", "b"}  # b added, a kept
+    db._add_missing_columns(conn, "t", {"a": "INTEGER", "b": "REAL"})  # no-op on re-run
+    assert {r[1] for r in conn.execute("PRAGMA table_info(t)")} == {"a", "b"}
+
+
+def test_insert_signals_stores_rsi():
+    conn = _conn()
+    db.start_run(conn, "r1", "t0", None, None, None)
+    db.insert_signals(conn, "r1", [
+        Signal(name="BTC", stage="histogram_flattening", direction="bearish",
+               close=100.0, macd=0.1, hist=0.2, hist_peak=0.5,
+               reduction_from_peak=0.6, rsi_14=68.4),
+    ], "2026-01-01T00:00:00+00:00")
+    row = conn.execute("SELECT fire_rsi_14 FROM signals WHERE symbol='BTC'").fetchone()
+    assert row[0] == 68.4
+
+
 def test_run_lifecycle_roundtrip():
     conn = _conn()
     db.start_run(conn, "r1", "2026-01-01T00:00:00+00:00", "abc123", "hash16", '{"a":1}')

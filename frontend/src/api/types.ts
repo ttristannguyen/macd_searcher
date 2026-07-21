@@ -187,6 +187,17 @@ export interface PerfBucket {
   avg_ret_pct: number | null
 }
 
+// One row per (horizon, direction, RSI-at-fire bucket). The frontend pivots this
+// into heatmaps/lines — see components/OutcomesCharts.tsx.
+export interface PerfRsiBucket {
+  horizon: string
+  direction: string
+  rsi_bucket: string
+  n: number
+  win_pct: number | null
+  avg_ret_pct: number | null
+}
+
 // Counterfactual reduction buckets from asset_snapshots (extends below the 0.3
 // fire threshold). EV/win are faithful; drawdown_proxy is a close-based floor.
 export interface PerfReductionCounterfactual {

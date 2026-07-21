@@ -175,6 +175,15 @@ class PerfBucket(BaseModel):
     avg_ret_pct: Optional[float] = None
 
 
+class PerfRsiBucket(BaseModel):
+    horizon: str
+    direction: str
+    rsi_bucket: str
+    n: int
+    win_pct: Optional[float] = None
+    avg_ret_pct: Optional[float] = None
+
+
 class PerfReductionCounterfactual(BaseModel):
     bucket: str
     n: int

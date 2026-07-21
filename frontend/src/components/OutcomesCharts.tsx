@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import {
   Area,
   CartesianGrid,
   ComposedChart,
+  Legend,
   Line,
   LineChart,
   ReferenceLine,
@@ -10,10 +12,10 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { usePerfHorizonCurve, usePerfThresholds } from '../api/client'
-import type { PerfBucket } from '../api/types'
+import { usePerfHorizonCurve, usePerfRsiBuckets, usePerfThresholds } from '../api/client'
+import type { PerfBucket, PerfRsiBucket } from '../api/types'
 import { fmtPctPts } from '../lib/format'
-import { Card, StateMsg } from './ui'
+import { Card, Segmented, StateMsg } from './ui'
 
 // Recessive axes/grid + a dark tooltip — matches HorizonChart on the tables view.
 const AXIS = '#64748b'
@@ -200,6 +202,197 @@ function ReductionHeatmap({ metric }: { metric: 'win' | 'ev' }) {
   )
 }
 
+// ---------- RSI-at-fire signal-quality analysis ----------
+//
+// Tests whether RSI(14) at fire sharpens the flat 30% reduction gate (e.g. a
+// bearish flatten at RSI 70 reads stronger than at 40). RSI buckets are
+// *ordered*, so their series colour is a sequential ramp (light->dark), not
+// arbitrary categorical hues — same for horizon, which is also ordered.
+
+const RSI_BUCKETS = ['a <30', 'b 30-40', 'c 40-50', 'd 50-60', 'e 60-70', 'f >=70'] as const
+type RsiDirection = 'bullish' | 'bearish'
+const DIRECTIONS: { value: RsiDirection; label: string }[] = [
+  { value: 'bullish', label: 'Bullish' },
+  { value: 'bearish', label: 'Bearish' },
+]
+// Sequential ramps: violet identifies an RSI bucket (light=low RSI, dark=high);
+// sky identifies a horizon (light=1d, dark=14d) — kept distinct from the win-rate
+// ACCENT sky so the two charts' colour keys don't collide with each other's axis.
+const RSI_RAMP = ['#ddd6fe', '#c4b5fd', '#a78bfa', '#8b5cf6', '#7c3aed', '#6d28d9'] // violet-200..700
+const HORIZON_RAMP = ['#7dd3fc', '#38bdf8', '#0ea5e9', '#0369a1'] // sky-300..800
+
+function bucketLabel(b: string): string {
+  return b.slice(2)
+}
+
+function RsiHeatmap({ rows, metric }: { rows: PerfRsiBucket[]; metric: 'win' | 'ev' }) {
+  const mid = metric === 'win' ? 50 : 0
+  const span = metric === 'win' ? 25 : 10
+  const title = metric === 'win' ? 'Win rate by RSI × horizon' : 'EV by RSI × horizon'
+
+  const cell = (bucket: string, horizon: string) => {
+    const row = rows.find((r) => r.rsi_bucket === bucket && r.horizon === horizon)
+    const value = row ? (metric === 'win' ? row.win_pct : row.avg_ret_pct) : null
+    return { value, n: row?.n ?? 0 }
+  }
+
+  return (
+    <Card title={title}>
+      <div className="overflow-x-auto">
+        <table className="w-full border-separate text-sm" style={{ borderSpacing: 2 }}>
+          <thead>
+            <tr className="text-xs uppercase tracking-wide text-slate-500">
+              <th className="py-1 pr-2 text-left font-medium">RSI</th>
+              {HORIZONS.map((h) => (
+                <th key={h} className="px-2 py-1 text-center font-medium">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {RSI_BUCKETS.map((bucket) => (
+              <tr key={bucket}>
+                <td className="py-1 pr-2 text-slate-300">{bucketLabel(bucket)}</td>
+                {HORIZONS.map((h) => {
+                  const { value, n } = cell(bucket, h)
+                  return (
+                    <td
+                      key={h}
+                      className="rounded px-2 py-1.5 text-center tabular-nums"
+                      style={{ background: heatColor(value, mid, span), color: value == null ? '#475569' : '#f1f5f9' }}
+                      title={value == null ? 'no data' : `RSI ${bucketLabel(bucket)} · ${h} · n=${n}`}
+                    >
+                      {value == null ? '—' : (
+                        <>
+                          <div>{fmtPctPts(value, metric === 'win' ? 1 : 2, metric === 'ev')}</div>
+                          <div className="text-[10px] text-slate-300/70">n={n}</div>
+                        </>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        {metric === 'win'
+          ? 'Colour: green ≥ 50% win-rate, red < 50%, slate at the 50% midpoint.'
+          : 'Colour: green = positive EV, red = negative, slate at the 0% midpoint.'}{' '}
+        <span className="text-slate-400">n=</span> is the sample size per cell — small n is noisy; trust the big-n cells.
+      </p>
+    </Card>
+  )
+}
+
+function RsiWinCurve({ rows }: { rows: PerfRsiBucket[] }) {
+  const byHB = new Map(rows.map((r) => [`${r.rsi_bucket}|${r.horizon}`, r]))
+  const chartRows = HORIZONS.map((h) => {
+    const row: Record<string, number | string | null> = { h }
+    let wSum = 0
+    let nSum = 0
+    for (const b of RSI_BUCKETS) {
+      const r = byHB.get(`${b}|${h}`)
+      row[b] = r?.win_pct ?? null
+      if (r && r.win_pct != null) {
+        wSum += r.win_pct * r.n
+        nSum += r.n
+      }
+    }
+    row.baseline = nSum > 0 ? Math.round((wSum / nSum) * 10) / 10 : null
+    return row
+  })
+
+  return (
+    <Card title="Win rate by horizon, per RSI bucket">
+      <div style={{ height: 240 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartRows}>
+            <CartesianGrid stroke={GRID} vertical={false} />
+            <XAxis dataKey="h" stroke={AXIS} fontSize={12} />
+            <YAxis stroke={AXIS} fontSize={12} unit="%" domain={[0, 100]} />
+            <ReferenceLine y={50} stroke={AXIS} strokeDasharray="3 3" />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => `${v}%`} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            {RSI_BUCKETS.map((b, i) => (
+              <Line key={b} name={bucketLabel(b)} type="monotone" dataKey={b} stroke={RSI_RAMP[i]} strokeWidth={2} dot={{ r: 2 }} connectNulls />
+            ))}
+            <Line name="baseline (all RSI)" type="monotone" dataKey="baseline" stroke={AXIS} strokeWidth={1.5} strokeDasharray="4 3" dot={false} connectNulls />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        One line per RSI(14)-at-fire bucket (light→dark = low→high RSI); dashed grey = the baseline win-rate across all RSI-tagged signals for this direction. A bucket above the baseline beats trading everything.
+      </p>
+    </Card>
+  )
+}
+
+function RsiTrendByBucket({ rows }: { rows: PerfRsiBucket[] }) {
+  const byHB = new Map(rows.map((r) => [`${r.rsi_bucket}|${r.horizon}`, r]))
+  const chartRows = RSI_BUCKETS.map((b) => {
+    const row: Record<string, number | string | null> = { bucket: bucketLabel(b) }
+    for (const h of HORIZONS) {
+      row[h] = byHB.get(`${b}|${h}`)?.win_pct ?? null
+    }
+    return row
+  })
+
+  return (
+    <Card title="Win rate vs RSI bucket, per horizon">
+      <div style={{ height: 240 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartRows}>
+            <CartesianGrid stroke={GRID} vertical={false} />
+            <XAxis dataKey="bucket" stroke={AXIS} fontSize={12} />
+            <YAxis stroke={AXIS} fontSize={12} unit="%" domain={[0, 100]} />
+            <ReferenceLine y={50} stroke={AXIS} strokeDasharray="3 3" />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => `${v}%`} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            {HORIZONS.map((h, i) => (
+              <Line key={h} name={h} type="monotone" dataKey={h} stroke={HORIZON_RAMP[i]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        The direct read on the thesis: a rising line means a higher RSI at fire correlates with a stronger result for this direction, per horizon.
+      </p>
+    </Card>
+  )
+}
+
+export function RsiAnalysis() {
+  const { data, isLoading, isError } = usePerfRsiBuckets()
+  const [direction, setDirection] = useState<RsiDirection>('bullish')
+  const all = data ?? []
+  const rows = all.filter((r) => r.direction === direction)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium text-slate-300">RSI(14) at fire — signal quality</h2>
+        <Segmented options={DIRECTIONS} value={direction} onChange={setDirection} />
+      </div>
+      <StateMsg loading={isLoading} error={isError} empty={all.length === 0}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <RsiHeatmap rows={rows} metric="win" />
+            <RsiHeatmap rows={rows} metric="ev" />
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <RsiWinCurve rows={rows} />
+            <RsiTrendByBucket rows={rows} />
+          </div>
+          <p className="text-xs text-slate-600">
+            RSI is captured at fire time as context, not a firing condition — this measures whether it sharpens the histogram-reduction signal. Data accumulates since the RSI change shipped; small-n cells are noisy.
+          </p>
+        </div>
+      </StateMsg>
+    </div>
+  )
+}
+
 // ---------- composition ----------
 
 export function OutcomesCharts() {
@@ -213,6 +406,7 @@ export function OutcomesCharts() {
         <ReductionHeatmap metric="win" />
         <ReductionHeatmap metric="ev" />
       </div>
+      <RsiAnalysis />
     </div>
   )
 }

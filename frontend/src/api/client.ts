@@ -14,6 +14,7 @@ import type {
   PerfMetric,
   PerfReadiness,
   PerfReductionCounterfactual,
+  PerfRsiBucket,
   PerfStageDirection,
   PerfSymbolScore,
   RunRow,
@@ -172,5 +173,12 @@ export const usePerfReductionCounterfactual = (horizon: Horizon = '7d') =>
       fetchJson<PerfReductionCounterfactual[]>(
         `/api/perf/reduction-counterfactual?horizon=${horizon}`,
       ),
+    refetchInterval: PERF_REFRESH,
+  })
+
+export const usePerfRsiBuckets = () =>
+  useQuery({
+    queryKey: ['perf-rsi-buckets'],
+    queryFn: () => fetchJson<PerfRsiBucket[]>('/api/perf/rsi-buckets'),
     refetchInterval: PERF_REFRESH,
   })

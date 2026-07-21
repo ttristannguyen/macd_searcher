@@ -357,6 +357,45 @@ def thresholds(
     return _rows(conn, sql, tuple(params))
 
 
+# ---------- RSI-at-fire signal-quality analysis ----------
+
+# Tails included: the thesis under test is that RSI sharpens signal quality
+# beyond the flat 30% reduction gate (e.g. a bearish flatten at RSI 70 is a
+# stronger read than at 40) — the extremes are exactly where that shows up.
+_RSI_BUCKET_SQL = (
+    "CASE WHEN fire_rsi_14 < 30 THEN 'a <30' "
+    "WHEN fire_rsi_14 < 40 THEN 'b 30-40' "
+    "WHEN fire_rsi_14 < 50 THEN 'c 40-50' "
+    "WHEN fire_rsi_14 < 60 THEN 'd 50-60' "
+    "WHEN fire_rsi_14 < 70 THEN 'e 60-70' "
+    "ELSE 'f >=70' END"
+)
+
+
+def rsi_buckets(conn: sqlite3.Connection) -> list[dict]:
+    """Win-rate + EV by RSI(14)-at-fire bucket, direction, and horizon.
+
+    One row per (horizon, direction, rsi_bucket); the frontend pivots into
+    heatmaps/lines. Requires fire_rsi_14 (only signals fired after the RSI
+    change carry it) and a scored return at that horizon.
+    """
+    cte, params = _base()
+    out: list[dict] = []
+    for h in ("1d", "3d", "7d", "14d"):
+        ret = f"ret_{h}"
+        sql = cte + (
+            f"SELECT direction, {_RSI_BUCKET_SQL} AS rsi_bucket, COUNT(*) AS n, "
+            f"ROUND(AVG({ret} > 0) * 100, 1) AS win_pct, "
+            f"ROUND(AVG({ret}) * 100, 2) AS avg_ret_pct "
+            f"FROM perf WHERE fire_rsi_14 IS NOT NULL AND {ret} IS NOT NULL "
+            f"GROUP BY direction, rsi_bucket"
+        )
+        for row in _rows(conn, sql, tuple(params)):
+            out.append({"horizon": h, **row})
+    out.sort(key=lambda d: (d["direction"], d["rsi_bucket"], d["horizon"]))
+    return out
+
+
 # ---------- counterfactual reduction buckets (below the 0.3 fire threshold) ------
 
 

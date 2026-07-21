@@ -40,12 +40,13 @@ def _metrics(name: str, macd_pct: float) -> AssetMetrics:
 
 
 def _fire(conn, symbol, direction, fired_at, fire_close, *,
-          reduction=0.5, px_7d=None, mfe=None, mae=None,
+          reduction=0.5, rsi=None, px_7d=None, mfe=None, mae=None,
           bars=None, finalized=False):
     """Insert one histogram_flattening signal and backfill its outcome columns."""
     sig = Signal(
         symbol, "histogram_flattening", direction, close=fire_close,
         macd=-0.5, hist=-0.1, hist_peak=0.5, reduction_from_peak=reduction,
+        rsi_14=rsi,
     )
     db.insert_signals(conn, "r1", [sig], fired_at)
     conn.execute(
@@ -382,3 +383,63 @@ def test_reduction_counterfactual_excludes_pre_fix(cf_client):
 def test_reduction_counterfactual_unscorable_when_no_forward(cf_client):
     # 14d horizon: CF_D0 + 14 = 2026-07-16 has no snapshot, so nothing is scorable.
     assert cf_client.get("/api/perf/reduction-counterfactual?horizon=14d").json() == []
+
+
+# ---- RSI-bucket signal-quality analysis ----
+
+
+def _seed_rsi(path: str) -> None:
+    conn = db.connect(path)
+    db.init_schema(conn)
+    db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
+    db.insert_snapshots(conn, "r1", {}, [_metrics(f"RB{i}", 0.001) for i in range(1, 6)])
+
+    # Bullish: RSI 25 win (+10%), RSI 35 loss (-5%), RSI 65 win (+8%).
+    _fire(conn, "RB1", "bullish", f"{DAY_A}T08:00:00+00:00", 100.0, rsi=25.0, px_7d=110.0, finalized=True)
+    _fire(conn, "RB2", "bullish", f"{DAY_A}T08:00:00+00:00", 100.0, rsi=35.0, px_7d=95.0, finalized=True)
+    _fire(conn, "RB3", "bullish", f"{DAY_A}T08:00:00+00:00", 100.0, rsi=65.0, px_7d=108.0, finalized=True)
+    # Bearish: RSI 75 win (price fell -> +12% normalized), RSI 45 loss (price rose -> -6%).
+    _fire(conn, "RB4", "bearish", f"{DAY_A}T08:00:00+00:00", 100.0, rsi=75.0, px_7d=88.0, finalized=True)
+    _fire(conn, "RB5", "bearish", f"{DAY_A}T08:00:00+00:00", 100.0, rsi=45.0, px_7d=106.0, finalized=True)
+    # No RSI recorded (pre-RSI-change signal) — must be excluded entirely.
+    _fire(conn, "RB6", "bullish", f"{DAY_B}T08:00:00+00:00", 100.0, rsi=None, px_7d=120.0, finalized=True)
+    conn.close()
+
+
+@pytest.fixture
+def rsi_client(tmp_path):
+    path = str(tmp_path / "rsi.sqlite3")
+    _seed_rsi(path)
+    app.dependency_overrides[get_conn] = _conn_to(path)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_rsi_buckets_win_and_ev(rsi_client):
+    rows = rsi_client.get("/api/perf/rsi-buckets").json()
+    # px_1d=px_3d=px_7d=px_14d in _fire, so every horizon is identical.
+    by = {(r["direction"], r["rsi_bucket"], r["horizon"]): r for r in rows}
+
+    r = by[("bullish", "a <30", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 10.0
+
+    r = by[("bullish", "b 30-40", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 0.0 and r["avg_ret_pct"] == -5.0
+
+    r = by[("bullish", "e 60-70", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 8.0
+
+    r = by[("bearish", "f >=70", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 12.0
+
+    r = by[("bearish", "c 40-50", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 0.0 and r["avg_ret_pct"] == -6.0
+
+    assert {r["horizon"] for r in rows} == {"1d", "3d", "7d", "14d"}
+
+
+def test_rsi_buckets_excludes_signals_without_rsi(rsi_client):
+    rows = rsi_client.get("/api/perf/rsi-buckets").json()
+    # RB6 has no fire_rsi_14 → contributes to no bucket.
+    total_n = sum(r["n"] for r in rows if r["horizon"] == "7d")
+    assert total_n == 5

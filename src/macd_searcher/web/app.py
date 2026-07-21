@@ -31,6 +31,7 @@ from .models import (
     PerfLeadTime,
     PerfReadiness,
     PerfReductionCounterfactual,
+    PerfRsiBucket,
     PerfStageDirection,
     PerfSymbolScore,
     RunRow,
@@ -217,6 +218,11 @@ def perf_reduction_counterfactual(
         PerfReductionCounterfactual(**r)
         for r in perf.reduction_counterfactual(conn, horizon)
     ]
+
+
+@app.get("/api/perf/rsi-buckets", response_model=list[PerfRsiBucket])
+def perf_rsi_buckets(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfRsiBucket]:
+    return [PerfRsiBucket(**r) for r in perf.rsi_buckets(conn)]
 
 
 # Serve the built React app at / when it exists (production / one-port mode).

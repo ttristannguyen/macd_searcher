@@ -1,3 +1,4 @@
+import { createContext, useContext } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type {
   ClassCountRow,
@@ -102,49 +103,71 @@ export const useSignalsPerDay = (days = 14) =>
 // Outcomes mature ~14 days after a signal fires, so these refresh slowly.
 const PERF_REFRESH = 5 * 60_000
 
-export const usePerfReadiness = () =>
-  useQuery({
-    queryKey: ['perf-readiness'],
-    queryFn: () => fetchJson<PerfReadiness>('/api/perf/readiness'),
+// The Outcomes tab wraps its subtree in ClassesContext with the selected
+// asset-class filter (comma-separated; '' = all). The perf hooks read it, so
+// every panel refilters together and re-queries on change — no prop-drilling.
+
+export const ClassesContext = createContext<string>('')
+const useSelectedClasses = () => useContext(ClassesContext)
+const withClasses = (path: string, classes: string) =>
+  classes ? `${path}${path.includes('?') ? '&' : '?'}classes=${classes}` : path
+
+export const usePerfReadiness = () => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-readiness', classes],
+    queryFn: () => fetchJson<PerfReadiness>(withClasses('/api/perf/readiness', classes)),
     refetchInterval: PERF_REFRESH,
   })
+}
 
-export const usePerfSummary = (horizon: Horizon = '7d') =>
-  useQuery({
-    queryKey: ['perf-summary', horizon],
-    queryFn: () => fetchJson<PerfStageDirection[]>(`/api/perf/summary?horizon=${horizon}`),
+export const usePerfSummary = (horizon: Horizon = '7d') => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-summary', horizon, classes],
+    queryFn: () => fetchJson<PerfStageDirection[]>(withClasses(`/api/perf/summary?horizon=${horizon}`, classes)),
     refetchInterval: PERF_REFRESH,
   })
+}
 
-export const usePerfByHorizon = () =>
-  useQuery({
-    queryKey: ['perf-by-horizon'],
-    queryFn: () => fetchJson<PerfHorizon[]>('/api/perf/by-horizon'),
+export const usePerfByHorizon = () => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-by-horizon', classes],
+    queryFn: () => fetchJson<PerfHorizon[]>(withClasses('/api/perf/by-horizon', classes)),
     refetchInterval: PERF_REFRESH,
   })
+}
 
-export const usePerfHorizonCurve = () =>
-  useQuery({
-    queryKey: ['perf-horizon-curve'],
-    queryFn: () => fetchJson<PerfHorizonPoint[]>('/api/perf/horizon-curve'),
+export const usePerfHorizonCurve = () => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-horizon-curve', classes],
+    queryFn: () => fetchJson<PerfHorizonPoint[]>(withClasses('/api/perf/horizon-curve', classes)),
     refetchInterval: PERF_REFRESH,
   })
+}
 
-export const usePerfLeadTime = () =>
-  useQuery({
-    queryKey: ['perf-lead-time'],
-    queryFn: () => fetchJson<PerfLeadTime[]>('/api/perf/lead-time'),
+export const usePerfLeadTime = () => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-lead-time', classes],
+    queryFn: () => fetchJson<PerfLeadTime[]>(withClasses('/api/perf/lead-time', classes)),
     refetchInterval: PERF_REFRESH,
   })
+}
 
-export const usePerfDistribution = (metric: PerfMetric, minN = 1) =>
-  useQuery({
-    queryKey: ['perf-distribution', metric, minN],
+export const usePerfDistribution = (metric: PerfMetric, minN = 1) => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-distribution', metric, minN, classes],
     queryFn: () =>
-      fetchJson<PerfDistribution[]>(`/api/perf/distribution?metric=${metric}&min_n=${minN}`),
+      fetchJson<PerfDistribution[]>(withClasses(`/api/perf/distribution?metric=${metric}&min_n=${minN}`, classes)),
     refetchInterval: PERF_REFRESH,
   })
+}
 
+// Scorecard lives on its own tab (out of the class-filter scope) — no context.
 export const usePerfScorecard = (horizon: Horizon = '7d', minN = 3) =>
   useQuery({
     queryKey: ['perf-scorecard', horizon, minN],
@@ -152,33 +175,41 @@ export const usePerfScorecard = (horizon: Horizon = '7d', minN = 3) =>
     refetchInterval: PERF_REFRESH,
   })
 
-export const usePerfByClass = (horizon: Horizon = '7d', minN = 1) =>
-  useQuery({
-    queryKey: ['perf-by-class', horizon, minN],
-    queryFn: () => fetchJson<PerfClassStage[]>(`/api/perf/by-class?horizon=${horizon}&min_n=${minN}`),
+export const usePerfByClass = (horizon: Horizon = '7d', minN = 1) => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-by-class', horizon, minN, classes],
+    queryFn: () => fetchJson<PerfClassStage[]>(withClasses(`/api/perf/by-class?horizon=${horizon}&min_n=${minN}`, classes)),
     refetchInterval: PERF_REFRESH,
   })
+}
 
-export const usePerfThresholds = (horizon: Horizon = '7d') =>
-  useQuery({
-    queryKey: ['perf-thresholds', horizon],
-    queryFn: () => fetchJson<PerfBucket[]>(`/api/perf/thresholds?horizon=${horizon}`),
+export const usePerfThresholds = (horizon: Horizon = '7d') => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-thresholds', horizon, classes],
+    queryFn: () => fetchJson<PerfBucket[]>(withClasses(`/api/perf/thresholds?horizon=${horizon}`, classes)),
     refetchInterval: PERF_REFRESH,
   })
+}
 
-export const usePerfReductionCounterfactual = (horizon: Horizon = '7d') =>
-  useQuery({
-    queryKey: ['perf-reduction-counterfactual', horizon],
+export const usePerfReductionCounterfactual = (horizon: Horizon = '7d') => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-reduction-counterfactual', horizon, classes],
     queryFn: () =>
       fetchJson<PerfReductionCounterfactual[]>(
-        `/api/perf/reduction-counterfactual?horizon=${horizon}`,
+        withClasses(`/api/perf/reduction-counterfactual?horizon=${horizon}`, classes),
       ),
     refetchInterval: PERF_REFRESH,
   })
+}
 
-export const usePerfRsiBuckets = () =>
-  useQuery({
-    queryKey: ['perf-rsi-buckets'],
-    queryFn: () => fetchJson<PerfRsiBucket[]>('/api/perf/rsi-buckets'),
+export const usePerfRsiBuckets = () => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-rsi-buckets', classes],
+    queryFn: () => fetchJson<PerfRsiBucket[]>(withClasses('/api/perf/rsi-buckets', classes)),
     refetchInterval: PERF_REFRESH,
   })
+}

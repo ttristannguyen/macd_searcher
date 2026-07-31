@@ -212,6 +212,35 @@ def test_thresholds(client):
     assert by["c 0.6-0.8"]["n"] == 1   # TSLA at reduction 0.6 (not < 0.6)
 
 
+# ---- asset-class filter (?classes=) ----
+# The seed is mixed-class: BTC/ETH/SOL = crypto, xyz:TSLA = equity.
+
+
+def test_summary_class_filter(client):
+    crypto = {(r["stage"], r["direction"]): r for r in client.get("/api/perf/summary?classes=crypto").json()}
+    assert set(crypto) == {("histogram_flattening", "bullish")}  # BTC + ETH, no TSLA
+    assert crypto[("histogram_flattening", "bullish")]["n"] == 2
+
+    equity = {(r["stage"], r["direction"]): r for r in client.get("/api/perf/summary?classes=equity").json()}
+    assert set(equity) == {("histogram_flattening", "bearish")}  # TSLA only
+    assert equity[("histogram_flattening", "bearish")]["n"] == 1
+
+
+def test_class_filter_combo_and_unknown_equal_all(client):
+    allc = {(r["stage"], r["direction"], r["n"]) for r in client.get("/api/perf/summary").json()}
+    combo = {(r["stage"], r["direction"], r["n"]) for r in client.get("/api/perf/summary?classes=crypto,equity").json()}
+    unknown = {(r["stage"], r["direction"], r["n"]) for r in client.get("/api/perf/summary?classes=bogus").json()}
+    assert combo == allc            # both classes = unfiltered
+    assert unknown == allc          # unknown parsed to None = all, never empty
+
+
+def test_readiness_class_filter(client):
+    # Raw (no-dedup) post-fix S1 counts: crypto = BTC×2 + ETH + SOL = 4, equity = TSLA = 1.
+    assert client.get("/api/perf/readiness?classes=crypto").json()["total"] == 4
+    assert client.get("/api/perf/readiness?classes=equity").json()["total"] == 1
+    assert client.get("/api/perf/readiness").json()["total"] == 5
+
+
 def test_invalid_horizon_422(client):
     assert client.get("/api/perf/summary?horizon=5d").status_code == 422
 

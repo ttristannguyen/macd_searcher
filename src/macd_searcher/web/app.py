@@ -142,68 +142,87 @@ def signals_per_day(days: int = 14, conn: sqlite3.Connection = Depends(get_conn)
 # empty until outcomes mature (~14 days after firing).
 
 
+# The Outcomes tab passes `classes` (comma-separated) to filter every panel to the
+# selected asset classes; absent / empty = all classes. perf.parse_classes validates.
 @app.get("/api/perf/readiness", response_model=PerfReadiness)
-def perf_readiness(conn: sqlite3.Connection = Depends(get_conn)) -> PerfReadiness:
-    return PerfReadiness(**perf.readiness(conn))
+def perf_readiness(
+    classes: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> PerfReadiness:
+    return PerfReadiness(**perf.readiness(conn, perf.parse_classes(classes)))
 
 
 @app.get("/api/perf/summary", response_model=list[PerfStageDirection])
 def perf_summary(
     horizon: Horizon = "7d",
     min_n: int = 1,
+    classes: str | None = None,
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfStageDirection]:
-    return [PerfStageDirection(**r) for r in perf.summary(conn, horizon, min_n)]
+    return [PerfStageDirection(**r) for r in perf.summary(conn, horizon, min_n, perf.parse_classes(classes))]
 
 
 @app.get("/api/perf/by-horizon", response_model=list[PerfHorizon])
-def perf_by_horizon(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfHorizon]:
-    return [PerfHorizon(**r) for r in perf.by_horizon(conn)]
+def perf_by_horizon(
+    classes: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfHorizon]:
+    return [PerfHorizon(**r) for r in perf.by_horizon(conn, perf.parse_classes(classes))]
 
 
 @app.get("/api/perf/horizon-curve", response_model=list[PerfHorizonPoint])
-def perf_horizon_curve(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfHorizonPoint]:
-    return [PerfHorizonPoint(**r) for r in perf.horizon_curve(conn)]
+def perf_horizon_curve(
+    classes: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfHorizonPoint]:
+    return [PerfHorizonPoint(**r) for r in perf.horizon_curve(conn, perf.parse_classes(classes))]
 
 
 @app.get("/api/perf/lead-time", response_model=list[PerfLeadTime])
-def perf_lead_time(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfLeadTime]:
-    return [PerfLeadTime(**r) for r in perf.lead_time(conn)]
+def perf_lead_time(
+    classes: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfLeadTime]:
+    return [PerfLeadTime(**r) for r in perf.lead_time(conn, perf.parse_classes(classes))]
 
 
 @app.get("/api/perf/scorecard", response_model=list[PerfSymbolScore])
 def perf_scorecard(
     horizon: Horizon = "7d",
     min_n: int = 5,
+    classes: str | None = None,
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfSymbolScore]:
-    return [PerfSymbolScore(**r) for r in perf.by_symbol_scorecard(conn, horizon, min_n)]
+    return [PerfSymbolScore(**r) for r in perf.by_symbol_scorecard(conn, horizon, min_n, perf.parse_classes(classes))]
 
 
 @app.get("/api/perf/by-class", response_model=list[PerfClassStage])
 def perf_by_class(
     horizon: Horizon = "7d",
     min_n: int = 1,
+    classes: str | None = None,
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfClassStage]:
-    return [PerfClassStage(**r) for r in perf.by_class(conn, horizon, min_n)]
+    return [PerfClassStage(**r) for r in perf.by_class(conn, horizon, min_n, perf.parse_classes(classes))]
 
 
 @app.get("/api/perf/thresholds", response_model=list[PerfBucket])
 def perf_thresholds(
     horizon: Horizon = "7d",
+    classes: str | None = None,
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfBucket]:
-    return [PerfBucket(**r) for r in perf.thresholds(conn, horizon)]
+    return [PerfBucket(**r) for r in perf.thresholds(conn, horizon, perf.parse_classes(classes))]
 
 
 @app.get("/api/perf/distribution", response_model=list[PerfDistribution])
 def perf_distribution(
     metric: Metric = "ret_7d",
     min_n: int = 1,
+    classes: str | None = None,
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfDistribution]:
-    return [PerfDistribution(**r) for r in perf.distribution(conn, metric, min_n)]
+    return [PerfDistribution(**r) for r in perf.distribution(conn, metric, min_n, classes=perf.parse_classes(classes))]
 
 
 @app.get(
@@ -212,17 +231,21 @@ def perf_distribution(
 )
 def perf_reduction_counterfactual(
     horizon: Horizon = "7d",
+    classes: str | None = None,
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfReductionCounterfactual]:
     return [
         PerfReductionCounterfactual(**r)
-        for r in perf.reduction_counterfactual(conn, horizon)
+        for r in perf.reduction_counterfactual(conn, horizon, perf.parse_classes(classes))
     ]
 
 
 @app.get("/api/perf/rsi-buckets", response_model=list[PerfRsiBucket])
-def perf_rsi_buckets(conn: sqlite3.Connection = Depends(get_conn)) -> list[PerfRsiBucket]:
-    return [PerfRsiBucket(**r) for r in perf.rsi_buckets(conn)]
+def perf_rsi_buckets(
+    classes: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfRsiBucket]:
+    return [PerfRsiBucket(**r) for r in perf.rsi_buckets(conn, perf.parse_classes(classes))]
 
 
 # Serve the built React app at / when it exists (production / one-port mode).

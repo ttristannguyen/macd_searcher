@@ -63,14 +63,42 @@ def _rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:
     return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
-def _base() -> tuple[str, list]:
+# Asset classes assigned by classify.classify_asset. The Outcomes-tab filter
+# accepts any combination of these; unknown values are ignored.
+_KNOWN_CLASSES = frozenset({"crypto", "equity", "commodity", "fx", "index"})
+
+
+def parse_classes(classes: str | None) -> list[str] | None:
+    """Parse a comma-separated `classes` query param into a validated list.
+
+    Returns None (= no filter, all classes) when nothing valid is given, so an
+    empty / absent selection shows everything rather than nothing.
+    """
+    if not classes:
+        return None
+    picked = [c.strip() for c in classes.split(",") if c.strip() in _KNOWN_CLASSES]
+    return picked or None
+
+
+def _class_filter(classes: list[str] | None, col: str = "a.asset_class") -> tuple[str, list]:
+    """Build an ` AND <col> IN (?,…)` fragment + its params (empty when no filter)."""
+    if not classes:
+        return "", []
+    placeholders = ",".join("?" for _ in classes)
+    return f" AND {col} IN ({placeholders})", list(classes)
+
+
+def _base(classes: list[str] | None = None) -> tuple[str, list]:
     """CTE exposing `perf`: deduped, class-joined, direction-normalized signals,
-    filtered to post-fix signals (fired_at >= DETECTOR_FIX_CUTOFF).
+    filtered to post-fix signals (fired_at >= DETECTOR_FIX_CUTOFF) and, optionally,
+    to the given asset classes.
 
     Returns (cte_sql, params). Callers append a `SELECT ... FROM perf ...` and
-    extend the param list.
+    extend the param list — the class params (if any) already sit in `params`
+    ahead of the caller's own, matching their position in the SQL.
     """
-    params: list = [DETECTOR_FIX_CUTOFF]
+    cls_sql, cls_params = _class_filter(classes)
+    params: list = [DETECTOR_FIX_CUTOFF, *cls_params]
     cte = f"""
     WITH first_fire AS (
         SELECT symbol, stage, direction, MIN(fired_at) AS first_fired
@@ -89,6 +117,7 @@ def _base() -> tuple[str, list]:
           ON s.symbol=f.symbol AND s.stage=f.stage
          AND s.direction=f.direction AND s.fired_at=f.first_fired
         LEFT JOIN asset_snapshots a ON a.run_id=s.run_id AND a.symbol=s.symbol
+        WHERE 1=1{cls_sql}
     )
     """
     return cte, params
@@ -97,29 +126,38 @@ def _base() -> tuple[str, list]:
 # ---------- outcome readiness (section D) ----------
 
 
-def readiness(conn: sqlite3.Connection) -> dict:
+def readiness(conn: sqlite3.Connection, classes: list[str] | None = None) -> dict:
     """How many signals are scored / finalized, and the oldest still-pending.
 
     Counts raw post-fix signals (no dedup) — this measures whether the
     update_outcomes job is keeping up, not performance. Filtered to
-    fired_at >= DETECTOR_FIX_CUTOFF and stage = 'histogram_flattening' so the
-    banner matches the rest of the (S1-only) tab.
+    fired_at >= DETECTOR_FIX_CUTOFF and stage = 'histogram_flattening' (and, when
+    given, to the selected asset classes) so the banner matches the rest of the tab.
     """
-    p = (DETECTOR_FIX_CUTOFF,)
+    # Class filter needs asset_class, which lives on asset_snapshots (1:1 per
+    # run+symbol, so the join doesn't change the counts).
+    join = ""
+    cls_sql, cls_params = "", []
+    if classes:
+        join = "JOIN asset_snapshots a ON a.run_id = s.run_id AND a.symbol = s.symbol"
+        cls_sql, cls_params = _class_filter(classes)
+    p = (DETECTOR_FIX_CUTOFF, *cls_params)
     row = conn.execute(
         "SELECT COUNT(*) AS total, "
-        "COALESCE(SUM(outcome_updated_at IS NOT NULL), 0) AS finalized, "
-        "COALESCE(SUM(px_1d  IS NOT NULL), 0) AS have_1d, "
-        "COALESCE(SUM(px_3d  IS NOT NULL), 0) AS have_3d, "
-        "COALESCE(SUM(px_7d  IS NOT NULL), 0) AS have_7d, "
-        "COALESCE(SUM(px_14d IS NOT NULL), 0) AS have_14d "
-        "FROM signals WHERE fired_at >= ? AND stage = 'histogram_flattening'",
+        "COALESCE(SUM(s.outcome_updated_at IS NOT NULL), 0) AS finalized, "
+        "COALESCE(SUM(s.px_1d  IS NOT NULL), 0) AS have_1d, "
+        "COALESCE(SUM(s.px_3d  IS NOT NULL), 0) AS have_3d, "
+        "COALESCE(SUM(s.px_7d  IS NOT NULL), 0) AS have_7d, "
+        "COALESCE(SUM(s.px_14d IS NOT NULL), 0) AS have_14d "
+        f"FROM signals s {join} "
+        f"WHERE s.fired_at >= ? AND s.stage = 'histogram_flattening'{cls_sql}",
         p,
     ).fetchone()
     pend = conn.execute(
-        "SELECT MIN(fired_at) AS oldest_pending, COUNT(*) AS pending "
-        "FROM signals WHERE outcome_updated_at IS NULL AND fired_at >= ? "
-        "AND stage = 'histogram_flattening'",
+        "SELECT MIN(s.fired_at) AS oldest_pending, COUNT(*) AS pending "
+        f"FROM signals s {join} "
+        f"WHERE s.outcome_updated_at IS NULL AND s.fired_at >= ? "
+        f"AND s.stage = 'histogram_flattening'{cls_sql}",
         p,
     ).fetchone()
     out = dict(row)
@@ -134,9 +172,10 @@ def summary(
     conn: sqlite3.Connection,
     horizon: Horizon = "7d",
     min_n: int = 1,
+    classes: list[str] | None = None,
 ) -> list[dict]:
     """E1 headline: win-rate and avg/worst/best return by stage x direction."""
-    cte, params = _base()
+    cte, params = _base(classes)
     ret = f"ret_{horizon}"
     sql = cte + (
         f"SELECT stage, direction, COUNT(*) AS n, "
@@ -151,9 +190,9 @@ def summary(
     return _rows(conn, sql, (*params, min_n))
 
 
-def by_horizon(conn: sqlite3.Connection) -> list[dict]:
+def by_horizon(conn: sqlite3.Connection, classes: list[str] | None = None) -> list[dict]:
     """E3: average return at each horizon by stage - does the edge grow or decay?"""
-    cte, params = _base()
+    cte, params = _base(classes)
     sql = cte + (
         "SELECT stage, "
         "ROUND(AVG(ret_1d)  * 100, 2) AS ret_1d,  COUNT(ret_1d)  AS n_1d, "
@@ -165,14 +204,14 @@ def by_horizon(conn: sqlite3.Connection) -> list[dict]:
     return _rows(conn, sql, tuple(params))
 
 
-def horizon_curve(conn: sqlite3.Connection) -> list[dict]:
+def horizon_curve(conn: sqlite3.Connection, classes: list[str] | None = None) -> list[dict]:
     """Overall win-rate + return distribution at each horizon (for the Charts view).
 
     One row per horizon over the deduped, direction-normalized `perf` rows — the
     whole strategy, not split by stage/direction. Reuses `stats.summarize`, so the
     return chart gets avg + best/worst *and* a p25/p75 (std-like) band for free.
     """
-    cte, params = _base()
+    cte, params = _base(classes)
     out: list[dict] = []
     for h in ("1d", "3d", "7d", "14d"):
         col = f"ret_{h}"
@@ -204,10 +243,10 @@ def horizon_curve(conn: sqlite3.Connection) -> list[dict]:
 # ---------- lead time (section F) ----------
 
 
-def lead_time(conn: sqlite3.Connection) -> list[dict]:
+def lead_time(conn: sqlite3.Connection, classes: list[str] | None = None) -> list[dict]:
     """F1: zero-cross timing by stage over FINALIZED signals only, so a NULL
     bars_to_zero_cross genuinely means 'never crossed within the horizon'."""
-    cte, params = _base()
+    cte, params = _base(classes)
     sql = cte + (
         "SELECT stage, COUNT(*) AS finalized_n, "
         "COALESCE(SUM(bars_to_zero_cross IS NOT NULL), 0) AS crossed_n, "
@@ -230,6 +269,7 @@ def by_symbol_scorecard(
     conn: sqlite3.Connection,
     horizon: Horizon = "7d",
     min_n: int = 5,
+    classes: list[str] | None = None,
 ) -> list[dict]:
     """Per-symbol reliability *with confidence bounds*, ranked by the lower bound
     of expected value so small-n luck can't top the list.
@@ -243,7 +283,7 @@ def by_symbol_scorecard(
     from scipy import stats as sps
 
     col = f"ret_{horizon}"
-    cte, params = _base()
+    cte, params = _base(classes)
     sql = cte + (
         f"SELECT symbol, asset_class, {col} AS r FROM perf WHERE {col} IS NOT NULL"
     )
@@ -315,9 +355,10 @@ def by_class(
     conn: sqlite3.Connection,
     horizon: Horizon = "7d",
     min_n: int = 1,
+    classes: list[str] | None = None,
 ) -> list[dict]:
     """E2: win-rate by asset class x stage - which markets does the model work on?"""
-    cte, params = _base()
+    cte, params = _base(classes)
     ret = f"ret_{horizon}"
     sql = cte + (
         f"SELECT asset_class, stage, COUNT(*) AS n, "
@@ -335,11 +376,12 @@ def by_class(
 def thresholds(
     conn: sqlite3.Connection,
     horizon: Horizon = "7d",
+    classes: list[str] | None = None,
 ) -> list[dict]:
     """G2: win-rate by histogram reduction-from-peak bucket over FIRED signals
     (reduction >= 0.3). If the deepest buckets win more, the fire threshold is
     loose. See `reduction_counterfactual` for the below-0.3 (never-fired) band."""
-    cte, params = _base()
+    cte, params = _base(classes)
     ret = f"ret_{horizon}"
     bucket = (
         "CASE WHEN fire_reduction_from_peak < 0.4 THEN 'a 0.3-0.4' "
@@ -372,14 +414,14 @@ _RSI_BUCKET_SQL = (
 )
 
 
-def rsi_buckets(conn: sqlite3.Connection) -> list[dict]:
+def rsi_buckets(conn: sqlite3.Connection, classes: list[str] | None = None) -> list[dict]:
     """Win-rate + EV by RSI(14)-at-fire bucket, direction, and horizon.
 
     One row per (horizon, direction, rsi_bucket); the frontend pivots into
     heatmaps/lines. Requires fire_rsi_14 (only signals fired after the RSI
     change carry it) and a scored return at that horizon.
     """
-    cte, params = _base()
+    cte, params = _base(classes)
     out: list[dict] = []
     for h in ("1d", "3d", "7d", "14d"):
         ret = f"ret_{h}"
@@ -433,6 +475,7 @@ def _reduction_bucket(red: float) -> str:
 def reduction_counterfactual(
     conn: sqlite3.Connection,
     horizon: Horizon = "7d",
+    classes: list[str] | None = None,
 ) -> list[dict]:
     """Reduction buckets read from `asset_snapshots` (not `signals`), so the
     analysis reaches BELOW the detector's 0.3 fire threshold — the 0.1-0.3 band
@@ -452,8 +495,9 @@ def reduction_counterfactual(
     """
     n_days = _HORIZON_DAYS[horizon]
 
+    cls_sql, cls_params = _class_filter(classes)
     # Deduped daily snapshots (earliest run per symbol/UTC-day), post-fix only.
-    sql = """
+    sql = f"""
     WITH snap AS (
         SELECT a.symbol, a.live_close, a.live_hist,
                a.hist_reduction_from_peak AS red, a.hist_recent_peak AS peak,
@@ -461,7 +505,7 @@ def reduction_counterfactual(
                substr(r.started_at, 1, 10) AS d, r.started_at AS ts
         FROM asset_snapshots a
         JOIN runs r ON r.run_id = a.run_id
-        WHERE r.started_at >= ? AND a.live_close > 0
+        WHERE r.started_at >= ? AND a.live_close > 0{cls_sql}
     ),
     first_snap AS (
         SELECT symbol, d, MIN(ts) AS first_ts FROM snap GROUP BY symbol, d
@@ -475,7 +519,7 @@ def reduction_counterfactual(
     # that pass the Stage-1 gates.
     prices: dict[str, dict[str, float]] = {}
     entries: list[dict] = []
-    for row in conn.execute(sql, (SNAPSHOT_FIX_CUTOFF,)):
+    for row in conn.execute(sql, (SNAPSHOT_FIX_CUTOFF, *cls_params)):
         prices.setdefault(row["symbol"], {})[row["d"]] = row["live_close"]
         if (
             row["red"] is not None
@@ -533,6 +577,7 @@ def distribution(
     metric: Metric = "ret_7d",
     min_n: int = 1,
     winsor: float = 0.05,
+    classes: list[str] | None = None,
 ) -> list[dict]:
     """Quantile + robust-mean summary of one metric, per stage x direction.
 
@@ -542,7 +587,7 @@ def distribution(
     handful of points to mean anything.
     """
     col = _METRIC_COL[metric]
-    cte, params = _base()
+    cte, params = _base(classes)
     sql = cte + (
         f"SELECT stage, direction, {col} AS v FROM perf "
         f"WHERE {col} IS NOT NULL"

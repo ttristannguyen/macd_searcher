@@ -184,6 +184,16 @@ class PerfRsiBucket(BaseModel):
     avg_ret_pct: Optional[float] = None
 
 
+class PerfMacdSignalBucket(BaseModel):
+    horizon: str
+    direction: str
+    # ATR-normalized MACD signal line at fire, signed (e.g. 'e 0.5..1').
+    bucket: str
+    n: int
+    win_pct: Optional[float] = None
+    avg_ret_pct: Optional[float] = None
+
+
 class PerfReductionCounterfactual(BaseModel):
     bucket: str
     n: int

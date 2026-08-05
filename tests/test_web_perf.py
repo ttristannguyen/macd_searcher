@@ -30,9 +30,9 @@ DAY_B = "2026-06-13"
 PRE_FIX = "2026-06-05"
 
 
-def _metrics(name: str, macd_pct: float) -> AssetMetrics:
+def _metrics(name: str, macd_pct: float, atr: float | None = 2.0) -> AssetMetrics:
     return AssetMetrics(
-        name=name, close=100.0, macd=-1.0, macd_signal=-0.5, hist=-0.5, atr=2.0,
+        name=name, close=100.0, macd=-1.0, macd_signal=-0.5, hist=-0.5, atr=atr,
         macd_pct_of_price=macd_pct, macd_shrinking_n_bars=2,
         live_close=101.0, live_hist=-0.4, live_hist_pct_of_price=0.004,
         hist_recent_peak=-1.0, hist_reduction_from_peak=0.6, hist_shrinking_n_bars=2,
@@ -41,11 +41,15 @@ def _metrics(name: str, macd_pct: float) -> AssetMetrics:
 
 def _fire(conn, symbol, direction, fired_at, fire_close, *,
           reduction=0.5, rsi=None, px_7d=None, mfe=None, mae=None,
-          bars=None, finalized=False):
-    """Insert one histogram_flattening signal and backfill its outcome columns."""
+          bars=None, finalized=False, macd=-0.5, hist=-0.1):
+    """Insert one histogram_flattening signal and backfill its outcome columns.
+
+    `macd`/`hist` are overridable because the MACD-signal-line analysis derives its
+    axis from them (signal = macd - hist); the other tests don't care about either.
+    """
     sig = Signal(
         symbol, "histogram_flattening", direction, close=fire_close,
-        macd=-0.5, hist=-0.1, hist_peak=0.5, reduction_from_peak=reduction,
+        macd=macd, hist=hist, hist_peak=0.5, reduction_from_peak=reduction,
         rsi_14=rsi,
     )
     db.insert_signals(conn, "r1", [sig], fired_at)
@@ -472,3 +476,95 @@ def test_rsi_buckets_excludes_signals_without_rsi(rsi_client):
     # RB6 has no fire_rsi_14 → contributes to no bucket.
     total_n = sum(r["n"] for r in rows if r["horizon"] == "7d")
     assert total_n == 5
+
+
+# ---- MACD signal-line bucket analysis ----
+#
+# The axis is (fire_macd - fire_hist) / atr. Every symbol below uses atr=2.0, so
+# a raw signal of -3.0 lands at -1.5 on the normalized axis. Values are chosen to
+# sit mid-bucket, away from the -1/-0.5/0/0.5/1 edges.
+
+
+def _seed_macd_signal(path: str) -> None:
+    conn = db.connect(path)
+    db.init_schema(conn)
+    db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
+    db.insert_snapshots(conn, "r1", {}, [
+        *[_metrics(f"MS{i}", 0.001) for i in range(1, 7)],
+        _metrics("MS7", 0.001, atr=None),   # no ATR → not normalizable
+    ])
+    at = f"{DAY_A}T08:00:00+00:00"
+
+    # Bullish (hist < 0), spanning the three negative buckets.
+    _fire(conn, "MS1", "bullish", at, 100.0, macd=-3.2, hist=-0.2, px_7d=110.0, finalized=True)  # -1.5  win +10%
+    _fire(conn, "MS2", "bullish", at, 100.0, macd=-1.7, hist=-0.2, px_7d=95.0, finalized=True)   # -0.75 loss -5%
+    _fire(conn, "MS3", "bullish", at, 100.0, macd=-0.7, hist=-0.2, px_7d=108.0, finalized=True)  # -0.25 win +8%
+    # Bearish (hist > 0), spanning the three positive buckets. MS4's hist is large
+    # enough that the MACD line alone (1.5/2 = 0.75) would bucket one step higher —
+    # it pins the derivation to signal, not macd.
+    _fire(conn, "MS4", "bearish", at, 100.0, macd=1.5, hist=1.0, px_7d=88.0, finalized=True)     # +0.25 win +12%
+    _fire(conn, "MS5", "bearish", at, 100.0, macd=1.7, hist=0.2, px_7d=106.0, finalized=True)    # +0.75 loss -6%
+    _fire(conn, "MS6", "bearish", at, 100.0, macd=3.2, hist=0.2, px_7d=90.0, finalized=True)     # +1.5  win +10%
+    # NULL atr → excluded entirely.
+    _fire(conn, "MS7", "bullish", at, 100.0, macd=-0.7, hist=-0.2, px_7d=120.0, finalized=True)
+    conn.close()
+
+
+@pytest.fixture
+def macd_signal_client(tmp_path):
+    path = str(tmp_path / "macdsig.sqlite3")
+    _seed_macd_signal(path)
+    app.dependency_overrides[get_conn] = _conn_to(path)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_macd_signal_buckets_win_and_ev(macd_signal_client):
+    rows = macd_signal_client.get("/api/perf/macd-signal-buckets").json()
+    # px_1d=px_3d=px_7d=px_14d in _fire, so every horizon is identical.
+    by = {(r["direction"], r["bucket"], r["horizon"]): r for r in rows}
+
+    r = by[("bullish", "a <-1", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 10.0
+
+    r = by[("bullish", "b -1..-0.5", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 0.0 and r["avg_ret_pct"] == -5.0
+
+    r = by[("bullish", "c -0.5..0", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 8.0
+
+    r = by[("bearish", "e 0.5..1", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 0.0 and r["avg_ret_pct"] == -6.0
+
+    r = by[("bearish", "f >=1", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 10.0
+
+    assert {r["horizon"] for r in rows} == {"1d", "3d", "7d", "14d"}
+
+
+def test_macd_signal_buckets_uses_signal_line_not_macd_line(macd_signal_client):
+    """MS4: signal = (1.5 - 1.0)/2 = +0.25 → 'd 0..0.5'. The MACD line alone would
+    be 1.5/2 = +0.75 → 'e 0.5..1'. Guards the `macd - hist` derivation."""
+    rows = macd_signal_client.get("/api/perf/macd-signal-buckets").json()
+    by = {(r["direction"], r["bucket"], r["horizon"]): r for r in rows}
+
+    r = by[("bearish", "d 0..0.5", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 12.0
+    # MS5 is the only other bearish signal in 'e', so it stayed put.
+    assert by[("bearish", "e 0.5..1", "7d")]["n"] == 1
+
+
+def test_macd_signal_buckets_excludes_signals_without_atr(macd_signal_client):
+    rows = macd_signal_client.get("/api/perf/macd-signal-buckets").json()
+    # MS7's snapshot has NULL atr → normalization undefined → contributes nowhere.
+    assert sum(r["n"] for r in rows if r["horizon"] == "7d") == 6
+
+
+def test_macd_signal_buckets_respects_class_filter(macd_signal_client):
+    """All seeded symbols classify as crypto, so 'equity' must return nothing while
+    'crypto' returns the full set — the same classes threading as the other endpoints."""
+    rows = macd_signal_client.get("/api/perf/macd-signal-buckets?classes=equity").json()
+    assert rows == []
+
+    rows = macd_signal_client.get("/api/perf/macd-signal-buckets?classes=crypto").json()
+    assert sum(r["n"] for r in rows if r["horizon"] == "7d") == 6

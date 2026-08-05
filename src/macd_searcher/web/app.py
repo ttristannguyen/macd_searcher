@@ -31,6 +31,7 @@ from .models import (
     PerfLeadTime,
     PerfReadiness,
     PerfReductionCounterfactual,
+    PerfMacdSignalBucket,
     PerfRsiBucket,
     PerfStageDirection,
     PerfSymbolScore,
@@ -246,6 +247,17 @@ def perf_rsi_buckets(
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfRsiBucket]:
     return [PerfRsiBucket(**r) for r in perf.rsi_buckets(conn, perf.parse_classes(classes))]
+
+
+@app.get("/api/perf/macd-signal-buckets", response_model=list[PerfMacdSignalBucket])
+def perf_macd_signal_buckets(
+    classes: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfMacdSignalBucket]:
+    return [
+        PerfMacdSignalBucket(**r)
+        for r in perf.macd_signal_buckets(conn, perf.parse_classes(classes))
+    ]
 
 
 # Serve the built React app at / when it exists (production / one-port mode).

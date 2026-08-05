@@ -12,8 +12,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { usePerfHorizonCurve, usePerfRsiBuckets, usePerfThresholds } from '../api/client'
-import type { PerfBucket, PerfRsiBucket } from '../api/types'
+import {
+  usePerfHorizonCurve,
+  usePerfMacdSignalBuckets,
+  usePerfRsiBuckets,
+  usePerfThresholds,
+} from '../api/client'
+import type { PerfBucket, PerfMacdSignalBucket, PerfRsiBucket } from '../api/types'
 import { fmtPctPts } from '../lib/format'
 import { Card, Segmented, StateMsg } from './ui'
 
@@ -393,6 +398,194 @@ export function RsiAnalysis() {
   )
 }
 
+// ---------- MACD signal-line-at-fire signal-quality analysis ----------
+//
+// Axis = (fire_macd - fire_hist) / ATR: roughly 7 bars of trend drift over one bar
+// of typical range, i.e. a trend signal-to-noise ratio. ATR-normalized rather than
+// price-normalized because MACD scales with volatility too, and %-of-price buckets
+// collapse into an asset-class proxy. Signed, because the sign is the regime: for a
+// bearish fire, +1.2 is a mature uptrend rolling over, -0.4 a downtrend continuing.
+//
+// The signal line rather than the MACD line so the axis stays independent of `hist`,
+// the detector's own firing variable — which ReductionHeatmap already covers.
+// See docs/macd_signal_analysis.md.
+
+const MACD_SIGNAL_BUCKETS = [
+  'a <-1', 'b -1..-0.5', 'c -0.5..0', 'd 0..0.5', 'e 0.5..1', 'f >=1',
+] as const
+// Amber sequential ramp (low->high), kept distinct from the RSI section's violet so
+// the two ordered-bucket analyses don't read as one chart.
+const MACD_SIGNAL_RAMP = ['#fde68a', '#fcd34d', '#fbbf24', '#f59e0b', '#d97706', '#b45309']
+
+function MacdSignalHeatmap({ rows, metric }: { rows: PerfMacdSignalBucket[]; metric: 'win' | 'ev' }) {
+  const mid = metric === 'win' ? 50 : 0
+  const span = metric === 'win' ? 25 : 10
+  const title =
+    metric === 'win' ? 'Win rate by signal line × horizon' : 'EV by signal line × horizon'
+
+  const cell = (bucket: string, horizon: string) => {
+    const row = rows.find((r) => r.bucket === bucket && r.horizon === horizon)
+    const value = row ? (metric === 'win' ? row.win_pct : row.avg_ret_pct) : null
+    return { value, n: row?.n ?? 0 }
+  }
+
+  return (
+    <Card title={title}>
+      <div className="overflow-x-auto">
+        <table className="w-full border-separate text-sm" style={{ borderSpacing: 2 }}>
+          <thead>
+            <tr className="text-xs uppercase tracking-wide text-slate-500">
+              <th className="py-1 pr-2 text-left font-medium">Signal ÷ ATR</th>
+              {HORIZONS.map((h) => (
+                <th key={h} className="px-2 py-1 text-center font-medium">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {MACD_SIGNAL_BUCKETS.map((bucket) => (
+              <tr key={bucket}>
+                <td className="py-1 pr-2 text-slate-300">{bucketLabel(bucket)}</td>
+                {HORIZONS.map((h) => {
+                  const { value, n } = cell(bucket, h)
+                  return (
+                    <td
+                      key={h}
+                      className="rounded px-2 py-1.5 text-center tabular-nums"
+                      style={{ background: heatColor(value, mid, span), color: value == null ? '#475569' : '#f1f5f9' }}
+                      title={value == null ? 'no data' : `signal÷ATR ${bucketLabel(bucket)} · ${h} · n=${n}`}
+                    >
+                      {value == null ? '—' : (
+                        <>
+                          <div>{fmtPctPts(value, metric === 'win' ? 1 : 2, metric === 'ev')}</div>
+                          <div className="text-[10px] text-slate-300/70">n={n}</div>
+                        </>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        {metric === 'win'
+          ? 'Colour: green ≥ 50% win-rate, red < 50%, slate at the 50% midpoint.'
+          : 'Colour: green = positive EV, red = negative, slate at the 0% midpoint.'}{' '}
+        <span className="text-slate-400">n=</span> is the sample size per cell — small n is noisy; trust the big-n cells.
+      </p>
+    </Card>
+  )
+}
+
+function MacdSignalWinCurve({ rows }: { rows: PerfMacdSignalBucket[] }) {
+  const byHB = new Map(rows.map((r) => [`${r.bucket}|${r.horizon}`, r]))
+  const chartRows = HORIZONS.map((h) => {
+    const row: Record<string, number | string | null> = { h }
+    let wSum = 0
+    let nSum = 0
+    for (const b of MACD_SIGNAL_BUCKETS) {
+      const r = byHB.get(`${b}|${h}`)
+      row[b] = r?.win_pct ?? null
+      if (r && r.win_pct != null) {
+        wSum += r.win_pct * r.n
+        nSum += r.n
+      }
+    }
+    row.baseline = nSum > 0 ? Math.round((wSum / nSum) * 10) / 10 : null
+    return row
+  })
+
+  return (
+    <Card title="Win rate by horizon, per signal-line bucket">
+      <div style={{ height: 240 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartRows}>
+            <CartesianGrid stroke={GRID} vertical={false} />
+            <XAxis dataKey="h" stroke={AXIS} fontSize={12} />
+            <YAxis stroke={AXIS} fontSize={12} unit="%" domain={[0, 100]} />
+            <ReferenceLine y={50} stroke={AXIS} strokeDasharray="3 3" />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => `${v}%`} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            {MACD_SIGNAL_BUCKETS.map((b, i) => (
+              <Line key={b} name={bucketLabel(b)} type="monotone" dataKey={b} stroke={MACD_SIGNAL_RAMP[i]} strokeWidth={2} dot={{ r: 2 }} connectNulls />
+            ))}
+            <Line name="baseline (all buckets)" type="monotone" dataKey="baseline" stroke={AXIS} strokeWidth={1.5} strokeDasharray="4 3" dot={false} connectNulls />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        Read the dashed baseline first. A driftless random walk still produces |signal÷ATR| above 1.0 about 30% of the time, so the question isn't whether the buckets differ from each other — it's whether any of them beats trading every signal.
+      </p>
+    </Card>
+  )
+}
+
+function MacdSignalTrendByBucket({ rows }: { rows: PerfMacdSignalBucket[] }) {
+  const byHB = new Map(rows.map((r) => [`${r.bucket}|${r.horizon}`, r]))
+  const chartRows = MACD_SIGNAL_BUCKETS.map((b) => {
+    const row: Record<string, number | string | null> = { bucket: bucketLabel(b) }
+    for (const h of HORIZONS) {
+      row[h] = byHB.get(`${b}|${h}`)?.win_pct ?? null
+    }
+    return row
+  })
+
+  return (
+    <Card title="Win rate vs signal-line bucket, per horizon">
+      <div style={{ height: 240 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartRows}>
+            <CartesianGrid stroke={GRID} vertical={false} />
+            <XAxis dataKey="bucket" stroke={AXIS} fontSize={11} />
+            <YAxis stroke={AXIS} fontSize={12} unit="%" domain={[0, 100]} />
+            <ReferenceLine y={50} stroke={AXIS} strokeDasharray="3 3" />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => `${v}%`} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            {HORIZONS.map((h, i) => (
+              <Line key={h} name={h} type="monotone" dataKey={h} stroke={HORIZON_RAMP[i]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        The direct read: a sloped line means where the trend sat at fire time correlates with the result. Flat means the signal line adds nothing over the reduction gate.
+      </p>
+    </Card>
+  )
+}
+
+export function MacdSignalAnalysis() {
+  const { data, isLoading, isError } = usePerfMacdSignalBuckets()
+  const [direction, setDirection] = useState<RsiDirection>('bullish')
+  const all = data ?? []
+  const rows = all.filter((r) => r.direction === direction)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium text-slate-300">MACD signal line at fire — trend context</h2>
+        <Segmented options={DIRECTIONS} value={direction} onChange={setDirection} />
+      </div>
+      <StateMsg loading={isLoading} error={isError} empty={all.length === 0}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <MacdSignalHeatmap rows={rows} metric="win" />
+            <MacdSignalHeatmap rows={rows} metric="ev" />
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <MacdSignalWinCurve rows={rows} />
+            <MacdSignalTrendByBucket rows={rows} />
+          </div>
+          <p className="text-xs text-slate-600">
+            The axis is the MACD signal line at fire, divided by ATR — about 7 bars of trend drift per bar of typical range, so it reads as <em>how cleanly the trend was moving</em>, not how far. Divided by ATR rather than price because MACD scales with volatility as well as price, which would turn the buckets into an asset-class proxy. Signed: for a bearish fire, positive = a mature uptrend rolling over, negative = a downtrend continuing. Derived from existing columns, so it covers the full signal history.
+          </p>
+        </div>
+      </StateMsg>
+    </div>
+  )
+}
+
 // ---------- composition ----------
 
 export function OutcomesCharts() {
@@ -407,6 +600,7 @@ export function OutcomesCharts() {
         <ReductionHeatmap metric="ev" />
       </div>
       <RsiAnalysis />
+      <MacdSignalAnalysis />
     </div>
   )
 }

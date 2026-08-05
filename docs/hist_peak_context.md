@@ -90,8 +90,18 @@ All NULL/0 when there's no prior same-sign excursion in the 200-bar window.
 
 ## Out of scope / future
 - **Peak-context bucket analysis** (win/EV by peak-ratio or percentile bucket,
-  like the RSI/reduction heatmaps) — the natural payoff once data accrues.
+  like the RSI/reduction heatmaps) — the natural payoff once data accrues. The
+  bucket-analysis pattern is being built first for the signal line
+  ([macd_signal_analysis.md](macd_signal_analysis.md)); copy it when the ratio
+  columns have matured.
 - Snapshot-level version (every asset, for counterfactual) — later.
+
+## Sibling work
+
+[macd_signal_analysis.md](macd_signal_analysis.md) — MACD signal-line at fire, the
+third signal-quality dimension. Independent of this doc and much cheaper: the
+signal line is already derivable from existing columns (`fire_macd − fire_hist`),
+so it needs no capture, no migration, and no waiting for data. Worth landing first.
 
 ## Reference — reused code
 - `_excursion_peak`, `_trailing_same_sign_len`, `_detect_for_asset`, `Signal`,

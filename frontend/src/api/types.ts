@@ -198,6 +198,17 @@ export interface PerfRsiBucket {
   avg_ret_pct: number | null
 }
 
+// One row per (horizon, direction, ATR-normalized MACD-signal-line bucket). The
+// axis is (fire_macd - fire_hist) / atr — signed, so the sign carries the regime.
+export interface PerfMacdSignalBucket {
+  horizon: string
+  direction: string
+  bucket: string
+  n: number
+  win_pct: number | null
+  avg_ret_pct: number | null
+}
+
 // Counterfactual reduction buckets from asset_snapshots (extends below the 0.3
 // fire threshold). EV/win are faithful; drawdown_proxy is a close-based floor.
 export interface PerfReductionCounterfactual {

@@ -77,6 +77,7 @@ One asset that triggered an alert in a given run. The `fire_*` columns capture t
 | `fire_close` | REAL | Price used at fire time — **live** price for Stage 1, **closed** close for Stage 3. The entry reference for return calculations. |
 | `fire_macd` | REAL | MACD value at fire. |
 | `fire_hist` | REAL | Histogram value at fire. |
+| *(derived)* `fire_macd − fire_hist` | — | **The MACD signal line at fire.** There is deliberately no `fire_macd_signal` column: `indicators.macd` builds `hist = macd − signal`, and both operands above come from the same fire-view bar, so subtraction recovers it exactly — for every signal ever logged, no migration or backfill. Normalized by `asset_snapshots.atr` it drives the signal-line bucket analysis (`perf.macd_signal_buckets`). See [macd_signal_analysis.md](macd_signal_analysis.md). |
 | `fire_macd_pct_of_price` | REAL | **Legacy Stage-3 column** — NULL for all new (Stage-1) rows; retained for historical data. |
 | `fire_atr_multiple` | REAL | **Legacy Stage-3 column** (`atr` mode) — NULL for all new rows; retained for historical data. |
 | `fire_hist_peak` | REAL | Histogram peak at fire (Stage 1); NULL for Stage 3. |

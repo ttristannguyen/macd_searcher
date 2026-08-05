@@ -93,6 +93,10 @@ def _base(classes: list[str] | None = None) -> tuple[str, list]:
     filtered to post-fix signals (fired_at >= DETECTOR_FIX_CUTOFF) and, optionally,
     to the given asset classes.
 
+    The snapshot join also carries `atr` (the closed-bar value for that run+symbol),
+    which `macd_signal_buckets` uses to normalize the signal line. `signals` has no
+    `atr` column of its own, so the name doesn't collide with `s.*`.
+
     Returns (cte_sql, params). Callers append a `SELECT ... FROM perf ...` and
     extend the param list — the class params (if any) already sit in `params`
     ahead of the caller's own, matching their position in the SQL.
@@ -107,7 +111,7 @@ def _base(classes: list[str] | None = None) -> tuple[str, list]:
         GROUP BY symbol, stage, direction, substr(fired_at, 1, 10)
     ),
     perf AS (
-        SELECT s.*, a.asset_class,
+        SELECT s.*, a.asset_class, a.atr,
             CASE WHEN s.direction='bullish' THEN s.px_1d /s.fire_close-1 ELSE 1-s.px_1d /s.fire_close END AS ret_1d,
             CASE WHEN s.direction='bullish' THEN s.px_3d /s.fire_close-1 ELSE 1-s.px_3d /s.fire_close END AS ret_3d,
             CASE WHEN s.direction='bullish' THEN s.px_7d /s.fire_close-1 ELSE 1-s.px_7d /s.fire_close END AS ret_7d,
@@ -435,6 +439,64 @@ def rsi_buckets(conn: sqlite3.Connection, classes: list[str] | None = None) -> l
         for row in _rows(conn, sql, tuple(params)):
             out.append({"horizon": h, **row})
     out.sort(key=lambda d: (d["direction"], d["rsi_bucket"], d["horizon"]))
+    return out
+
+
+# ---------- MACD signal-line-at-fire signal-quality analysis ----------
+
+# The signal line at fire time needs no column of its own: indicators.macd builds
+# hist = macd - signal, and Signal carries both `macd` and `hist` from the same
+# fire-view bar, so `fire_macd - fire_hist` recovers it exactly — for every signal
+# ever logged, including under use_forming_candle.
+#
+# Normalized by ATR, not by price. MACD scales with volatility as well as price, so
+# dividing by price leaves the volatility term in and the buckets degrade into an
+# asset-class proxy (median |signal| is 0.17% of price for fx vs 4.08% for crypto —
+# 24x — against ~1.4x once ATR-normalized). signal/ATR is ~7 bars of drift over one
+# bar of typical range: a trend signal-to-noise ratio. See docs/macd_signal_analysis.md.
+#
+# Signed, not absolute: the sign carries the regime. For a bearish fire, +1.2 is a
+# mature uptrend rolling over while -0.4 is a downtrend continuing — different trades.
+_MACD_SIGNAL_EXPR = "(fire_macd - fire_hist) / atr"
+
+_MACD_SIGNAL_BUCKET_SQL = (
+    f"CASE WHEN {_MACD_SIGNAL_EXPR} < -1 THEN 'a <-1' "
+    f"WHEN {_MACD_SIGNAL_EXPR} < -0.5 THEN 'b -1..-0.5' "
+    f"WHEN {_MACD_SIGNAL_EXPR} < 0 THEN 'c -0.5..0' "
+    f"WHEN {_MACD_SIGNAL_EXPR} < 0.5 THEN 'd 0..0.5' "
+    f"WHEN {_MACD_SIGNAL_EXPR} < 1 THEN 'e 0.5..1' "
+    f"ELSE 'f >=1' END"
+)
+
+
+def macd_signal_buckets(
+    conn: sqlite3.Connection, classes: list[str] | None = None
+) -> list[dict]:
+    """Win-rate + EV by ATR-normalized MACD-signal-line-at-fire bucket, direction,
+    and horizon.
+
+    One row per (horizon, direction, bucket); the frontend pivots into
+    heatmaps/lines. Mirrors `rsi_buckets`, but the metric is derived rather than
+    stored, so it covers the full signal history with no backfill.
+
+    `atr` rides in on the `_base()` join to asset_snapshots. It's the closed-bar
+    value while the signal line is the live fire bar — ATR is a 14-period Wilder
+    average, so one bar of staleness is negligible against a 0.5-wide bucket.
+    """
+    cte, params = _base(classes)
+    out: list[dict] = []
+    for h in ("1d", "3d", "7d", "14d"):
+        ret = f"ret_{h}"
+        sql = cte + (
+            f"SELECT direction, {_MACD_SIGNAL_BUCKET_SQL} AS bucket, COUNT(*) AS n, "
+            f"ROUND(AVG({ret} > 0) * 100, 1) AS win_pct, "
+            f"ROUND(AVG({ret}) * 100, 2) AS avg_ret_pct "
+            f"FROM perf WHERE atr IS NOT NULL AND atr > 0 AND {ret} IS NOT NULL "
+            f"GROUP BY direction, bucket"
+        )
+        for row in _rows(conn, sql, tuple(params)):
+            out.append({"horizon": h, **row})
+    out.sort(key=lambda d: (d["direction"], d["bucket"], d["horizon"]))
     return out
 
 

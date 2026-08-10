@@ -30,6 +30,65 @@ def test_init_schema_signals_has_rsi_column():
     assert "fire_rsi_14" in cols
 
 
+def test_init_schema_signals_has_peak_context_columns():
+    conn = _conn()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(signals)")}
+    assert {"fire_hist_peak_ratio", "fire_hist_peak_pct", "fire_hist_top_n"} <= cols
+
+
+def test_init_schema_migrates_a_db_predating_peak_context():
+    """A signals table created before these columns existed picks them up on
+    init_schema, non-destructively — existing rows keep their data."""
+    conn = sqlite3.connect(":memory:")
+    # Mirrors the pre-peak-context shape: the outcome columns already existed, so
+    # init_schema's indexes still build.
+    conn.execute(
+        "CREATE TABLE signals (signal_id TEXT PRIMARY KEY, run_id TEXT, symbol TEXT, "
+        "stage TEXT, direction TEXT, fired_at TEXT, fire_close REAL, fire_macd REAL, "
+        "fire_hist REAL, outcome_updated_at TEXT)"
+    )
+    conn.execute("INSERT INTO signals (signal_id, symbol) VALUES ('old', 'BTC')")
+    db.init_schema(conn)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(signals)")}
+    assert {"fire_hist_peak_ratio", "fire_hist_peak_pct", "fire_hist_top_n"} <= cols
+    row = conn.execute(
+        "SELECT symbol, fire_hist_peak_ratio FROM signals WHERE signal_id='old'"
+    ).fetchone()
+    assert row == ("BTC", None)   # pre-existing row survives, new column NULL
+
+
+def test_insert_signals_stores_peak_context():
+    conn = _conn()
+    db.start_run(conn, "r1", "t0", None, None, None)
+    db.insert_signals(conn, "r1", [
+        Signal(name="ETH", stage="histogram_flattening", direction="bearish",
+               close=100.0, macd=0.1, hist=0.2, hist_peak=0.5,
+               reduction_from_peak=0.6, rsi_14=68.4,
+               hist_peak_ratio=1.8, hist_peak_pct=82.0, hist_top_n=14),
+    ], "2026-01-01T00:00:00+00:00")
+    row = conn.execute(
+        "SELECT fire_hist_peak_ratio, fire_hist_peak_pct, fire_hist_top_n "
+        "FROM signals WHERE symbol='ETH'"
+    ).fetchone()
+    assert row == (1.8, 82.0, 14)
+
+
+def test_insert_signals_peak_context_defaults_when_no_baseline():
+    """A signal with no prior same-sign excursion stores NULL/NULL/0, not garbage."""
+    conn = _conn()
+    db.start_run(conn, "r1", "t0", None, None, None)
+    db.insert_signals(conn, "r1", [
+        Signal(name="SOL", stage="histogram_flattening", direction="bullish",
+               close=100.0, macd=-0.1, hist=-0.2, hist_peak=-0.5,
+               reduction_from_peak=0.6),
+    ], "2026-01-01T00:00:00+00:00")
+    row = conn.execute(
+        "SELECT fire_hist_peak_ratio, fire_hist_peak_pct, fire_hist_top_n "
+        "FROM signals WHERE symbol='SOL'"
+    ).fetchone()
+    assert row == (None, None, 0)
+
+
 def test_add_missing_columns_is_idempotent():
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE t (a INTEGER)")

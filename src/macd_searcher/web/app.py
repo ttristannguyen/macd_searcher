@@ -32,6 +32,7 @@ from .models import (
     PerfReadiness,
     PerfReductionCounterfactual,
     PerfMacdSignalBucket,
+    PerfPeakBucket,
     PerfRsiBucket,
     PerfStageDirection,
     PerfSymbolScore,
@@ -50,7 +51,7 @@ app = FastAPI(title="macd_searcher dashboard API", version="0.1.0")
 
 # Dev only: the Vite dev server (5173) calls the API on a different port. In
 # production the React build is served same-origin, so CORS is a no-op.
-app.add_middleware(
+app.add_middleware( 
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_methods=["GET"],
@@ -247,6 +248,17 @@ def perf_rsi_buckets(
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfRsiBucket]:
     return [PerfRsiBucket(**r) for r in perf.rsi_buckets(conn, perf.parse_classes(classes))]
+
+
+@app.get("/api/perf/peak-context-buckets", response_model=list[PerfPeakBucket])
+def perf_peak_context_buckets(
+    classes: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfPeakBucket]:
+    return [
+        PerfPeakBucket(**r)
+        for r in perf.peak_context_buckets(conn, perf.parse_classes(classes))
+    ]
 
 
 @app.get("/api/perf/macd-signal-buckets", response_model=list[PerfMacdSignalBucket])

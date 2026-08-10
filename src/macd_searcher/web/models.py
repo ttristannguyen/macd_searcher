@@ -67,6 +67,11 @@ class SignalRow(BaseModel):
     fire_macd: Optional[float] = None
     fire_reduction_from_peak: Optional[float] = None
     fire_rsi_14: Optional[float] = None
+    # This excursion's peak vs the token's own prior same-sign tops. NULL on rows
+    # that predate the columns and were never backfilled; top_n is the trust gauge.
+    fire_hist_peak_ratio: Optional[float] = None
+    fire_hist_peak_pct: Optional[float] = None
+    fire_hist_top_n: Optional[int] = None
 
 
 class StageDirectionRow(BaseModel):
@@ -179,6 +184,17 @@ class PerfRsiBucket(BaseModel):
     horizon: str
     direction: str
     rsi_bucket: str
+    n: int
+    win_pct: Optional[float] = None
+    avg_ret_pct: Optional[float] = None
+
+
+class PerfPeakBucket(BaseModel):
+    horizon: str
+    direction: str
+    # Percentile band of this excursion's peak among the token's own prior
+    # same-sign tops (e.g. 'a <20'). Low = a modest peak by this token's standards.
+    bucket: str
     n: int
     win_pct: Optional[float] = None
     avg_ret_pct: Optional[float] = None

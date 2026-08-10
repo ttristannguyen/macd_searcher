@@ -37,7 +37,7 @@ from . import db
 from .config import AppConfig, load_config
 from .hyperliquid import fetch_candles
 from .indicators import macd as compute_macd
-from .signals import _last_bar_is_forming
+from .signals import _last_bar_is_forming, _peak_vs_history
 
 
 log = logging.getLogger("macd_searcher.update_outcomes")
@@ -201,6 +201,84 @@ async def _run(cfg: AppConfig, conn) -> None:
              total, len(by_symbol), finalized)
 
 
+# ---------- one-off: backfill peak-vs-history on historical signals ----------
+#
+# The scanner computes these at fire time from the 200-bar `hist` it holds in
+# memory, but that series is never persisted (asset_snapshots stores derived
+# scalars only). So the backfill re-fetches candles — one request per symbol
+# covering every one of its signals — and reconstructs the fire-time view.
+
+
+async def _backfill_symbol(
+    client: httpx.AsyncClient,
+    symbol: str,
+    sigs: list,
+    cfg: AppConfig,
+    conn,
+) -> int:
+    """Recompute peak-vs-history for one symbol's signals. Returns rows written."""
+    earliest = min(datetime.fromisoformat(s["fired_at"]) for s in sigs)
+    latest = max(datetime.fromisoformat(s["fired_at"]) for s in sigs)
+    # Reach back a full detector window before the earliest fire so the oldest
+    # signal still has 200 bars of excursion history behind it.
+    start_ms = int((earliest - timedelta(days=cfg.candles.lookback_days + _WARMUP_DAYS)).timestamp() * 1000)
+    end_ms = int((latest + timedelta(days=1)).timestamp() * 1000)
+
+    try:
+        df = await fetch_candles(client, symbol, cfg, start_ms, end_ms)
+    except Exception as exc:  # noqa: BLE001 — skip this symbol, keep going
+        log.warning("Peak-context candle fetch failed for %s: %s", symbol, exc)
+        return 0
+    if len(df) < cfg.macd.slow + 2:
+        log.warning("Not enough bars for %s (%d); skipping", symbol, len(df))
+        return 0
+
+    hist = compute_macd(df["close"], cfg.macd.fast, cfg.macd.slow, cfg.macd.signal)["hist"]
+
+    written = 0
+    for s in sigs:
+        idx = _bar_index_at_or_before(df, datetime.fromisoformat(s["fired_at"]))
+        if idx is None:
+            continue
+        # Stage 1 fires on the bar containing fired_at (use_forming_candle), and
+        # sees at most `lookback_days` bars — slice to exactly that view so the
+        # baseline matches what the live detector would have used.
+        lo = max(0, idx + 1 - cfg.candles.lookback_days)
+        ratio, pct, top_n = _peak_vs_history(hist.iloc[lo:idx + 1], s["direction"])
+        db.update_signal_peak_context(
+            conn, s["signal_id"], ratio=ratio, pct=pct, top_n=top_n
+        )
+        written += 1
+    conn.commit()
+    return written
+
+
+async def _run_backfill(cfg: AppConfig, conn) -> None:
+    rows = db.fetch_signals_missing_peak_context(conn)
+    if not rows:
+        log.info("No signals missing peak-vs-history context.")
+        return
+
+    by_symbol: dict[str, list] = defaultdict(list)
+    for r in rows:
+        by_symbol[r["symbol"]].append(r)
+    log.info("Backfilling peak context for %d signal(s) across %d symbol(s)...",
+             len(rows), len(by_symbol))
+
+    total = 0
+    async with httpx.AsyncClient() as client:
+        for i, (symbol, sigs) in enumerate(by_symbol.items(), 1):
+            total += await _backfill_symbol(client, symbol, sigs, cfg, conn)
+            if i % 25 == 0:
+                log.info("  ... %d/%d symbols, %d rows written", i, len(by_symbol), total)
+
+    with_baseline = conn.execute(
+        "SELECT COUNT(*) FROM signals WHERE fire_hist_top_n > 0"
+    ).fetchone()[0]
+    log.info("Backfill wrote %d row(s); %d signal(s) now have a peak baseline.",
+             total, with_baseline)
+
+
 def _setup_logging(level: str) -> None:
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
@@ -219,6 +297,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="Path to config.yaml.")
     p.add_argument("--log-level", default=None,
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    p.add_argument("--backfill-peak-context", action="store_true",
+                   help="One-off: recompute peak-vs-history on signals that predate "
+                        "those columns, instead of scoring outcomes.")
     args = p.parse_args(argv)
 
     try:
@@ -236,7 +317,7 @@ def main(argv: list[str] | None = None) -> int:
     conn = db.connect(cfg.database.path)
     db.init_schema(conn)
     try:
-        asyncio.run(_run(cfg, conn))
+        asyncio.run(_run_backfill(cfg, conn) if args.backfill_peak_context else _run(cfg, conn))
         return 0
     except KeyboardInterrupt:
         log.warning("Interrupted")

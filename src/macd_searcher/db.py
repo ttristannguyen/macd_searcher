@@ -78,6 +78,9 @@ CREATE TABLE IF NOT EXISTS signals (
     fire_hist_peak            REAL,
     fire_reduction_from_peak  REAL,
     fire_rsi_14               REAL,
+    fire_hist_peak_ratio      REAL,
+    fire_hist_peak_pct        REAL,
+    fire_hist_top_n           INTEGER,
     bars_to_zero_cross        INTEGER,
     zero_cross_observed_at    TEXT,
     px_1d                     REAL,
@@ -123,7 +126,12 @@ def _add_missing_columns(
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_SQL)
     # Migrations for DBs created before a column existed (see _add_missing_columns).
-    _add_missing_columns(conn, "signals", {"fire_rsi_14": "REAL"})
+    _add_missing_columns(conn, "signals", {
+        "fire_rsi_14": "REAL",
+        "fire_hist_peak_ratio": "REAL",
+        "fire_hist_peak_pct": "REAL",
+        "fire_hist_top_n": "INTEGER",
+    })
     conn.commit()
 
 
@@ -218,6 +226,37 @@ def fetch_pending_signals(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def fetch_signals_missing_peak_context(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Signals whose peak-vs-history columns were never computed.
+
+    NULL (not 0) is the marker: `insert_signals` writes 0 for a signal that had no
+    prior same-sign excursion, so NULL means "predates the column" rather than
+    "computed, no baseline" — the backfill won't redo work it already did.
+    """
+    conn.row_factory = sqlite3.Row
+    return conn.execute(
+        "SELECT signal_id, symbol, direction, fired_at FROM signals "
+        "WHERE fire_hist_top_n IS NULL AND stage = 'histogram_flattening' "
+        "ORDER BY symbol, fired_at"
+    ).fetchall()
+
+
+def update_signal_peak_context(
+    conn: sqlite3.Connection,
+    signal_id: str,
+    *,
+    ratio: float | None,
+    pct: float | None,
+    top_n: int,
+) -> None:
+    """Write the peak-vs-history columns for one signal (backfill path)."""
+    conn.execute(
+        "UPDATE signals SET fire_hist_peak_ratio=?, fire_hist_peak_pct=?, "
+        "fire_hist_top_n=? WHERE signal_id=?",
+        (ratio, pct, top_n, signal_id),
+    )
+
+
 def update_signal_outcome(
     conn: sqlite3.Connection,
     signal_id: str,
@@ -259,13 +298,15 @@ def insert_signals(
             uuid.uuid4().hex, run_id, s.name, s.stage, s.direction, fired_at,
             s.close, s.macd, s.hist, None, None,
             s.hist_peak, s.reduction_from_peak, s.rsi_14,
+            s.hist_peak_ratio, s.hist_peak_pct, s.hist_top_n,
         ))
     conn.executemany(
         "INSERT INTO signals ("
         "signal_id, run_id, symbol, stage, direction, fired_at, "
         "fire_close, fire_macd, fire_hist, fire_macd_pct_of_price, fire_atr_multiple, "
-        "fire_hist_peak, fire_reduction_from_peak, fire_rsi_14"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "fire_hist_peak, fire_reduction_from_peak, fire_rsi_14, "
+        "fire_hist_peak_ratio, fire_hist_peak_pct, fire_hist_top_n"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
     conn.commit()

@@ -59,6 +59,11 @@ export interface SignalRow {
   fire_macd: number | null
   fire_reduction_from_peak: number | null
   fire_rsi_14: number | null
+  // Peak vs this token's own prior same-sign tops. null on signals that predate
+  // the columns and were never backfilled; top_n is how many priors back it.
+  fire_hist_peak_ratio: number | null
+  fire_hist_peak_pct: number | null
+  fire_hist_top_n: number | null
 }
 
 export interface StageDirectionRow {
@@ -193,6 +198,18 @@ export interface PerfRsiBucket {
   horizon: string
   direction: string
   rsi_bucket: string
+  n: number
+  win_pct: number | null
+  avg_ret_pct: number | null
+}
+
+// One row per (horizon, direction, peak-vs-own-history percentile band). Low
+// percentile = a modest peak by this token's standards — which is the side that
+// performs, opposite to the original assumption. See docs/hist_peak_context.md.
+export interface PerfPeakBucket {
+  horizon: string
+  direction: string
+  bucket: string
   n: number
   win_pct: number | null
   avg_ret_pct: number | null

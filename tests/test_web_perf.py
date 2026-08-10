@@ -41,16 +41,19 @@ def _metrics(name: str, macd_pct: float, atr: float | None = 2.0) -> AssetMetric
 
 def _fire(conn, symbol, direction, fired_at, fire_close, *,
           reduction=0.5, rsi=None, px_7d=None, mfe=None, mae=None,
-          bars=None, finalized=False, macd=-0.5, hist=-0.1):
+          bars=None, finalized=False, macd=-0.5, hist=-0.1,
+          peak_ratio=None, peak_pct=None, top_n=0):
     """Insert one histogram_flattening signal and backfill its outcome columns.
 
     `macd`/`hist` are overridable because the MACD-signal-line analysis derives its
-    axis from them (signal = macd - hist); the other tests don't care about either.
+    axis from them (signal = macd - hist); `peak_*`/`top_n` feed the peak-context
+    analysis. Tests that care about neither get harmless defaults.
     """
     sig = Signal(
         symbol, "histogram_flattening", direction, close=fire_close,
         macd=macd, hist=hist, hist_peak=0.5, reduction_from_peak=reduction,
         rsi_14=rsi,
+        hist_peak_ratio=peak_ratio, hist_peak_pct=peak_pct, hist_top_n=top_n,
     )
     db.insert_signals(conn, "r1", [sig], fired_at)
     conn.execute(
@@ -476,6 +479,74 @@ def test_rsi_buckets_excludes_signals_without_rsi(rsi_client):
     # RB6 has no fire_rsi_14 → contributes to no bucket.
     total_n = sum(r["n"] for r in rows if r["horizon"] == "7d")
     assert total_n == 5
+
+
+# ---- peak-vs-own-history bucket analysis ----
+
+
+def _seed_peak(path: str) -> None:
+    conn = db.connect(path)
+    db.init_schema(conn)
+    db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
+    db.insert_snapshots(conn, "r1", {}, [_metrics(f"PK{i}", 0.001) for i in range(1, 6)])
+    at = f"{DAY_A}T08:00:00+00:00"
+
+    # Bearish: a low percentile (modest peak for this token) wins, a high one loses —
+    # the direction the measurement actually found.
+    _fire(conn, "PK1", "bearish", at, 100.0, px_7d=88.0, finalized=True, peak_pct=10.0, top_n=8)
+    _fire(conn, "PK2", "bearish", at, 100.0, px_7d=94.0, finalized=True, peak_pct=35.0, top_n=6)
+    _fire(conn, "PK3", "bearish", at, 100.0, px_7d=106.0, finalized=True, peak_pct=90.0, top_n=7)
+    # Bullish, mid band.
+    _fire(conn, "PK4", "bullish", at, 100.0, px_7d=110.0, finalized=True, peak_pct=50.0, top_n=5)
+    # top_n below the trust floor → excluded even though peak_pct is present.
+    _fire(conn, "PK5", "bullish", at, 100.0, px_7d=130.0, finalized=True, peak_pct=15.0, top_n=1)
+    # No peak context at all (never backfilled) → excluded.
+    _fire(conn, "PK6", "bearish", f"{DAY_B}T08:00:00+00:00", 100.0, px_7d=70.0, finalized=True)
+    conn.close()
+
+
+@pytest.fixture
+def peak_client(tmp_path):
+    path = str(tmp_path / "peak.sqlite3")
+    _seed_peak(path)
+    app.dependency_overrides[get_conn] = _conn_to(path)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_peak_context_buckets_win_and_ev(peak_client):
+    rows = peak_client.get("/api/perf/peak-context-buckets").json()
+    by = {(r["direction"], r["bucket"], r["horizon"]): r for r in rows}
+
+    r = by[("bearish", "a <20", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 12.0
+
+    r = by[("bearish", "b 20-40", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 6.0
+
+    r = by[("bearish", "e 80-100", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 0.0 and r["avg_ret_pct"] == -6.0
+
+    r = by[("bullish", "c 40-60", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 10.0
+
+    assert {r["horizon"] for r in rows} == {"1d", "3d", "7d", "14d"}
+
+
+def test_peak_context_buckets_excludes_thin_baselines_and_nulls(peak_client):
+    """PK5 has top_n=1 (below the trust floor) and PK6 has no peak context at all;
+    neither may contribute, so only the four usable signals are counted."""
+    rows = peak_client.get("/api/perf/peak-context-buckets").json()
+    assert sum(r["n"] for r in rows if r["horizon"] == "7d") == 4
+
+
+def test_recent_signals_exposes_peak_context(peak_client):
+    """The feed carries the three fields so a live signal shows its peak context."""
+    rows = peak_client.get("/api/signals/recent").json()
+    by = {r["symbol"]: r for r in rows}
+    assert by["PK1"]["fire_hist_peak_pct"] == 10.0
+    assert by["PK1"]["fire_hist_top_n"] == 8
+    assert by["PK6"]["fire_hist_peak_pct"] is None
 
 
 # ---- MACD signal-line bucket analysis ----

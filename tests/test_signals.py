@@ -16,7 +16,9 @@ from macd_searcher.signals import (
     _consecutive_shrink_count,
     _detect_for_asset,
     _excursion_peak,
+    _excursion_peaks,
     _last_bar_is_forming,
+    _peak_vs_history,
     _view,
     compute_asset_metrics,
     evaluate_all,
@@ -298,6 +300,114 @@ def test_excursion_peak_capped_by_lookback():
     """peak_lookback trims the window even inside one long same-sign run."""
     hist = pd.Series([0.9, 0.8, 0.5, 0.3, 0.2])  # all positive
     assert _excursion_peak(hist, peak_lookback=2) == 0.3  # only the last 2 bars
+
+
+# ---- peak vs the token's own history ----
+
+
+def test_excursion_peaks_splits_by_sign_and_drops_trailing_run():
+    """Three completed excursions (+1.0, -0.6, +0.4) then a trailing -0.9 run that
+    must be excluded — it's the in-progress excursion being measured."""
+    hist = pd.Series([
+        0.4, 1.0, 0.7,        # completed bear top: 1.0
+        -0.3, -0.6, -0.1,     # completed bull trough: 0.6
+        0.2, 0.4,             # completed bear top: 0.4
+        -0.5, -0.9, -0.8,     # TRAILING run — excluded
+    ])
+    bull, bear = _excursion_peaks(hist)
+    assert bear == [1.0, 0.4]
+    assert bull == [0.6]      # the trailing -0.9 is absent
+
+
+def test_excursion_peaks_zero_terminates_a_run():
+    """A zero ends the run it interrupts and joins neither sign."""
+    bull, bear = _excursion_peaks(pd.Series([0.5, 0.8, 0.0, 0.3, 0.2, -0.4]))
+    assert bear == [0.8, 0.3]   # the 0.0 split one positive run into two
+    assert bull == []           # trailing negative run excluded
+
+
+def test_peak_vs_history_ratio_percentile_and_n():
+    """Current bear excursion peaks at 1.2 against prior bear tops [0.4, 0.6, 1.0]
+    → median 0.6, ratio 2.0, and it beats all three → 100th percentile."""
+    hist = pd.Series([
+        0.4,                  # bear top 0.4
+        -0.2,
+        0.6, 0.5,             # bear top 0.6
+        -0.3,
+        1.0, 0.9,             # bear top 1.0
+        -0.1,
+        0.8, 1.2, 0.5,        # TRAILING bear excursion, peak 1.2
+    ])
+    ratio, pct, n = _peak_vs_history(hist, "bearish")
+    assert n == 3
+    assert ratio == pytest.approx(1.2 / 0.6)
+    assert pct == pytest.approx(100.0)
+
+
+def test_peak_vs_history_is_per_sign():
+    """The same series read as bullish compares against the BULL troughs instead,
+    which are a different (and here, much smaller) baseline."""
+    hist = pd.Series([
+        0.9, 1.0,             # bear top 1.0 — irrelevant to a bullish read
+        -0.2,                 # bull trough 0.2
+        0.3,
+        -0.4,                 # bull trough 0.4
+        0.2,
+        -0.5, -0.9, -0.6,     # TRAILING bull excursion, peak 0.9
+    ])
+    ratio, pct, n = _peak_vs_history(hist, "bullish")
+    assert n == 2                                  # only the two prior troughs
+    assert ratio == pytest.approx(0.9 / 0.3)       # median of [0.2, 0.4] = 0.3
+    assert pct == pytest.approx(100.0)
+
+
+def test_peak_vs_history_mid_rank_percentile_handles_ties():
+    """A tie counts as half — mid-rank, so an exactly-typical peak reads ~50th."""
+    hist = pd.Series([0.5, -0.1, 0.5, -0.1, 0.2, -0.1, 0.3, 0.5, 0.4])
+    ratio, pct, n = _peak_vs_history(hist, "bearish")
+    assert n == 3                                  # prior bear tops [0.5, 0.5, 0.2]
+    assert ratio == pytest.approx(0.5 / 0.5)       # current peak 0.5, median 0.5
+    # One prior below (0.2) + two ties → (1 + 0.5*2) / 3 = 66.7
+    assert pct == pytest.approx(200.0 / 3)
+
+
+def test_peak_vs_history_no_priors_returns_none():
+    """A series whose only same-sign excursion is the trailing one has no baseline."""
+    ratio, pct, n = _peak_vs_history(pd.Series([-0.2, -0.4, 0.3, 0.9, 0.5]), "bearish")
+    assert (ratio, pct, n) == (None, None, 0)
+
+
+def test_signal_carries_peak_vs_history_at_fire():
+    """The detector attaches the three peak-context fields alongside RSI.
+
+    The synthetic rally is one long excursion with no prior same-sign top, so this
+    exercises the honest no-baseline path: NULL ratio/pct with n=0.
+    """
+    sig = _detect_for_asset("PEAKCTX", _df_from_close(_rally_then_fade()), AppConfig())
+    assert sig is not None
+    assert sig.hist_top_n == 0
+    assert sig.hist_peak_ratio is None and sig.hist_peak_pct is None
+
+
+def test_signal_peak_vs_history_populated_when_priors_exist():
+    """End-to-end with a real baseline: oscillate first so the histogram crosses
+    zero a few times (leaving prior tops), then run the usual rally-and-fade."""
+    prices = [100.0] * 15
+    for _ in range(3):                        # swings -> hist zero-crossings
+        prices += [100.0 + 3.0 * i for i in range(1, 9)]
+        prices += [prices[-1] - 3.0 * i for i in range(1, 9)]
+    base = prices[-1]
+    prices += [base + 2.0 * i for i in range(1, 31)]   # rally
+    last = prices[-1]
+    for k in range(4):                                 # decelerating fade
+        last += 2.0 * (1.0 - (k + 1) / 5)
+        prices.append(last)
+
+    sig = _detect_for_asset("PEAKCTX2", _df_from_close(prices), AppConfig())
+    assert sig is not None
+    assert sig.hist_top_n > 0
+    assert sig.hist_peak_ratio is not None and sig.hist_peak_ratio > 0
+    assert 0.0 <= sig.hist_peak_pct <= 100.0
 
 
 def test_snapshot_reduction_matches_fired_signal():

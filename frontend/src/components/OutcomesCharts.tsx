@@ -15,10 +15,16 @@ import {
 import {
   usePerfHorizonCurve,
   usePerfMacdSignalBuckets,
+  usePerfPeakContextBuckets,
   usePerfRsiBuckets,
   usePerfThresholds,
 } from '../api/client'
-import type { PerfBucket, PerfMacdSignalBucket, PerfRsiBucket } from '../api/types'
+import type {
+  PerfBucket,
+  PerfMacdSignalBucket,
+  PerfPeakBucket,
+  PerfRsiBucket,
+} from '../api/types'
 import { fmtPctPts } from '../lib/format'
 import { Card, Segmented, StateMsg } from './ui'
 
@@ -398,6 +404,187 @@ export function RsiAnalysis() {
   )
 }
 
+// ---------- histogram peak vs the token's own tops ----------
+//
+// Axis = the percentile of this excursion's histogram peak among the token's OWN
+// prior same-sign tops. The relationship runs the opposite way to what we assumed:
+// a LOW percentile (a modest peak by this token's standards) outperforms. Fading a
+// monster move fails — the momentum resumes; fading a tired one works.
+//
+// Bearish only, so far: it held in both regime halves at +1.6-2.1% EV, while bullish
+// was significant in one half and reversed in the other. See docs/hist_peak_context.md.
+
+const PEAK_BUCKETS = ['a <20', 'b 20-40', 'c 40-60', 'd 60-80', 'e 80-100'] as const
+// Teal ramp — distinct from RSI violet and signal-line amber. Light = low
+// percentile, which here is the FAVOURABLE end.
+const PEAK_RAMP = ['#99f6e4', '#5eead4', '#2dd4bf', '#14b8a6', '#0d9488']
+
+function PeakHeatmap({ rows, metric }: { rows: PerfPeakBucket[]; metric: 'win' | 'ev' }) {
+  const mid = metric === 'win' ? 50 : 0
+  const span = metric === 'win' ? 25 : 10
+  const title = metric === 'win' ? 'Win rate by peak percentile × horizon' : 'EV by peak percentile × horizon'
+
+  const cell = (bucket: string, horizon: string) => {
+    const row = rows.find((r) => r.bucket === bucket && r.horizon === horizon)
+    const value = row ? (metric === 'win' ? row.win_pct : row.avg_ret_pct) : null
+    return { value, n: row?.n ?? 0 }
+  }
+
+  return (
+    <Card title={title}>
+      <div className="overflow-x-auto">
+        <table className="w-full border-separate text-sm" style={{ borderSpacing: 2 }}>
+          <thead>
+            <tr className="text-xs uppercase tracking-wide text-slate-500">
+              <th className="py-1 pr-2 text-left font-medium">Peak pct</th>
+              {HORIZONS.map((h) => (
+                <th key={h} className="px-2 py-1 text-center font-medium">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {PEAK_BUCKETS.map((bucket) => (
+              <tr key={bucket}>
+                <td className="py-1 pr-2 text-slate-300">{bucketLabel(bucket)}</td>
+                {HORIZONS.map((h) => {
+                  const { value, n } = cell(bucket, h)
+                  return (
+                    <td
+                      key={h}
+                      className="rounded px-2 py-1.5 text-center tabular-nums"
+                      style={{ background: heatColor(value, mid, span), color: value == null ? '#475569' : '#f1f5f9' }}
+                      title={value == null ? 'no data' : `peak pct ${bucketLabel(bucket)} · ${h} · n=${n}`}
+                    >
+                      {value == null ? '—' : (
+                        <>
+                          <div>{fmtPctPts(value, metric === 'win' ? 1 : 2, metric === 'ev')}</div>
+                          <div className="text-[10px] text-slate-300/70">n={n}</div>
+                        </>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        Percentile of this excursion's histogram peak among the token's own prior same-sign tops.{' '}
+        <span className="text-slate-400">Low = a modest peak for this token</span> — and that has been the favourable end for bearish fires.
+      </p>
+    </Card>
+  )
+}
+
+function PeakTrendByBucket({ rows }: { rows: PerfPeakBucket[] }) {
+  const byHB = new Map(rows.map((r) => [`${r.bucket}|${r.horizon}`, r]))
+  const chartRows = PEAK_BUCKETS.map((b) => {
+    const row: Record<string, number | string | null> = { bucket: bucketLabel(b) }
+    for (const h of HORIZONS) {
+      row[h] = byHB.get(`${b}|${h}`)?.win_pct ?? null
+    }
+    return row
+  })
+
+  return (
+    <Card title="Win rate vs peak percentile, per horizon">
+      <div style={{ height: 240 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartRows}>
+            <CartesianGrid stroke={GRID} vertical={false} />
+            <XAxis dataKey="bucket" stroke={AXIS} fontSize={11} />
+            <YAxis stroke={AXIS} fontSize={12} unit="%" domain={[0, 100]} />
+            <ReferenceLine y={50} stroke={AXIS} strokeDasharray="3 3" />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => `${v}%`} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            {HORIZONS.map((h, i) => (
+              <Line key={h} name={h} type="monotone" dataKey={h} stroke={HORIZON_RAMP[i]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        A <em>falling</em> line confirms the finding — smaller peaks (left) beating larger ones (right). This runs opposite to the intuition the metric was built on.
+      </p>
+    </Card>
+  )
+}
+
+function PeakWinCurve({ rows }: { rows: PerfPeakBucket[] }) {
+  const byHB = new Map(rows.map((r) => [`${r.bucket}|${r.horizon}`, r]))
+  const chartRows = HORIZONS.map((h) => {
+    const row: Record<string, number | string | null> = { h }
+    let wSum = 0
+    let nSum = 0
+    for (const b of PEAK_BUCKETS) {
+      const r = byHB.get(`${b}|${h}`)
+      row[b] = r?.win_pct ?? null
+      if (r && r.win_pct != null) {
+        wSum += r.win_pct * r.n
+        nSum += r.n
+      }
+    }
+    row.baseline = nSum > 0 ? Math.round((wSum / nSum) * 10) / 10 : null
+    return row
+  })
+
+  return (
+    <Card title="Win rate by horizon, per peak-percentile band">
+      <div style={{ height: 240 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartRows}>
+            <CartesianGrid stroke={GRID} vertical={false} />
+            <XAxis dataKey="h" stroke={AXIS} fontSize={12} />
+            <YAxis stroke={AXIS} fontSize={12} unit="%" domain={[0, 100]} />
+            <ReferenceLine y={50} stroke={AXIS} strokeDasharray="3 3" />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => `${v}%`} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            {PEAK_BUCKETS.map((b, i) => (
+              <Line key={b} name={bucketLabel(b)} type="monotone" dataKey={b} stroke={PEAK_RAMP[i]} strokeWidth={2} dot={{ r: 2 }} connectNulls />
+            ))}
+            <Line name="baseline (all bands)" type="monotone" dataKey="baseline" stroke={AXIS} strokeWidth={1.5} strokeDasharray="4 3" dot={false} connectNulls />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        Bands above the dashed baseline beat trading every signal in this direction. The two lowest bands are the ones that did.
+      </p>
+    </Card>
+  )
+}
+
+export function PeakContextAnalysis() {
+  const { data, isLoading, isError } = usePerfPeakContextBuckets()
+  const [direction, setDirection] = useState<RsiDirection>('bearish')
+  const all = data ?? []
+  const rows = all.filter((r) => r.direction === direction)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium text-slate-300">Histogram peak vs this token's own tops</h2>
+        <Segmented options={DIRECTIONS} value={direction} onChange={setDirection} />
+      </div>
+      <StateMsg loading={isLoading} error={isError} empty={all.length === 0}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <PeakHeatmap rows={rows} metric="win" />
+            <PeakHeatmap rows={rows} metric="ev" />
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <PeakWinCurve rows={rows} />
+            <PeakTrendByBucket rows={rows} />
+          </div>
+          <p className="text-xs text-slate-600">
+            Each signal's histogram peak is ranked against the same token's own prior same-sign excursions, so a big move on a quiet token isn't confused with a normal move on a volatile one. Measured over ~3,000 scored signals, the <em>low</em> bands outperform — fading a move that is huge by a token's own standards has been the losing side, fading a tired one the winning side. This held in both halves of the sample for <strong>bearish</strong> fires; <strong>bullish</strong> did not hold up and carries no reliable read yet. Signals whose baseline rests on fewer than 3 prior tops are excluded.
+          </p>
+        </div>
+      </StateMsg>
+    </div>
+  )
+}
+
 // ---------- MACD signal-line-at-fire signal-quality analysis ----------
 //
 // Axis = (fire_macd - fire_hist) / ATR: roughly 7 bars of trend drift over one bar
@@ -599,6 +786,7 @@ export function OutcomesCharts() {
         <ReductionHeatmap metric="win" />
         <ReductionHeatmap metric="ev" />
       </div>
+      <PeakContextAnalysis />
       <RsiAnalysis />
       <MacdSignalAnalysis />
     </div>

@@ -16,6 +16,7 @@ import type {
   PerfReadiness,
   PerfReductionCounterfactual,
   PerfMacdSignalBucket,
+  PerfPeakBucket,
   PerfRsiBucket,
   PerfStageDirection,
   PerfSymbolScore,
@@ -211,6 +212,16 @@ export const usePerfRsiBuckets = () => {
   return useQuery({
     queryKey: ['perf-rsi-buckets', classes],
     queryFn: () => fetchJson<PerfRsiBucket[]>(withClasses('/api/perf/rsi-buckets', classes)),
+    refetchInterval: PERF_REFRESH,
+  })
+}
+
+export const usePerfPeakContextBuckets = () => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-peak-context-buckets', classes],
+    queryFn: () =>
+      fetchJson<PerfPeakBucket[]>(withClasses('/api/perf/peak-context-buckets', classes)),
     refetchInterval: PERF_REFRESH,
   })
 }

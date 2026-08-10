@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, replace
+from statistics import median
 from typing import Literal
 
 import pandas as pd
@@ -39,6 +40,12 @@ class Signal:
     # 14-day Wilder RSI at fire time (0–100). Context for later signal-quality
     # analysis — not a firing condition. None if the value is NaN.
     rsi_14: float | None = None
+    # This excursion's peak measured against the token's OWN prior same-sign tops
+    # (see _peak_vs_history). Context, not a firing condition. ratio/pct are None
+    # and top_n is 0 when the window holds no prior same-sign excursion.
+    hist_peak_ratio: float | None = None
+    hist_peak_pct: float | None = None
+    hist_top_n: int = 0
 
 
 def _strictly_decreasing(series: pd.Series) -> bool:
@@ -96,6 +103,71 @@ def _excursion_peak(hist: pd.Series, peak_lookback: int) -> float | None:
     seg = _trailing_same_sign_len(hist.to_numpy(), last)
     seg_window = hist.iloc[-min(seg, peak_lookback):]
     return float(seg_window.max()) if last > 0 else float(seg_window.min())
+
+
+def _excursion_peaks(hist: pd.Series) -> tuple[list[float], list[float]]:
+    """Magnitude of the extreme of every **completed** same-sign histogram
+    excursion in the series, split by sign.
+
+    Returns ``(bull_troughs, bear_peaks)`` — the |extremes| of the negative runs
+    (where bullish signals fire) and of the positive runs (bearish). These are the
+    token's own historical tops, the baseline a current excursion is judged against.
+
+    The **trailing run is deliberately excluded**: it's the in-progress excursion
+    the caller is measuring, so including it would compare it against itself. A
+    zero value terminates a run and belongs to neither sign.
+    """
+    bull: list[float] = []
+    bear: list[float] = []
+    run_positive: bool | None = None   # None = not currently inside a run
+    extreme = 0.0
+
+    for raw in hist.to_numpy():
+        v = float(raw)
+        sign = None if v == 0 else v > 0
+        if sign != run_positive:
+            if run_positive is not None:            # close the run we just left
+                (bear if run_positive else bull).append(abs(extreme))
+            run_positive, extreme = sign, v
+        elif sign is not None:                      # extend the current run
+            extreme = max(extreme, v) if run_positive else min(extreme, v)
+
+    # The trailing run is intentionally left unclosed — see docstring.
+    return bull, bear
+
+
+def _peak_vs_history(
+    hist: pd.Series, direction: Direction
+) -> tuple[float | None, float | None, int]:
+    """How big is the current excursion's peak against this token's own tops?
+
+    Returns ``(ratio, percentile, n)``:
+      * ``ratio``      — current |peak| ÷ **median** prior same-sign |top|. Median,
+        not mean, so one blow-off spike doesn't set the bar.
+      * ``percentile`` — mid-rank percentile (0-100, tie-aware) of the current
+        |peak| among those priors.
+      * ``n``          — how many priors the baseline rests on; the trust gauge.
+
+    Per-sign on purpose: a bearish signal is judged against prior *bear* tops,
+    a bullish one against prior *bull* troughs — momentum is often asymmetric.
+    ``(None, None, 0)`` when the window holds no prior same-sign excursion.
+    """
+    current = _excursion_peak(hist, len(hist))   # uncapped: the full excursion
+    if current is None:
+        return None, None, 0
+
+    cur = abs(current)
+    bull, bear = _excursion_peaks(hist)
+    priors = bear if direction == "bearish" else bull
+    n = len(priors)
+    if n == 0:
+        return None, None, 0
+
+    med = median(priors)
+    ratio = cur / med if med > 0 else None
+    below = sum(1 for p in priors if p < cur)
+    ties = sum(1 for p in priors if p == cur)
+    return ratio, (below + 0.5 * ties) / n * 100.0, n
 
 
 def _check_histogram_flattening(
@@ -230,7 +302,17 @@ def _detect_for_asset(
     # closed-bar value is iloc[-2] when the forming bar was dropped, else iloc[-1].
     drop_forming = last_is_forming and not hf.use_forming_candle
     rsi_val = float(rsi(df["close"]).iloc[-2 if drop_forming else -1])
-    return replace(sig, rsi_14=None if pd.isna(rsi_val) else rsi_val)
+
+    # Peak-vs-history on `m["hist"]` — the exact series the detector just fired on,
+    # so the current excursion is the one that triggered the signal.
+    ratio, pct, top_n = _peak_vs_history(m["hist"], sig.direction)
+    return replace(
+        sig,
+        rsi_14=None if pd.isna(rsi_val) else rsi_val,
+        hist_peak_ratio=ratio,
+        hist_peak_pct=pct,
+        hist_top_n=top_n,
+    )
 
 
 def evaluate_all(

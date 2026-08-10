@@ -442,6 +442,58 @@ def rsi_buckets(conn: sqlite3.Connection, classes: list[str] | None = None) -> l
     return out
 
 
+# ---------- histogram peak vs the token's own tops ----------
+
+# Buckets on `fire_hist_peak_pct` — the mid-rank PERCENTILE of this excursion's peak
+# among the token's prior same-sign tops — not the raw ratio. The ratio's right tail
+# runs to 27x, which drags any fixed-edge bucketing around; the percentile is
+# rank-based and bounded, and it separated the outcomes more cleanly in measurement.
+#
+# Direction of the effect is the OPPOSITE of what we assumed going in: a LOW
+# percentile (a modest peak by this token's standards) outperforms. Fading a monster
+# move fails — the momentum resumes; fading a tired one works. Bearish only so far.
+# See docs/hist_peak_context.md for the measurement and its caveats.
+_PEAK_PCT_BUCKET_SQL = (
+    "CASE WHEN fire_hist_peak_pct < 20 THEN 'a <20' "
+    "WHEN fire_hist_peak_pct < 40 THEN 'b 20-40' "
+    "WHEN fire_hist_peak_pct < 60 THEN 'c 40-60' "
+    "WHEN fire_hist_peak_pct < 80 THEN 'd 60-80' "
+    "ELSE 'e 80-100' END"
+)
+
+# Below this the baseline is too thin to mean much (median top_n is ~6). Rows under
+# it are excluded rather than shown as noise — the metric's own trust gauge.
+_MIN_PEAK_TOP_N = 3
+
+
+def peak_context_buckets(
+    conn: sqlite3.Connection, classes: list[str] | None = None
+) -> list[dict]:
+    """Win-rate + EV by peak-vs-own-history percentile, direction, and horizon.
+
+    One row per (horizon, direction, bucket); the frontend pivots into
+    heatmaps/lines. Requires `fire_hist_peak_pct` — present on signals fired after
+    the peak-context change, and on older ones once
+    `update_outcomes --backfill-peak-context` has run.
+    """
+    cte, params = _base(classes)
+    out: list[dict] = []
+    for h in ("1d", "3d", "7d", "14d"):
+        ret = f"ret_{h}"
+        sql = cte + (
+            f"SELECT direction, {_PEAK_PCT_BUCKET_SQL} AS bucket, COUNT(*) AS n, "
+            f"ROUND(AVG({ret} > 0) * 100, 1) AS win_pct, "
+            f"ROUND(AVG({ret}) * 100, 2) AS avg_ret_pct "
+            f"FROM perf WHERE fire_hist_peak_pct IS NOT NULL "
+            f"AND fire_hist_top_n >= {_MIN_PEAK_TOP_N} AND {ret} IS NOT NULL "
+            f"GROUP BY direction, bucket"
+        )
+        for row in _rows(conn, sql, tuple(params)):
+            out.append({"horizon": h, **row})
+    out.sort(key=lambda d: (d["direction"], d["bucket"], d["horizon"]))
+    return out
+
+
 # ---------- MACD signal-line-at-fire signal-quality analysis ----------
 
 # The signal line at fire time needs no column of its own: indicators.macd builds

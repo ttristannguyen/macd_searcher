@@ -9,8 +9,11 @@ Responsibilities:
   - Send via raw HTTP to api.telegram.org with simple retry on transient
     failures.
 
-Plain text is used (no Markdown / HTML parse_mode) — the structure comes
-from emojis and indentation, which renders identically everywhere.
+Sent with HTML parse_mode so high-confidence rows can be bolded; HTML was chosen
+over MarkdownV2 because it only requires escaping `& < >` (symbol names are the
+only interpolated free text), whereas MarkdownV2 would need every `+ - . |` in the
+numbers escaped. Everything else is emojis and indentation, which render the same
+everywhere.
 """
 
 from __future__ import annotations
@@ -19,12 +22,13 @@ import asyncio
 import logging
 import random
 from datetime import datetime, timezone
+from html import escape
 from zoneinfo import ZoneInfo
 
 import httpx
 
 from .config import AppConfig
-from .signals import Signal
+from .signals import Signal, is_high_confidence
 
 
 log = logging.getLogger(__name__)
@@ -58,27 +62,33 @@ def in_quiet_hours(cfg: AppConfig, now_utc: datetime | None = None) -> bool:
 # ---------- formatting ----------
 
 
-def _fmt_price(px: float) -> str:
-    if px >= 1000:
-        return f"${px:,.2f}"
-    if px >= 1:
-        return f"${px:,.4f}"
-    return f"${px:.6f}"
-
-
 def _fmt_stage1_row(s: Signal) -> str:
-    assert s.hist_peak is not None and s.reduction_from_peak is not None
+    """One signal line. Deliberately sparse — the raw hist value, the peak it fell
+    from, and the price were all dropped as noise you can look up in the dashboard.
+    What's left is the two things that drive the read: how far it has flattened,
+    and RSI as context.
+
+    High-confidence rows (see `is_high_confidence`) are bolded, which is why the
+    sender uses HTML parse_mode.
+    """
+    assert s.reduction_from_peak is not None
     pct = s.reduction_from_peak * 100
     rsi = f"  RSI {s.rsi_14:.0f}" if s.rsi_14 is not None else ""
-    return (
-        f"  {s.name:<10} hist {s.hist:+.4g} "
-        f"(↓{pct:.0f}% from {s.hist_peak:+.4g}){rsi}  px {_fmt_price(s.close)}"
-    )
+    row = f"{escape(s.name):<10} ↓{pct:.0f}%{rsi}"
+    return f"  <b>{row}</b>" if is_high_confidence(s) else f"  {row}"
 
 
-def _strength_key(s: Signal) -> float:
-    """Sort order within a direction bucket — deepest reduction from peak first."""
-    return -(s.reduction_from_peak or 0.0)
+def _strength_key(s: Signal) -> tuple[bool, float]:
+    """Sort order within a direction bucket: high-confidence rows first, then
+    SHALLOWEST reduction first.
+
+    This used to rank deepest-reduction first, on the assumption that a bigger
+    flatten was a stronger read. Measurement says the opposite — bearish fires at
+    0.3-0.4 reduction returned +1.78% EV against -0.99% for 0.8-1.0, because a
+    deeply-flattened histogram means the move is already over. Sorting ascending
+    puts the best rows at the top, where the bolding is actually useful.
+    """
+    return (not is_high_confidence(s), s.reduction_from_peak or 0.0)
 
 
 def format_message(
@@ -143,13 +153,20 @@ async def _send_one(
     client: httpx.AsyncClient,
     text: str,
     cfg: AppConfig,
+    parse_mode: str | None = None,
 ) -> None:
+    """Post one chunk. `parse_mode` is opt-in per call site: the signal body asks for
+    HTML so it can bold rows, but error alerts must stay plain — a Python traceback
+    contains `<module>`, which Telegram would reject as malformed HTML.
+    """
     url = f"https://api.telegram.org/bot{cfg.telegram.bot_token}/sendMessage"
-    payload = {
+    payload: dict = {
         "chat_id": cfg.telegram.chat_id,
         "text": text,
         "disable_web_page_preview": True,
     }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     last_exc: Exception | None = None
     for attempt in range(1, 4):
         try:
@@ -232,5 +249,5 @@ async def send_signals(
     async with httpx.AsyncClient() as client:
         for i, chunk in enumerate(chunks, start=1):
             log.info("Sending Telegram chunk %d/%d (%d chars)", i, len(chunks), len(chunk))
-            await _send_one(client, chunk, cfg)
+            await _send_one(client, chunk, cfg, parse_mode="HTML")
     return "sent"

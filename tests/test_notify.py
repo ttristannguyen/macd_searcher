@@ -119,18 +119,92 @@ def test_format_message_includes_rsi_when_present():
     assert "RSI 68" in text
 
 
-def test_format_message_sorts_within_bucket_by_strength():
-    """Stage 1 bucket should be sorted by descending reduction_from_peak."""
+def test_format_message_sorts_shallowest_reduction_first():
+    """Ascending reduction: 0.3-0.4 fires measured +1.78% EV vs -0.99% at 0.8-1.0,
+    so the shallow end leads (this is the reverse of the original ordering)."""
     signals = [
-        _mk_signal("LOW", "histogram_flattening", "bullish",
-                   close=100, hist=-1, hist_peak=-2, reduction_from_peak=0.3),
+        _mk_signal("DEEP", "histogram_flattening", "bullish",
+                   close=100, hist=-1, hist_peak=-2, reduction_from_peak=0.9),
         _mk_signal("MID", "histogram_flattening", "bullish",
                    close=100, hist=-1, hist_peak=-2, reduction_from_peak=0.6),
-        _mk_signal("HIGH", "histogram_flattening", "bullish",
-                   close=100, hist=-1, hist_peak=-2, reduction_from_peak=0.9),
+        _mk_signal("SHALLOW", "histogram_flattening", "bullish",
+                   close=100, hist=-1, hist_peak=-2, reduction_from_peak=0.3),
     ]
     text = format_message(signals, scanned_count=3, cfg=AppConfig())
-    assert text.index("HIGH") < text.index("MID") < text.index("LOW")
+    assert text.index("SHALLOW") < text.index("MID") < text.index("DEEP")
+
+
+def test_format_message_floats_high_confidence_to_top():
+    """A bolded row buried under 30 others is useless, so confidence outranks
+    reduction — even when the confident row has a deeper reduction."""
+    signals = [
+        _mk_signal("PLAIN", "histogram_flattening", "bearish",
+                   close=100, hist=1, hist_peak=2, reduction_from_peak=0.31),
+        _mk_signal("CONFIDENT", "histogram_flattening", "bearish",
+                   close=100, hist=1, hist_peak=2, reduction_from_peak=0.55,
+                   hist_peak_ratio=0.3, hist_peak_pct=12.0, hist_top_n=8),
+    ]
+    text = format_message(signals, scanned_count=2, cfg=AppConfig())
+    assert text.index("CONFIDENT") < text.index("PLAIN")
+
+
+def test_format_message_omits_hist_peak_and_price():
+    """The row was trimmed to reduction + RSI; the raw hist value, the peak it fell
+    from, and the price all moved to the dashboard."""
+    signals = [
+        _mk_signal("BTC", "histogram_flattening", "bearish",
+                   hist=0.1234, close=54321.0, hist_peak=0.2345,
+                   reduction_from_peak=0.47, rsi_14=68.0),
+    ]
+    text = format_message(signals, scanned_count=1, cfg=AppConfig())
+    row = next(ln for ln in text.split("\n") if "BTC" in ln)
+    assert "↓47%" in row and "RSI 68" in row
+    # The three things asked to go. ("hist" still appears in the section header.)
+    assert "hist " not in row and "0.1234" not in row
+    assert "from" not in row and "0.2345" not in row
+    assert "$" not in row and "54,321" not in row
+
+
+def test_format_message_bolds_high_confidence_row():
+    """Bearish + shallow reduction + modest peak = the measured high-EV slice."""
+    signals = [
+        _mk_signal("SOL", "histogram_flattening", "bearish",
+                   hist=0.1, close=85.0, hist_peak=0.5, reduction_from_peak=0.45,
+                   hist_peak_ratio=0.3, hist_peak_pct=12.0, hist_top_n=8),
+    ]
+    text = format_message(signals, scanned_count=1, cfg=AppConfig())
+    assert "<b>" in text and "</b>" in text
+    assert "SOL" in text
+
+
+def test_format_message_does_not_bold_ordinary_rows():
+    """Each miss on its own is enough to withhold the marker."""
+    cases = [
+        # deep reduction
+        dict(direction="bearish", reduction_from_peak=0.85, hist_peak_pct=12.0, hist_top_n=8),
+        # large peak for this token
+        dict(direction="bearish", reduction_from_peak=0.45, hist_peak_pct=75.0, hist_top_n=8),
+        # baseline too thin to trust
+        dict(direction="bearish", reduction_from_peak=0.45, hist_peak_pct=12.0, hist_top_n=1),
+        # no peak context at all
+        dict(direction="bearish", reduction_from_peak=0.45, hist_peak_pct=None, hist_top_n=0),
+        # bullish never qualifies — it reversed sign between regime halves
+        dict(direction="bullish", reduction_from_peak=0.45, hist_peak_pct=12.0, hist_top_n=8),
+    ]
+    for kw in cases:
+        direction = kw.pop("direction")
+        s = _mk_signal("XYZ", "histogram_flattening", direction,
+                       hist=0.1, close=100.0, hist_peak=0.5, **kw)
+        assert "<b>" not in format_message([s], scanned_count=1, cfg=AppConfig()), kw
+
+
+def test_format_message_escapes_symbol_names():
+    """HTML parse_mode is on, so an interpolated symbol must not inject markup."""
+    s = _mk_signal("A<B&C", "histogram_flattening", "bearish",
+                   hist=0.1, close=100.0, hist_peak=0.5, reduction_from_peak=0.5)
+    text = format_message([s], scanned_count=1, cfg=AppConfig())
+    assert "A&lt;B&amp;C" in text
+    assert "A<B&C" not in text
 
 
 # ---------- chunking ----------

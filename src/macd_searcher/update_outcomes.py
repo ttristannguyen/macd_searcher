@@ -37,6 +37,7 @@ from . import db
 from .config import AppConfig, load_config
 from .hyperliquid import fetch_candles
 from .indicators import macd as compute_macd
+from .indicators import rsi as compute_rsi
 from .signals import _last_bar_is_forming, _peak_vs_history
 
 
@@ -253,6 +254,62 @@ async def _backfill_symbol(
     return written
 
 
+async def _backfill_rsi_symbol(
+    client: httpx.AsyncClient,
+    symbol: str,
+    sigs: list,
+    cfg: AppConfig,
+    conn,
+) -> int:
+    """Recompute RSI(14) at fire time for one symbol's signals. Returns rows written."""
+    earliest = min(datetime.fromisoformat(s["fired_at"]) for s in sigs)
+    latest = max(datetime.fromisoformat(s["fired_at"]) for s in sigs)
+    start_ms = int((earliest - timedelta(days=_WARMUP_DAYS)).timestamp() * 1000)
+    end_ms = int((latest + timedelta(days=1)).timestamp() * 1000)
+
+    try:
+        df = await fetch_candles(client, symbol, cfg, start_ms, end_ms)
+    except Exception as exc:  # noqa: BLE001 — skip this symbol, keep going
+        log.warning("RSI candle fetch failed for %s: %s", symbol, exc)
+        return 0
+    if len(df) < 20:
+        return 0
+
+    series = compute_rsi(df["close"])
+    written = 0
+    for s in sigs:
+        idx = _bar_index_at_or_before(df, datetime.fromisoformat(s["fired_at"]))
+        if idx is None:
+            continue
+        val = float(series.iloc[idx])
+        db.update_signal_rsi(conn, s["signal_id"], None if pd.isna(val) else val)
+        written += 1
+    conn.commit()
+    return written
+
+
+async def _run_rsi_backfill(cfg: AppConfig, conn) -> None:
+    rows = db.fetch_signals_missing_rsi(conn)
+    if not rows:
+        log.info("No signals missing RSI.")
+        return
+    by_symbol: dict[str, list] = defaultdict(list)
+    for r in rows:
+        by_symbol[r["symbol"]].append(r)
+    log.info("Backfilling RSI for %d signal(s) across %d symbol(s)...",
+             len(rows), len(by_symbol))
+
+    total = 0
+    async with httpx.AsyncClient() as client:
+        for i, (symbol, sigs) in enumerate(by_symbol.items(), 1):
+            total += await _backfill_rsi_symbol(client, symbol, sigs, cfg, conn)
+            if i % 25 == 0:
+                log.info("  ... %d/%d symbols, %d rows written", i, len(by_symbol), total)
+
+    have = conn.execute("SELECT COUNT(fire_rsi_14) FROM signals").fetchone()[0]
+    log.info("RSI backfill wrote %d row(s); %d signal(s) now carry RSI.", total, have)
+
+
 async def _run_backfill(cfg: AppConfig, conn) -> None:
     rows = db.fetch_signals_missing_peak_context(conn)
     if not rows:
@@ -300,6 +357,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--backfill-peak-context", action="store_true",
                    help="One-off: recompute peak-vs-history on signals that predate "
                         "those columns, instead of scoring outcomes.")
+    p.add_argument("--backfill-rsi", action="store_true",
+                   help="One-off: compute fire_rsi_14 on signals that predate RSI "
+                        "logging, so RSI spans more than one market regime.")
     args = p.parse_args(argv)
 
     try:
@@ -316,8 +376,15 @@ def main(argv: list[str] | None = None) -> int:
 
     conn = db.connect(cfg.database.path)
     db.init_schema(conn)
+    if args.backfill_peak_context:
+        job = _run_backfill(cfg, conn)
+    elif args.backfill_rsi:
+        job = _run_rsi_backfill(cfg, conn)
+    else:
+        job = _run(cfg, conn)
+
     try:
-        asyncio.run(_run_backfill(cfg, conn) if args.backfill_peak_context else _run(cfg, conn))
+        asyncio.run(job)
         return 0
     except KeyboardInterrupt:
         log.warning("Interrupted")

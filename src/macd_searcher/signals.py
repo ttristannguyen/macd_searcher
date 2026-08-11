@@ -48,6 +48,46 @@ class Signal:
     hist_top_n: int = 0
 
 
+# ---------- confidence marker ----------
+#
+# Thresholds measured on 3,050 scored signals (2026-06-06 → 08-06, prod_snapshot,
+# after the peak-context backfill). Kept as constants rather than config knobs
+# because they're empirical findings, not preferences — changing one should follow a
+# re-measurement, not a whim. See docs/hist_peak_context.md.
+#
+# The rule marks 11.4% of signals: 70.1% win / +2.65% EV at 7d, against a 51.6% /
+# +0.02% baseline. What earns the "confident" label is that it clears both bars in
+# EACH regime half independently (1st: 73.6% / +3.88%, 2nd: 67.8% / +1.82%) — a rule
+# that only works in a good tape isn't confidence, it's a bull market.
+#
+# Deliberately NOT included:
+#   * RSI — every RSI-carrying signal falls in the second half (logging started
+#     mid-sample), so it cannot be regime-tested at all, and within that one regime
+#     it shows no monotonic relationship. Revisit after --backfill-rsi.
+#   * bullish — the same filter reads 77.8% / +5.05% in the first half and
+#     19.4% / -4.34% in the second. Marking those bold would mislead exactly when
+#     it matters most.
+CONFIDENCE_MAX_REDUCTION = 0.6   # shallower = caught earlier; deep fires are late
+CONFIDENCE_MAX_PEAK_PCT = 40.0   # a modest peak by this token's own standards
+CONFIDENCE_MIN_TOP_N = 3         # below this the peak baseline is not trustworthy
+
+
+def is_high_confidence(s: Signal) -> bool:
+    """True if this signal falls in the measured high-expectancy slice.
+
+    Bearish only, shallow reduction, and a peak that's unremarkable for this token.
+    Presentation-only today — it bolds the Telegram row; it does not gate firing.
+    """
+    return (
+        s.direction == "bearish"
+        and s.reduction_from_peak is not None
+        and s.reduction_from_peak < CONFIDENCE_MAX_REDUCTION
+        and s.hist_peak_pct is not None
+        and s.hist_top_n >= CONFIDENCE_MIN_TOP_N
+        and s.hist_peak_pct < CONFIDENCE_MAX_PEAK_PCT
+    )
+
+
 def _strictly_decreasing(series: pd.Series) -> bool:
     """True if every value is strictly less than the previous."""
     if len(series) < 2:

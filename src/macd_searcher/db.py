@@ -241,6 +241,21 @@ def fetch_signals_missing_peak_context(conn: sqlite3.Connection) -> list[sqlite3
     ).fetchall()
 
 
+def fetch_signals_missing_rsi(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Signals fired before RSI logging existed. Without these the RSI analysis
+    only ever sees one market regime, which is why it can't be trusted as a gate."""
+    conn.row_factory = sqlite3.Row
+    return conn.execute(
+        "SELECT signal_id, symbol, direction, fired_at FROM signals "
+        "WHERE fire_rsi_14 IS NULL AND stage = 'histogram_flattening' "
+        "ORDER BY symbol, fired_at"
+    ).fetchall()
+
+
+def update_signal_rsi(conn: sqlite3.Connection, signal_id: str, rsi_14: float | None) -> None:
+    conn.execute("UPDATE signals SET fire_rsi_14=? WHERE signal_id=?", (rsi_14, signal_id))
+
+
 def update_signal_peak_context(
     conn: sqlite3.Connection,
     signal_id: str,

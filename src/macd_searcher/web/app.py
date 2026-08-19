@@ -25,6 +25,9 @@ from .models import (
     NotifyStatusRow,
     PerfBucket,
     PerfClassStage,
+    PerfConfidencePoint,
+    PerfConfidenceSensitivity,
+    PerfConfidenceSummary,
     PerfDistribution,
     PerfHorizon,
     PerfHorizonPoint,
@@ -248,6 +251,48 @@ def perf_rsi_buckets(
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[PerfRsiBucket]:
     return [PerfRsiBucket(**r) for r in perf.rsi_buckets(conn, perf.parse_classes(classes))]
+
+
+# ---------- confidence cohort (the "should I take this trade" view) ----------
+
+
+@app.get("/api/perf/confidence-summary", response_model=list[PerfConfidenceSummary])
+def perf_confidence_summary(
+    horizon: Horizon = "7d",
+    classes: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfConfidenceSummary]:
+    return [
+        PerfConfidenceSummary(**r)
+        for r in perf.confidence_summary(conn, horizon, perf.parse_classes(classes))
+    ]
+
+
+@app.get("/api/perf/confidence-timeline", response_model=list[PerfConfidencePoint])
+def perf_confidence_timeline(
+    horizon: Horizon = "7d",
+    classes: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfConfidencePoint]:
+    return [
+        PerfConfidencePoint(**r)
+        for r in perf.confidence_timeline(conn, horizon, perf.parse_classes(classes))
+    ]
+
+
+@app.get(
+    "/api/perf/confidence-sensitivity",
+    response_model=list[PerfConfidenceSensitivity],
+)
+def perf_confidence_sensitivity(
+    horizon: Horizon = "7d",
+    classes: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfConfidenceSensitivity]:
+    return [
+        PerfConfidenceSensitivity(**r)
+        for r in perf.confidence_sensitivity(conn, horizon, perf.parse_classes(classes))
+    ]
 
 
 @app.get("/api/perf/peak-context-buckets", response_model=list[PerfPeakBucket])

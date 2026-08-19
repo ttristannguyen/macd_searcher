@@ -27,7 +27,7 @@ from . import db
 from .config import AppConfig, load_config
 from .hyperliquid import fetch_universe_and_candles
 from .notify import send_raw_text, send_signals
-from .signals import compute_all_metrics, evaluate_all
+from .signals import compute_all_metrics, evaluate_all, is_high_confidence
 
 
 log = logging.getLogger("macd_searcher")
@@ -115,6 +115,7 @@ async def _run_once(
                 universe_total=universe_total,
                 universe_kept=len(assets),
                 signals_count=len(signals),
+                confident_count=sum(1 for s in signals if is_high_confidence(s)),
                 notify_status=status,
             )
         except Exception:

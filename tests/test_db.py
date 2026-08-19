@@ -89,6 +89,18 @@ def test_insert_signals_peak_context_defaults_when_no_baseline():
     assert row == (None, None, 0)
 
 
+def test_finalize_run_records_confident_count():
+    """Run-level count of high-confidence signals, so 'am I getting enough of these
+    per week?' doesn't need a scan over `signals`."""
+    conn = _conn()
+    db.start_run(conn, "r1", "t0", None, None, None)
+    db.finalize_run(conn, "r1", completed_at="t1", signals_count=7, confident_count=2)
+    row = conn.execute(
+        "SELECT signals_count, confident_count FROM runs WHERE run_id='r1'"
+    ).fetchone()
+    assert row == (7, 2)
+
+
 def test_add_missing_columns_is_idempotent():
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE t (a INTEGER)")

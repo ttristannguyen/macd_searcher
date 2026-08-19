@@ -19,7 +19,9 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from macd_searcher import db  # noqa: E402
-from macd_searcher.signals import AssetMetrics, Signal  # noqa: E402
+from macd_searcher import signals  # noqa: E402
+from macd_searcher.signals import AssetMetrics, Signal, is_high_confidence  # noqa: E402
+from macd_searcher.web import perf  # noqa: E402
 from macd_searcher.web.app import app, get_conn  # noqa: E402
 
 # Post-fix dates (after DETECTOR_FIX_CUTOFF = 2026-06-09T14:00Z), so the
@@ -479,6 +481,144 @@ def test_rsi_buckets_excludes_signals_without_rsi(rsi_client):
     # RB6 has no fire_rsi_14 → contributes to no bucket.
     total_n = sum(r["n"] for r in rows if r["horizon"] == "7d")
     assert total_n == 5
+
+
+# ---- confidence cohort ----
+#
+# The cohort is derived in SQL from thresholds that live in signals.py. These tests
+# pin the boundaries AND cross-check the SQL against is_high_confidence, which is the
+# only thing stopping the two implementations from drifting apart.
+
+# (direction, reduction, peak_pct, top_n) laid out around every boundary.
+_CONF_CASES = [
+    ("bearish", 0.45, 12.0, 8),    # comfortably inside
+    ("bearish", 0.59, 39.0, 3),    # just inside on all three
+    ("bearish", 0.60, 12.0, 8),    # reduction exactly at the cutoff -> out
+    ("bearish", 0.45, 40.0, 8),    # peak pct exactly at the cutoff -> out
+    ("bearish", 0.45, 12.0, 2),    # baseline one short of trustworthy -> out
+    ("bearish", 0.85, 75.0, 8),    # misses on two counts
+    ("bearish", 0.45, None, 0),    # never backfilled -> out
+    ("bullish", 0.45, 12.0, 8),    # would qualify but for direction
+]
+
+
+def _seed_confidence(path: str) -> None:
+    conn = db.connect(path)
+    db.init_schema(conn)
+    db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
+    db.insert_snapshots(conn, "r1", {}, [
+        _metrics(f"CF{i}", 0.001) for i in range(len(_CONF_CASES))
+    ])
+    # Alternating win/loss so win-rate and EV are non-degenerate in both cohorts.
+    for i, (direction, red, pk, tn) in enumerate(_CONF_CASES):
+        px = 90.0 if i % 2 == 0 else 106.0   # bearish: +10% win / -6% loss
+        _fire(conn, f"CF{i}", direction, f"{DAY_A}T08:00:00+00:00", 100.0,
+              reduction=red, peak_pct=pk, top_n=tn, peak_ratio=None if pk is None else pk / 50,
+              px_7d=px, mfe=0.12, mae=-0.03, finalized=True)
+    conn.close()
+
+
+@pytest.fixture
+def confidence_client(tmp_path):
+    path = str(tmp_path / "conf.sqlite3")
+    _seed_confidence(path)
+    app.dependency_overrides[get_conn] = _conn_to(path)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_confidence_sql_matches_python_predicate(confidence_client, tmp_path):
+    """The guard against drift: for the same rows, the SQL cohort must equal
+    signals.is_high_confidence. If someone edits one rule and not the other — or
+    changes a constant without re-deriving the SQL — this fails."""
+    conn = sqlite3.connect(str(tmp_path / "conf.sqlite3"))
+    conn.row_factory = sqlite3.Row
+    cte, params = perf._base()
+    sql = cte + (
+        f"SELECT symbol, {perf._CONFIDENCE_SQL} AS cohort FROM perf"
+    )
+    from_sql = {r["symbol"]: r["cohort"] for r in conn.execute(sql, tuple(params))}
+    conn.close()
+
+    assert len(from_sql) == len(_CONF_CASES)
+    for i, (direction, red, pk, tn) in enumerate(_CONF_CASES):
+        sig = Signal(f"CF{i}", "histogram_flattening", direction, close=100.0,
+                     macd=-0.5, hist=-0.1, hist_peak=0.5, reduction_from_peak=red,
+                     hist_peak_pct=pk, hist_top_n=tn)
+        expected = "confident" if is_high_confidence(sig) else "rest"
+        assert from_sql[f"CF{i}"] == expected, f"CF{i} {(direction, red, pk, tn)}"
+
+
+def test_confidence_summary_splits_cohorts(confidence_client):
+    rows = confidence_client.get("/api/perf/confidence-summary?horizon=7d").json()
+    by = {r["cohort"]: r for r in rows}
+    assert set(by) == {"confident", "rest"}
+
+    # Only the first two cases qualify (see _CONF_CASES).
+    assert by["confident"]["n"] == 2
+    assert by["rest"]["n"] == len(_CONF_CASES) - 2
+    assert by["confident"]["share_pct"] == round(2 / len(_CONF_CASES) * 100, 1)
+    # Shares of the two cohorts account for everything scored.
+    assert by["confident"]["share_pct"] + by["rest"]["share_pct"] == pytest.approx(100.0, abs=0.2)
+    for r in rows:
+        assert r["horizon"] == "7d"
+        assert r["mfe_pct"] == 12.0 and r["mae_pct"] == -3.0
+
+
+def test_confidence_summary_payoff_none_without_losses(confidence_client, tmp_path):
+    """Payoff is undefined, not infinite, when a cohort never lost."""
+    path = str(tmp_path / "allwin.sqlite3")
+    conn = db.connect(path)
+    db.init_schema(conn)
+    db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
+    db.insert_snapshots(conn, "r1", {}, [_metrics("AW1", 0.001)])
+    _fire(conn, "AW1", "bearish", f"{DAY_A}T08:00:00+00:00", 100.0,
+          reduction=0.45, peak_pct=10.0, top_n=8, px_7d=90.0, finalized=True)
+    conn.close()
+
+    app.dependency_overrides[get_conn] = _conn_to(path)
+    rows = TestClient(app).get("/api/perf/confidence-summary").json()
+    app.dependency_overrides.clear()
+    conf = next(r for r in rows if r["cohort"] == "confident")
+    assert conf["win_pct"] == 100.0 and conf["payoff"] is None
+
+
+def test_confidence_timeline_buckets_by_month(confidence_client):
+    rows = confidence_client.get("/api/perf/confidence-timeline").json()
+    assert rows, "expected at least one month"
+    assert all(r["month"] == DAY_A[:7] for r in rows)
+    assert {r["cohort"] for r in rows} == {"confident", "rest"}
+    # Thin months are reported with their n rather than hidden.
+    assert sum(r["n"] for r in rows) == len(_CONF_CASES)
+
+
+def test_confidence_sensitivity_grid_marks_current_and_agrees_with_summary(confidence_client):
+    """The flagged cell must reproduce the headline exactly — if the grid and the
+    summary disagree, one of them is lying about what the rule does."""
+    grid = confidence_client.get("/api/perf/confidence-sensitivity").json()
+    assert len(grid) == 4 * 5
+
+    current = [c for c in grid if c["is_current"]]
+    assert len(current) == 1
+    cell = current[0]
+    assert cell["max_reduction"] == signals.CONFIDENCE_MAX_REDUCTION
+    assert cell["max_peak_pct"] == signals.CONFIDENCE_MAX_PEAK_PCT
+
+    summary = confidence_client.get("/api/perf/confidence-summary").json()
+    conf = next(r for r in summary if r["cohort"] == "confident")
+    assert cell["n"] == conf["n"]
+    assert cell["win_pct"] == conf["win_pct"]
+    assert cell["ev_pct"] == conf["ev_pct"]
+
+
+def test_confidence_endpoints_respect_class_filter(confidence_client):
+    """All seeded symbols classify as crypto, so 'equity' empties every panel."""
+    for path in ("confidence-summary", "confidence-timeline", "confidence-sensitivity"):
+        rows = confidence_client.get(f"/api/perf/{path}?classes=equity").json()
+        if path == "confidence-sensitivity":
+            assert all(c["n"] == 0 for c in rows)   # grid shape is fixed, cells empty
+        else:
+            assert rows == []
 
 
 # ---- peak-vs-own-history bucket analysis ----

@@ -15,6 +15,9 @@ import type {
   PerfMetric,
   PerfReadiness,
   PerfReductionCounterfactual,
+  PerfConfidencePoint,
+  PerfConfidenceSensitivity,
+  PerfConfidenceSummary,
   PerfMacdSignalBucket,
   PerfPeakBucket,
   PerfRsiBucket,
@@ -212,6 +215,42 @@ export const usePerfRsiBuckets = () => {
   return useQuery({
     queryKey: ['perf-rsi-buckets', classes],
     queryFn: () => fetchJson<PerfRsiBucket[]>(withClasses('/api/perf/rsi-buckets', classes)),
+    refetchInterval: PERF_REFRESH,
+  })
+}
+
+export const usePerfConfidenceSummary = (horizon: Horizon = '7d') => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-confidence-summary', horizon, classes],
+    queryFn: () =>
+      fetchJson<PerfConfidenceSummary[]>(
+        withClasses(`/api/perf/confidence-summary?horizon=${horizon}`, classes),
+      ),
+    refetchInterval: PERF_REFRESH,
+  })
+}
+
+export const usePerfConfidenceTimeline = (horizon: Horizon = '7d') => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-confidence-timeline', horizon, classes],
+    queryFn: () =>
+      fetchJson<PerfConfidencePoint[]>(
+        withClasses(`/api/perf/confidence-timeline?horizon=${horizon}`, classes),
+      ),
+    refetchInterval: PERF_REFRESH,
+  })
+}
+
+export const usePerfConfidenceSensitivity = (horizon: Horizon = '7d') => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-confidence-sensitivity', horizon, classes],
+    queryFn: () =>
+      fetchJson<PerfConfidenceSensitivity[]>(
+        withClasses(`/api/perf/confidence-sensitivity?horizon=${horizon}`, classes),
+      ),
     refetchInterval: PERF_REFRESH,
   })
 }

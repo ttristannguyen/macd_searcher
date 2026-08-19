@@ -203,6 +203,40 @@ export interface PerfRsiBucket {
   avg_ret_pct: number | null
 }
 
+// The confidence cohort: 'confident' = the measured high-expectancy slice,
+// 'rest' = every other scored signal. Derived from existing columns (no stored
+// flag), so it applies retroactively to backfilled history.
+export interface PerfConfidenceSummary {
+  cohort: string
+  horizon: string
+  n: number
+  share_pct: number
+  win_pct: number
+  ev_pct: number
+  median_pct: number
+  mfe_pct: number | null
+  mae_pct: number | null
+  payoff: number | null
+}
+
+export interface PerfConfidencePoint {
+  cohort: string
+  month: string
+  n: number
+  win_pct: number | null
+  ev_pct: number | null
+}
+
+export interface PerfConfidenceSensitivity {
+  max_reduction: number
+  max_peak_pct: number
+  n: number
+  share_pct: number
+  win_pct: number | null
+  ev_pct: number | null
+  is_current: boolean
+}
+
 // One row per (horizon, direction, peak-vs-own-history percentile band). Low
 // percentile = a modest peak by this token's standards — which is the side that
 // performs, opposite to the original assumption. See docs/hist_peak_context.md.

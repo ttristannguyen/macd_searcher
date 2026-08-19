@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS runs (
     universe_total  INTEGER,
     universe_kept   INTEGER,
     signals_count   INTEGER,
+    confident_count INTEGER,
     notify_status   TEXT,
     error           TEXT
 );
@@ -132,6 +133,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
         "fire_hist_peak_pct": "REAL",
         "fire_hist_top_n": "INTEGER",
     })
+    _add_missing_columns(conn, "runs", {"confident_count": "INTEGER"})
     conn.commit()
 
 
@@ -174,14 +176,15 @@ def finalize_run(
     universe_total: int | None = None,
     universe_kept: int | None = None,
     signals_count: int | None = None,
+    confident_count: int | None = None,
     notify_status: str | None = None,
     error: str | None = None,
 ) -> None:
     conn.execute(
         "UPDATE runs SET completed_at=?, duration_s=?, universe_total=?, universe_kept=?, "
-        "signals_count=?, notify_status=?, error=? WHERE run_id=?",
+        "signals_count=?, confident_count=?, notify_status=?, error=? WHERE run_id=?",
         (completed_at, duration_s, universe_total, universe_kept,
-         signals_count, notify_status, error, run_id),
+         signals_count, confident_count, notify_status, error, run_id),
     )
     conn.commit()
 
@@ -235,7 +238,8 @@ def fetch_signals_missing_peak_context(conn: sqlite3.Connection) -> list[sqlite3
     """
     conn.row_factory = sqlite3.Row
     return conn.execute(
-        "SELECT signal_id, symbol, direction, fired_at FROM signals "
+        # fire_close reconstructs the detector's forming-bar view — see _backfill_symbol.
+        "SELECT signal_id, symbol, direction, fired_at, fire_close FROM signals "
         "WHERE fire_hist_top_n IS NULL AND stage = 'histogram_flattening' "
         "ORDER BY symbol, fired_at"
     ).fetchall()
@@ -246,7 +250,9 @@ def fetch_signals_missing_rsi(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     only ever sees one market regime, which is why it can't be trusted as a gate."""
     conn.row_factory = sqlite3.Row
     return conn.execute(
-        "SELECT signal_id, symbol, direction, fired_at FROM signals "
+        # fire_close is needed to reconstruct the detector's forming-bar view —
+        # see _backfill_rsi_symbol.
+        "SELECT signal_id, symbol, direction, fired_at, fire_close FROM signals "
         "WHERE fire_rsi_14 IS NULL AND stage = 'histogram_flattening' "
         "ORDER BY symbol, fired_at"
     ).fetchall()

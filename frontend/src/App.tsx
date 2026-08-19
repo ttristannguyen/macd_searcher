@@ -1,19 +1,24 @@
 import { useState, type ReactNode } from 'react'
+import { Confidence } from './pages/Confidence'
 import { Dashboard } from './pages/Dashboard'
 import { Outcomes } from './pages/Outcomes'
 import { Scorecard } from './pages/Scorecard'
 
-type Tab = 'dashboard' | 'outcomes' | 'scorecard'
+type Tab = 'dashboard' | 'outcomes' | 'confidence' | 'scorecard'
 
+// Confidence sits after Outcomes deliberately: Outcomes is where a factor is
+// explored, Confidence is where a settled rule is acted on.
 const TABS: { value: Tab; label: string }[] = [
   { value: 'dashboard', label: 'Dashboard' },
   { value: 'outcomes', label: 'Outcomes' },
+  { value: 'confidence', label: 'Confidence' },
   { value: 'scorecard', label: 'Scorecard' },
 ]
 
 const PAGES: Record<Tab, ReactNode> = {
   dashboard: <Dashboard />,
   outcomes: <Outcomes />,
+  confidence: <Confidence />,
   scorecard: <Scorecard />,
 }
 

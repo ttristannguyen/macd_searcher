@@ -27,6 +27,7 @@ Operational log + reproducibility anchor. Every other table's `run_id` points he
 | `universe_total` | INTEGER | Assets seen across all DEXes **before** the liquidity filter. |
 | `universe_kept` | INTEGER | Assets that **passed** the liquidity filter (volume + OI floors). |
 | `signals_count` | INTEGER | Number of signals fired this run. |
+| `confident_count` | INTEGER | How many of those met `signals.is_high_confidence` (bolded in Telegram). Lets "am I getting enough of these?" be answered without scanning `signals`. NULL on rows logged before the column existed. |
 | `notify_status` | TEXT | Dispatch outcome: `sent`, `empty_suppressed`, `dry_run`, `quiet_hours`, `no_creds`, or `failed`. |
 | `error` | TEXT | Exception summary if the run failed; NULL otherwise. |
 
@@ -77,6 +78,7 @@ One asset that triggered an alert in a given run. The `fire_*` columns capture t
 | `fire_close` | REAL | Price used at fire time — **live** price for Stage 1, **closed** close for Stage 3. The entry reference for return calculations. |
 | `fire_macd` | REAL | MACD value at fire. |
 | `fire_hist` | REAL | Histogram value at fire. |
+| *(derived)* **confidence** | — | **There is deliberately no `fire_confident` column.** The high-confidence cohort is a predicate over `direction`, `fire_reduction_from_peak`, `fire_hist_peak_pct` and `fire_hist_top_n` — defined once in `signals.is_high_confidence` (Python, for Telegram) and mirrored as `perf._CONFIDENCE_SQL`, which *imports* the same `CONFIDENCE_*` thresholds so the numbers have a single home. Deriving means a threshold change re-labels all history at once instead of needing a re-backfill. A test asserts the two implementations agree row-for-row. See [confidence.md](confidence.md). |
 | *(derived)* `fire_macd − fire_hist` | — | **The MACD signal line at fire.** There is deliberately no `fire_macd_signal` column: `indicators.macd` builds `hist = macd − signal`, and both operands above come from the same fire-view bar, so subtraction recovers it exactly — for every signal ever logged, no migration or backfill. Normalized by `asset_snapshots.atr` it drives the signal-line bucket analysis (`perf.macd_signal_buckets`). See [macd_signal_analysis.md](macd_signal_analysis.md). |
 | `fire_macd_pct_of_price` | REAL | **Legacy Stage-3 column** — NULL for all new (Stage-1) rows; retained for historical data. |
 | `fire_atr_multiple` | REAL | **Legacy Stage-3 column** (`atr` mode) — NULL for all new rows; retained for historical data. |

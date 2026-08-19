@@ -234,18 +234,25 @@ async def _backfill_symbol(
         log.warning("Not enough bars for %s (%d); skipping", symbol, len(df))
         return 0
 
-    hist = compute_macd(df["close"], cfg.macd.fast, cfg.macd.slow, cfg.macd.signal)["hist"]
-
     written = 0
     for s in sigs:
         idx = _bar_index_at_or_before(df, datetime.fromisoformat(s["fired_at"]))
-        if idx is None:
+        if idx is None or idx < 1 or s["fire_close"] is None:
             continue
-        # Stage 1 fires on the bar containing fired_at (use_forming_candle), and
-        # sees at most `lookback_days` bars — slice to exactly that view so the
-        # baseline matches what the live detector would have used.
+        # Stage 1 fires mid-day on a *forming* bar, so its close was the scan-time
+        # price — `fire_close` — not the settled close a later fetch returns. Splice
+        # it back on to rebuild the exact series the detector saw, then trim to the
+        # `lookback_days` window it could see. (This matters far less here than for
+        # RSI: the detector only fires once |hist| has shrunk >=30% off its peak, so
+        # the fire bar is never the peak and usually doesn't affect the result at
+        # all — but it can shift the excursion boundary, and did for ~3% of signals.)
         lo = max(0, idx + 1 - cfg.candles.lookback_days)
-        ratio, pct, top_n = _peak_vs_history(hist.iloc[lo:idx + 1], s["direction"])
+        closes = pd.concat(
+            [df["close"].iloc[lo:idx], pd.Series([float(s["fire_close"])])],
+            ignore_index=True,
+        )
+        hist = compute_macd(closes, cfg.macd.fast, cfg.macd.slow, cfg.macd.signal)["hist"]
+        ratio, pct, top_n = _peak_vs_history(hist, s["direction"])
         db.update_signal_peak_context(
             conn, s["signal_id"], ratio=ratio, pct=pct, top_n=top_n
         )
@@ -261,10 +268,25 @@ async def _backfill_rsi_symbol(
     cfg: AppConfig,
     conn,
 ) -> int:
-    """Recompute RSI(14) at fire time for one symbol's signals. Returns rows written."""
+    """Recompute RSI(14) as the detector saw it, for one symbol's signals.
+
+    The subtlety is the fire bar. Stage 1 runs mid-day with `use_forming_candle`,
+    so it computed RSI on a *forming* bar whose close was the price at scan time —
+    not the settled midnight close that a later candle fetch returns. Reading the
+    settled bar instead misses by a median 1.6 RSI points and puts 16.5% of signals
+    in a different 10-wide bucket, which would blur the very gradient this backfill
+    exists to measure.
+
+    `fire_close` is exactly that scan-time price (the detector builds `Signal.close`
+    from the same bar), so splicing it onto the settled history reconstructs the
+    detector's series rather than approximating it — median error drops to 0.4
+    points, 3.9% bucket disagreement. The residual is EWM seeding: we warm up over
+    `lookback_days` bars to match the scanner's window as closely as a later fetch
+    allows.
+    """
     earliest = min(datetime.fromisoformat(s["fired_at"]) for s in sigs)
     latest = max(datetime.fromisoformat(s["fired_at"]) for s in sigs)
-    start_ms = int((earliest - timedelta(days=_WARMUP_DAYS)).timestamp() * 1000)
+    start_ms = int((earliest - timedelta(days=cfg.candles.lookback_days)).timestamp() * 1000)
     end_ms = int((latest + timedelta(days=1)).timestamp() * 1000)
 
     try:
@@ -275,13 +297,17 @@ async def _backfill_rsi_symbol(
     if len(df) < 20:
         return 0
 
-    series = compute_rsi(df["close"])
     written = 0
     for s in sigs:
         idx = _bar_index_at_or_before(df, datetime.fromisoformat(s["fired_at"]))
-        if idx is None:
+        # idx < 1 leaves nothing to warm up on; fire_close is required for the splice.
+        if idx is None or idx < 1 or s["fire_close"] is None:
             continue
-        val = float(series.iloc[idx])
+        closes = pd.concat(
+            [df["close"].iloc[:idx], pd.Series([float(s["fire_close"])])],
+            ignore_index=True,
+        )
+        val = float(compute_rsi(closes).iloc[-1])
         db.update_signal_rsi(conn, s["signal_id"], None if pd.isna(val) else val)
         written += 1
     conn.commit()

@@ -189,6 +189,39 @@ class PerfRsiBucket(BaseModel):
     avg_ret_pct: Optional[float] = None
 
 
+class PerfConfidenceSummary(BaseModel):
+    # 'confident' = the measured high-expectancy slice (see signals.is_high_confidence);
+    # 'rest' = every other scored signal. Always read as a pair.
+    cohort: str
+    horizon: str
+    n: int
+    share_pct: float
+    win_pct: float
+    ev_pct: float
+    median_pct: float
+    mfe_pct: Optional[float] = None
+    mae_pct: Optional[float] = None
+    payoff: Optional[float] = None   # None when the cohort had no losing trades
+
+
+class PerfConfidencePoint(BaseModel):
+    cohort: str
+    month: str          # 'YYYY-MM', UTC
+    n: int
+    win_pct: Optional[float] = None
+    ev_pct: Optional[float] = None
+
+
+class PerfConfidenceSensitivity(BaseModel):
+    max_reduction: float
+    max_peak_pct: float
+    n: int
+    share_pct: float
+    win_pct: Optional[float] = None
+    ev_pct: Optional[float] = None
+    is_current: bool    # marks the thresholds actually in force
+
+
 class PerfPeakBucket(BaseModel):
     horizon: str
     direction: str

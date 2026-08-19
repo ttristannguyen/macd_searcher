@@ -25,6 +25,11 @@ from typing import Literal
 
 import numpy as np
 
+from ..signals import (
+    CONFIDENCE_MAX_PEAK_PCT,
+    CONFIDENCE_MAX_REDUCTION,
+    CONFIDENCE_MIN_TOP_N,
+)
 from ..stats import summarize
 
 # Horizon is whitelisted (not bound) because it names a column. The Literal is
@@ -439,6 +444,187 @@ def rsi_buckets(conn: sqlite3.Connection, classes: list[str] | None = None) -> l
         for row in _rows(conn, sql, tuple(params)):
             out.append({"horizon": h, **row})
     out.sort(key=lambda d: (d["direction"], d["rsi_bucket"], d["horizon"]))
+    return out
+
+
+# ---------- confidence cohort ----------
+#
+# The same rule `is_high_confidence` applies when it bolds a Telegram row, expressed
+# as SQL so the dashboard can segment history by it. Nothing is stored: every input
+# already lives on `signals`, so the cohort is derived and therefore applies
+# retroactively — including to rows filled in by --backfill-peak-context.
+#
+# The thresholds are IMPORTED rather than restated, so the numbers have one home
+# (signals.py) even though the predicate is written twice. test_web_perf.py asserts
+# the two implementations agree row-for-row; if you change one, that test fails.
+#
+# NULLs fall through to 'rest' by SQL's three-valued logic — a signal with no peak
+# context is not confident, which is the honest reading.
+_CONFIDENCE_SQL = (
+    "CASE WHEN direction = 'bearish' "
+    f"AND fire_reduction_from_peak < {CONFIDENCE_MAX_REDUCTION} "
+    f"AND fire_hist_top_n >= {CONFIDENCE_MIN_TOP_N} "
+    f"AND fire_hist_peak_pct < {CONFIDENCE_MAX_PEAK_PCT} "
+    "THEN 'confident' ELSE 'rest' END"
+)
+
+_COHORTS = ("confident", "rest")
+
+
+def _cohort_stats(rows: list, total: int) -> dict | None:
+    """Decision-grade summary of one cohort's scored signals.
+
+    `rows` carry `r` (direction-normalized return), `mfe`, `mae`. Percent points
+    throughout, matching the other perf endpoints.
+    """
+    s = summarize([row["r"] for row in rows])
+    if s is None:
+        return None
+
+    arr = np.asarray([row["r"] for row in rows], dtype=float)
+    wins, losses = arr[arr > 0], arr[arr < 0]
+    # Payoff = avg win / avg |loss|. None when there are no losses (undefined
+    # rather than infinite); 0 when there were no wins at all.
+    if losses.size == 0:
+        payoff = None
+    elif wins.size == 0:
+        payoff = 0.0
+    else:
+        payoff = float(wins.mean() / -losses.mean())
+
+    def _avg(key: str) -> float | None:
+        vals = [row[key] for row in rows if row[key] is not None]
+        return round(float(np.mean(vals)) * 100, 2) if vals else None
+
+    return {
+        "n": s["n"],
+        "share_pct": round(s["n"] / total * 100, 1) if total else 0.0,
+        "win_pct": round(float((arr > 0).mean()) * 100, 1),
+        "ev_pct": round(s["mean"] * 100, 2),
+        "median_pct": round(s["median"] * 100, 2),
+        "mfe_pct": _avg("mfe"),
+        "mae_pct": _avg("mae"),
+        "payoff": round(payoff, 2) if payoff is not None else None,
+    }
+
+
+def confidence_summary(
+    conn: sqlite3.Connection,
+    horizon: Horizon = "7d",
+    classes: list[str] | None = None,
+) -> list[dict]:
+    """Headline comparison: the high-confidence cohort against everything else.
+
+    Always returns both cohorts (when each has data) so the number is read as a
+    delta — "is 70% better than taking everything?" — rather than in isolation.
+    """
+    col = f"ret_{horizon}"
+    cte, params = _base(classes)
+    sql = cte + (
+        f"SELECT {_CONFIDENCE_SQL} AS cohort, {col} AS r, "
+        f"max_favorable_move_pct AS mfe, max_adverse_move_pct AS mae "
+        f"FROM perf WHERE {col} IS NOT NULL"
+    )
+
+    groups: dict[str, list] = {}
+    total = 0
+    for row in conn.execute(sql, tuple(params)):
+        groups.setdefault(row["cohort"], []).append(row)
+        total += 1
+
+    out: list[dict] = []
+    for cohort in _COHORTS:
+        stats = _cohort_stats(groups.get(cohort, []), total)
+        if stats is not None:
+            out.append({"cohort": cohort, "horizon": horizon, **stats})
+    return out
+
+
+def confidence_timeline(
+    conn: sqlite3.Connection,
+    horizon: Horizon = "7d",
+    classes: list[str] | None = None,
+) -> list[dict]:
+    """Per-cohort win-rate and EV by UTC month — the rule-decay panel.
+
+    Monthly rather than weekly because the confident cohort is ~11% of signals;
+    split any finer and every point is noise. Thin months are returned WITH their
+    `n` rather than dropped, so the UI can grey them instead of hiding the gap.
+    """
+    col = f"ret_{horizon}"
+    cte, params = _base(classes)
+    sql = cte + (
+        f"SELECT {_CONFIDENCE_SQL} AS cohort, substr(fired_at, 1, 7) AS month, "
+        f"COUNT(*) AS n, "
+        f"ROUND(AVG({col} > 0) * 100, 1) AS win_pct, "
+        f"ROUND(AVG({col}) * 100, 2) AS ev_pct "
+        f"FROM perf WHERE {col} IS NOT NULL "
+        f"GROUP BY cohort, month"
+    )
+    rows = _rows(conn, sql, tuple(params))
+    rows.sort(key=lambda d: (d["cohort"], d["month"]))
+    return rows
+
+
+# Grid swept by `confidence_sensitivity`. Brackets the live thresholds on both
+# sides so the shape around them is visible — the point is to see whether the
+# current setting sits on a PLATEAU (robust) or a spike (fitted to noise).
+_SENSITIVITY_REDUCTIONS = (0.4, 0.5, 0.6, 0.7)
+_SENSITIVITY_PEAK_PCTS = (20.0, 30.0, 40.0, 50.0, 60.0)
+
+
+def confidence_sensitivity(
+    conn: sqlite3.Connection,
+    horizon: Horizon = "7d",
+    classes: list[str] | None = None,
+) -> list[dict]:
+    """Win-rate / EV across a grid of the two confidence thresholds.
+
+    Diagnostic, NOT a tuner: retuning to the best-looking cell on the same data the
+    rule was fitted on is how this becomes overfit. Read it for smoothness around
+    the current setting, which is flagged by `is_current`.
+
+    One pass over the candidate rows; the grid is evaluated in Python because
+    twenty SQL round-trips for twenty cells would be silly.
+    """
+    col = f"ret_{horizon}"
+    cte, params = _base(classes)
+    sql = cte + (
+        f"SELECT direction, fire_reduction_from_peak AS red, "
+        f"fire_hist_peak_pct AS pk, fire_hist_top_n AS top_n, {col} AS r "
+        f"FROM perf WHERE {col} IS NOT NULL"
+    )
+
+    rows = [dict(r) for r in conn.execute(sql, tuple(params))]
+    total = len(rows)
+    # The cohort is bearish-only and needs a trustworthy baseline; those two
+    # conditions are fixed, only the thresholds move across the grid.
+    eligible = [
+        r for r in rows
+        if r["direction"] == "bearish"
+        and r["red"] is not None
+        and r["pk"] is not None
+        and (r["top_n"] or 0) >= CONFIDENCE_MIN_TOP_N
+    ]
+
+    out: list[dict] = []
+    for max_red in _SENSITIVITY_REDUCTIONS:
+        for max_pk in _SENSITIVITY_PEAK_PCTS:
+            hits = [r for r in eligible if r["red"] < max_red and r["pk"] < max_pk]
+            n = len(hits)
+            arr = np.asarray([r["r"] for r in hits], dtype=float) if n else None
+            out.append({
+                "max_reduction": max_red,
+                "max_peak_pct": max_pk,
+                "n": n,
+                "share_pct": round(n / total * 100, 1) if total else 0.0,
+                "win_pct": round(float((arr > 0).mean()) * 100, 1) if n else None,
+                "ev_pct": round(float(arr.mean()) * 100, 2) if n else None,
+                "is_current": (
+                    max_red == CONFIDENCE_MAX_REDUCTION
+                    and max_pk == CONFIDENCE_MAX_PEAK_PCT
+                ),
+            })
     return out
 
 

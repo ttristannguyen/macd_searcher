@@ -222,6 +222,17 @@ class PerfConfidenceSensitivity(BaseModel):
     is_current: bool    # marks the thresholds actually in force
 
 
+class PerfMacdSignalPctBucket(BaseModel):
+    horizon: str
+    direction: str
+    # Signed band of the signal line as a % of price (e.g. 'g 0..2'). Same shape as
+    # PerfMacdSignalBucket but its own model, per the per-metric convention here.
+    bucket: str
+    n: int
+    win_pct: Optional[float] = None
+    avg_ret_pct: Optional[float] = None
+
+
 class PerfPeakBucket(BaseModel):
     horizon: str
     direction: str

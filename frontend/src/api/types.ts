@@ -249,6 +249,18 @@ export interface PerfPeakBucket {
   avg_ret_pct: number | null
 }
 
+// Same metric as PerfMacdSignalBucket, normalized by price instead of ATR — a
+// second, more legible lens on the same signal line. Carries a known asset-class
+// confound; see docs/macd_signal_pct_analysis.md.
+export interface PerfMacdSignalPctBucket {
+  horizon: string
+  direction: string
+  bucket: string
+  n: number
+  win_pct: number | null
+  avg_ret_pct: number | null
+}
+
 // One row per (horizon, direction, ATR-normalized MACD-signal-line bucket). The
 // axis is (fire_macd - fire_hist) / atr — signed, so the sign carries the regime.
 export interface PerfMacdSignalBucket {

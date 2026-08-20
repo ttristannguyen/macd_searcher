@@ -621,6 +621,95 @@ def test_confidence_endpoints_respect_class_filter(confidence_client):
             assert rows == []
 
 
+# ---- MACD signal line as a % of price ----
+#
+# Same metric as the ATR view, normalized by fire_close instead. Buckets are even
+# 2%-wide steps, so with fire_close=100 a signal line of 3.0 lands in 'h 2..4'.
+
+
+def _seed_macd_pct(path: str) -> None:
+    conn = db.connect(path)
+    db.init_schema(conn)
+    db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
+    db.insert_snapshots(conn, "r1", {}, [_metrics(f"MP{i}", 0.001) for i in range(1, 7)])
+    at = f"{DAY_A}T08:00:00+00:00"
+
+    # signal = macd - hist; with close=100 the bucket is just that value as a %.
+    # Bearish, spanning the positive side.
+    _fire(conn, "MP1", "bearish", at, 100.0, macd=3.2, hist=0.2, px_7d=88.0, finalized=True)   # +3.0 -> h 2..4
+    _fire(conn, "MP2", "bearish", at, 100.0, macd=11.2, hist=0.2, px_7d=106.0, finalized=True) # +11.0 -> l >=10
+    # Bullish, spanning the negative side.
+    _fire(conn, "MP3", "bullish", at, 100.0, macd=-5.2, hist=-0.2, px_7d=110.0, finalized=True)  # -5.0 -> d -6..-4
+    _fire(conn, "MP4", "bullish", at, 100.0, macd=-12.2, hist=-0.2, px_7d=95.0, finalized=True)  # -12.0 -> a <-10
+    # A different price scales the same raw signal into a different bucket — the
+    # whole point of this normalization.
+    _fire(conn, "MP5", "bearish", at, 50.0, macd=3.2, hist=0.2, px_7d=44.0, finalized=True)    # +6.0 -> j 6..8
+    conn.close()
+
+
+@pytest.fixture
+def macd_pct_client(tmp_path):
+    path = str(tmp_path / "macdpct.sqlite3")
+    _seed_macd_pct(path)
+    app.dependency_overrides[get_conn] = _conn_to(path)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_macd_signal_pct_buckets_win_and_ev(macd_pct_client):
+    rows = macd_pct_client.get("/api/perf/macd-signal-pct-buckets").json()
+    by = {(r["direction"], r["bucket"], r["horizon"]): r for r in rows}
+
+    r = by[("bearish", "h 2..4", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 12.0
+
+    r = by[("bearish", "l >=10", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 0.0 and r["avg_ret_pct"] == -6.0
+
+    r = by[("bullish", "d -6..-4", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 10.0
+
+    r = by[("bullish", "a <-10", "7d")]
+    assert r["n"] == 1 and r["win_pct"] == 0.0 and r["avg_ret_pct"] == -5.0
+
+    assert {r["horizon"] for r in rows} == {"1d", "3d", "7d", "14d"}
+
+
+def test_macd_signal_pct_normalizes_by_price(macd_pct_client):
+    """MP5 carries the same raw signal line as MP1 (3.0) at half the price, so it
+    lands two bands higher. Guards against the divisor being dropped."""
+    rows = macd_pct_client.get("/api/perf/macd-signal-pct-buckets").json()
+    by = {(r["direction"], r["bucket"], r["horizon"]): r for r in rows}
+    assert by[("bearish", "j 6..8", "7d")]["n"] == 1
+    assert by[("bearish", "h 2..4", "7d")]["n"] == 1
+
+
+def test_macd_signal_pct_buckets_excludes_bad_fire_close(macd_pct_client, tmp_path):
+    """fire_close of 0 would divide by zero; such a row contributes nowhere."""
+    path = str(tmp_path / "zeroclose.sqlite3")
+    conn = db.connect(path)
+    db.init_schema(conn)
+    db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
+    db.insert_snapshots(conn, "r1", {}, [_metrics("ZC1", 0.001), _metrics("ZC2", 0.001)])
+    _fire(conn, "ZC1", "bearish", f"{DAY_A}T08:00:00+00:00", 0.0,
+          macd=3.2, hist=0.2, px_7d=88.0, finalized=True)
+    _fire(conn, "ZC2", "bearish", f"{DAY_A}T08:00:00+00:00", 100.0,
+          macd=3.2, hist=0.2, px_7d=88.0, finalized=True)
+    conn.close()
+
+    app.dependency_overrides[get_conn] = _conn_to(path)
+    rows = TestClient(app).get("/api/perf/macd-signal-pct-buckets").json()
+    app.dependency_overrides.clear()
+    assert sum(r["n"] for r in rows if r["horizon"] == "7d") == 1
+
+
+def test_macd_signal_pct_buckets_respects_class_filter(macd_pct_client):
+    rows = macd_pct_client.get("/api/perf/macd-signal-pct-buckets?classes=equity").json()
+    assert rows == []
+    rows = macd_pct_client.get("/api/perf/macd-signal-pct-buckets?classes=crypto").json()
+    assert sum(r["n"] for r in rows if r["horizon"] == "7d") == 5
+
+
 # ---- peak-vs-own-history bucket analysis ----
 
 

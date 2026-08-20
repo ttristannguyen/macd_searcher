@@ -19,6 +19,7 @@ import type {
   PerfConfidenceSensitivity,
   PerfConfidenceSummary,
   PerfMacdSignalBucket,
+  PerfMacdSignalPctBucket,
   PerfPeakBucket,
   PerfRsiBucket,
   PerfStageDirection,
@@ -250,6 +251,18 @@ export const usePerfConfidenceSensitivity = (horizon: Horizon = '7d') => {
     queryFn: () =>
       fetchJson<PerfConfidenceSensitivity[]>(
         withClasses(`/api/perf/confidence-sensitivity?horizon=${horizon}`, classes),
+      ),
+    refetchInterval: PERF_REFRESH,
+  })
+}
+
+export const usePerfMacdSignalPctBuckets = () => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-macd-signal-pct-buckets', classes],
+    queryFn: () =>
+      fetchJson<PerfMacdSignalPctBucket[]>(
+        withClasses('/api/perf/macd-signal-pct-buckets', classes),
       ),
     refetchInterval: PERF_REFRESH,
   })

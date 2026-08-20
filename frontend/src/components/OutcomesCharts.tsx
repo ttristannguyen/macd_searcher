@@ -15,6 +15,7 @@ import {
 import {
   usePerfHorizonCurve,
   usePerfMacdSignalBuckets,
+  usePerfMacdSignalPctBuckets,
   usePerfPeakContextBuckets,
   usePerfRsiBuckets,
   usePerfThresholds,
@@ -22,6 +23,7 @@ import {
 import type {
   PerfBucket,
   PerfMacdSignalBucket,
+  PerfMacdSignalPctBucket,
   PerfPeakBucket,
   PerfRsiBucket,
 } from '../api/types'
@@ -742,30 +744,262 @@ function MacdSignalTrendByBucket({ rows }: { rows: PerfMacdSignalBucket[] }) {
   )
 }
 
-export function MacdSignalAnalysis() {
-  const { data, isLoading, isError } = usePerfMacdSignalBuckets()
-  const [direction, setDirection] = useState<RsiDirection>('bullish')
-  const all = data ?? []
-  const rows = all.filter((r) => r.direction === direction)
+// ---------- the same signal line, normalized by price instead of ATR ----------
+//
+// A second lens, not a replacement. %-of-price is the more legible unit at a glance
+// ("3% of price above equilibrium") but is partly an asset-class proxy, because MACD
+// scales with volatility as well as price; the ATR view above is the one that
+// survives cross-class comparison. They sit together so a finding in one can be
+// checked against the other. See docs/macd_signal_pct_analysis.md.
+//
+// Even 2%-wide steps: 76% of signals sit within ±5% of zero, so wider buckets dumped
+// three-quarters of the data into a handful of cells and hid whatever structure is
+// in the band that matters most.
 
+const MACD_SIGNAL_PCT_BUCKETS = [
+  'a <-10', 'b -10..-8', 'c -8..-6', 'd -6..-4', 'e -4..-2', 'f -2..0',
+  'g 0..2', 'h 2..4', 'i 4..6', 'j 6..8', 'k 8..10', 'l >=10',
+] as const
+// Rose→fuchsia ramp, distinct from RSI violet, peak-context teal and the ATR view's
+// amber. Ordered buckets, so it stays a single sweep rather than categorical hues.
+const MACD_SIGNAL_PCT_RAMP = [
+  '#fecdd3', '#fda4af', '#fb7185', '#f43f5e', '#e11d48', '#be123c',
+  '#9f1239', '#a21caf', '#c026d3', '#d946ef', '#e879f9', '#f5d0fe',
+]
+
+function MacdSignalPctHeatmap({
+  rows,
+  metric,
+}: {
+  rows: PerfMacdSignalPctBucket[]
+  metric: 'win' | 'ev'
+}) {
+  const mid = metric === 'win' ? 50 : 0
+  const span = metric === 'win' ? 25 : 10
+  const title =
+    metric === 'win' ? 'Win rate by signal ÷ price' : 'EV by signal ÷ price'
+
+  const cell = (bucket: string, horizon: string) => {
+    const row = rows.find((r) => r.bucket === bucket && r.horizon === horizon)
+    const value = row ? (metric === 'win' ? row.win_pct : row.avg_ret_pct) : null
+    return { value, n: row?.n ?? 0 }
+  }
+
+  return (
+    <Card title={title}>
+      <div className="overflow-x-auto">
+        <table className="w-full border-separate text-sm" style={{ borderSpacing: 2 }}>
+          <thead>
+            <tr className="text-xs uppercase tracking-wide text-slate-500">
+              <th className="py-1 pr-2 text-left font-medium">Signal ÷ price %</th>
+              {HORIZONS.map((h) => (
+                <th key={h} className="px-2 py-1 text-center font-medium">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {MACD_SIGNAL_PCT_BUCKETS.map((bucket) => (
+              <tr key={bucket}>
+                <td className="py-1 pr-2 text-slate-300">{bucketLabel(bucket)}</td>
+                {HORIZONS.map((h) => {
+                  const { value, n } = cell(bucket, h)
+                  return (
+                    <td
+                      key={h}
+                      className="rounded px-2 py-1 text-center tabular-nums"
+                      style={{ background: heatColor(value, mid, span), color: value == null ? '#475569' : '#f1f5f9' }}
+                      title={value == null ? 'no data' : `signal÷price ${bucketLabel(bucket)}% · ${h} · n=${n}`}
+                    >
+                      {value == null ? '—' : (
+                        <>
+                          <div>{fmtPctPts(value, metric === 'win' ? 1 : 2, metric === 'ev')}</div>
+                          <div className="text-[10px] text-slate-300/70">n={n}</div>
+                        </>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        Empty cells in the bullish positive tail are real, not missing data: bullish
+        fires on a flattening downtrend, so a strongly positive (mature-uptrend) signal
+        line essentially cannot co-occur with it.
+      </p>
+    </Card>
+  )
+}
+
+function MacdSignalPctWinCurve({ rows }: { rows: PerfMacdSignalPctBucket[] }) {
+  // Only plot bands this direction actually populates — bullish leaves the top two
+  // empty, and dropping them keeps a 12-band chart from carrying dead legend entries.
+  const present = MACD_SIGNAL_PCT_BUCKETS.filter((b) =>
+    rows.some((r) => r.bucket === b && r.n > 0),
+  )
+  const byHB = new Map(rows.map((r) => [`${r.bucket}|${r.horizon}`, r]))
+  const chartRows = HORIZONS.map((h) => {
+    const row: Record<string, number | string | null> = { h }
+    let wSum = 0
+    let nSum = 0
+    for (const b of present) {
+      const r = byHB.get(`${b}|${h}`)
+      row[b] = r?.win_pct ?? null
+      if (r && r.win_pct != null) {
+        wSum += r.win_pct * r.n
+        nSum += r.n
+      }
+    }
+    row.baseline = nSum > 0 ? Math.round((wSum / nSum) * 10) / 10 : null
+    return row
+  })
+
+  return (
+    <Card title="Win rate by horizon, per price band">
+      <div style={{ height: 260 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartRows}>
+            <CartesianGrid stroke={GRID} vertical={false} />
+            <XAxis dataKey="h" stroke={AXIS} fontSize={12} />
+            <YAxis stroke={AXIS} fontSize={12} unit="%" domain={[0, 100]} />
+            <ReferenceLine y={50} stroke={AXIS} strokeDasharray="3 3" />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => `${v}%`} />
+            <Legend wrapperStyle={{ fontSize: 10 }} />
+            {present.map((b) => (
+              <Line
+                key={b}
+                name={bucketLabel(b)}
+                type="monotone"
+                dataKey={b}
+                stroke={MACD_SIGNAL_PCT_RAMP[MACD_SIGNAL_PCT_BUCKETS.indexOf(b)]}
+                strokeWidth={1.5}
+                dot={{ r: 1.5 }}
+                connectNulls
+              />
+            ))}
+            <Line name="baseline (all bands)" type="monotone" dataKey="baseline" stroke={AXIS} strokeWidth={2} strokeDasharray="4 3" dot={false} connectNulls />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        Twelve bands makes this deliberately crowded — <strong>read the shape, not
+        individual lines</strong>: whether the bundle fans out with horizon, and which
+        side of the dashed baseline it sits on. The chart beside it is the tool for a
+        precise per-band read.
+      </p>
+    </Card>
+  )
+}
+
+function MacdSignalPctTrendByBucket({ rows }: { rows: PerfMacdSignalPctBucket[] }) {
+  const byHB = new Map(rows.map((r) => [`${r.bucket}|${r.horizon}`, r]))
+  const chartRows = MACD_SIGNAL_PCT_BUCKETS.map((b) => {
+    const row: Record<string, number | string | null> = { bucket: bucketLabel(b) }
+    for (const h of HORIZONS) {
+      row[h] = byHB.get(`${b}|${h}`)?.win_pct ?? null
+    }
+    return row
+  })
+
+  return (
+    <Card title="Win rate vs price band, per horizon">
+      <div style={{ height: 260 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartRows} margin={{ bottom: 16 }}>
+            <CartesianGrid stroke={GRID} vertical={false} />
+            <XAxis
+              dataKey="bucket"
+              stroke={AXIS}
+              fontSize={9}
+              angle={-40}
+              textAnchor="end"
+              height={52}
+              interval={0}
+            />
+            <YAxis stroke={AXIS} fontSize={12} unit="%" domain={[0, 100]} />
+            <ReferenceLine y={50} stroke={AXIS} strokeDasharray="3 3" />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => `${v}%`} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            {HORIZONS.map((h, i) => (
+              <Line key={h} name={h} type="monotone" dataKey={h} stroke={HORIZON_RAMP[i]} strokeWidth={2} dot={{ r: 2.5 }} connectNulls />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        The precise view, and what the finer bands were added for — twelve x-axis points
+        instead of six. A monotone slope means where the trend sat relative to price
+        correlates with the result; check it against the ATR chart above before
+        believing it (see the note at the foot of this panel).
+      </p>
+    </Card>
+  )
+}
+
+export function MacdSignalAnalysis() {
+  const atrQ = usePerfMacdSignalBuckets()
+  const pctQ = usePerfMacdSignalPctBuckets()
+  const [direction, setDirection] = useState<RsiDirection>('bullish')
+
+  const atrAll = atrQ.data ?? []
+  const pctAll = pctQ.data ?? []
+  const atrRows = atrAll.filter((r) => r.direction === direction)
+  const pctRows = pctAll.filter((r) => r.direction === direction)
+
+  // One toggle governs both groups — they are two normalizations of the same
+  // metric, so splitting the control would invite reading them at odds.
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-slate-300">MACD signal line at fire — trend context</h2>
         <Segmented options={DIRECTIONS} value={direction} onChange={setDirection} />
       </div>
-      <StateMsg loading={isLoading} error={isError} empty={all.length === 0}>
+      <StateMsg
+        loading={atrQ.isLoading || pctQ.isLoading}
+        error={atrQ.isError || pctQ.isError}
+        empty={atrAll.length === 0 && pctAll.length === 0}
+      >
         <div className="space-y-4">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            ATR-normalized <span className="normal-case text-slate-600">— comparable across asset classes</span>
+          </h3>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <MacdSignalHeatmap rows={rows} metric="win" />
-            <MacdSignalHeatmap rows={rows} metric="ev" />
+            <MacdSignalHeatmap rows={atrRows} metric="win" />
+            <MacdSignalHeatmap rows={atrRows} metric="ev" />
           </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <MacdSignalWinCurve rows={rows} />
-            <MacdSignalTrendByBucket rows={rows} />
+            <MacdSignalWinCurve rows={atrRows} />
+            <MacdSignalTrendByBucket rows={atrRows} />
           </div>
+
+          <h3 className="pt-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+            Price-normalized <span className="normal-case text-slate-600">— more legible, but class-confounded</span>
+          </h3>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <MacdSignalPctHeatmap rows={pctRows} metric="win" />
+            <MacdSignalPctHeatmap rows={pctRows} metric="ev" />
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <MacdSignalPctWinCurve rows={pctRows} />
+            <MacdSignalPctTrendByBucket rows={pctRows} />
+          </div>
+
           <p className="text-xs text-slate-600">
-            The axis is the MACD signal line at fire, divided by ATR — about 7 bars of trend drift per bar of typical range, so it reads as <em>how cleanly the trend was moving</em>, not how far. Divided by ATR rather than price because MACD scales with volatility as well as price, which would turn the buckets into an asset-class proxy. Signed: for a bearish fire, positive = a mature uptrend rolling over, negative = a downtrend continuing. Derived from existing columns, so it covers the full signal history.
+            Both groups plot the same value — the MACD signal line at fire — under two
+            normalizations. <strong>÷ ATR</strong> is roughly 7 bars of trend drift per bar
+            of typical range, so it reads as <em>how cleanly the trend was moving</em>
+            rather than how far, and it stays comparable across asset classes.{' '}
+            <strong>÷ price</strong> is the more legible unit ("3% of price above
+            equilibrium") but is partly an asset-class proxy, since MACD scales with
+            volatility as well as price — median |signal ÷ price| runs about 3.2% for
+            crypto against 2.3% for equity, so a gradient down the price bands may be
+            re-reading class mix rather than a real within-class effect.{' '}
+            <strong>Cross-check any finding in the lower group against the upper one
+            before trusting it.</strong> Signed in both: for a bearish fire, positive = a
+            mature uptrend rolling over, negative = a downtrend continuing. Both are
+            derived from existing columns, so they cover the full signal history.
           </p>
         </div>
       </StateMsg>

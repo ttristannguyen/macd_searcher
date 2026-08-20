@@ -35,6 +35,7 @@ from .models import (
     PerfReadiness,
     PerfReductionCounterfactual,
     PerfMacdSignalBucket,
+    PerfMacdSignalPctBucket,
     PerfPeakBucket,
     PerfRsiBucket,
     PerfStageDirection,
@@ -292,6 +293,20 @@ def perf_confidence_sensitivity(
     return [
         PerfConfidenceSensitivity(**r)
         for r in perf.confidence_sensitivity(conn, horizon, perf.parse_classes(classes))
+    ]
+
+
+@app.get(
+    "/api/perf/macd-signal-pct-buckets",
+    response_model=list[PerfMacdSignalPctBucket],
+)
+def perf_macd_signal_pct_buckets(
+    classes: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[PerfMacdSignalPctBucket]:
+    return [
+        PerfMacdSignalPctBucket(**r)
+        for r in perf.macd_signal_pct_buckets(conn, perf.parse_classes(classes))
     ]
 
 

@@ -738,6 +738,71 @@ def macd_signal_buckets(
     return out
 
 
+
+# ---------- MACD signal line as a % of price (second lens on the same metric) ----
+#
+# The same signal-line-at-fire value as `macd_signal_buckets`, normalized by price
+# instead of ATR. Built as an ADDITION, not a replacement: %-of-price is the more
+# legible unit at a glance ("3% of price above equilibrium"), while ATR is the one
+# that survives cross-class comparison. Reading them side by side is the point.
+#
+# Known and accepted tradeoff: %-of-price is partly an asset-class proxy, because
+# MACD scales with volatility as well as price (median |signal/price| runs ~3.2% for
+# crypto against ~2.3% for equity, and the thin fx/index samples sit further out).
+# A gradient here may therefore be re-reading class mix rather than a within-class
+# effect — always cross-check against the ATR heatmap. See
+# docs/macd_signal_pct_analysis.md.
+_MACD_SIGNAL_PCT_EXPR = "(fire_macd - fire_hist) / fire_close * 100"
+
+# Even 2%-wide steps from -10 to +10. A first pass used 6 wide buckets and was
+# rejected: 76% of signals sit within +/-5% of zero, so the wide version dumped
+# three-quarters of the data into four cells and hid whatever structure is there.
+_MACD_SIGNAL_PCT_BUCKET_SQL = (
+    f"CASE WHEN {_MACD_SIGNAL_PCT_EXPR} < -10 THEN 'a <-10' "
+    f"WHEN {_MACD_SIGNAL_PCT_EXPR} < -8 THEN 'b -10..-8' "
+    f"WHEN {_MACD_SIGNAL_PCT_EXPR} < -6 THEN 'c -8..-6' "
+    f"WHEN {_MACD_SIGNAL_PCT_EXPR} < -4 THEN 'd -6..-4' "
+    f"WHEN {_MACD_SIGNAL_PCT_EXPR} < -2 THEN 'e -4..-2' "
+    f"WHEN {_MACD_SIGNAL_PCT_EXPR} < 0 THEN 'f -2..0' "
+    f"WHEN {_MACD_SIGNAL_PCT_EXPR} < 2 THEN 'g 0..2' "
+    f"WHEN {_MACD_SIGNAL_PCT_EXPR} < 4 THEN 'h 2..4' "
+    f"WHEN {_MACD_SIGNAL_PCT_EXPR} < 6 THEN 'i 4..6' "
+    f"WHEN {_MACD_SIGNAL_PCT_EXPR} < 8 THEN 'j 6..8' "
+    f"WHEN {_MACD_SIGNAL_PCT_EXPR} < 10 THEN 'k 8..10' "
+    f"ELSE 'l >=10' END"
+)
+
+
+def macd_signal_pct_buckets(
+    conn: sqlite3.Connection, classes: list[str] | None = None
+) -> list[dict]:
+    """Win-rate + EV by price-normalized MACD-signal-line-at-fire bucket.
+
+    Same shape as `macd_signal_buckets` so the frontend can pivot both identically;
+    only the normalizer differs. Needs no join — `fire_close` sits on `signals` —
+    so unlike the ATR view it never drops a row for a missing snapshot.
+
+    Expect empty cells in bullish's positive tail: bullish fires on a flattening
+    downtrend, so a strongly positive (mature-uptrend) signal line essentially
+    cannot co-occur with it. That asymmetry is real and left visible.
+    """
+    cte, params = _base(classes)
+    out: list[dict] = []
+    for h in ("1d", "3d", "7d", "14d"):
+        ret = f"ret_{h}"
+        sql = cte + (
+            f"SELECT direction, {_MACD_SIGNAL_PCT_BUCKET_SQL} AS bucket, COUNT(*) AS n, "
+            f"ROUND(AVG({ret} > 0) * 100, 1) AS win_pct, "
+            f"ROUND(AVG({ret}) * 100, 2) AS avg_ret_pct "
+            f"FROM perf WHERE fire_close IS NOT NULL AND fire_close > 0 "
+            f"AND {ret} IS NOT NULL "
+            f"GROUP BY direction, bucket"
+        )
+        for row in _rows(conn, sql, tuple(params)):
+            out.append({"horizon": h, **row})
+    out.sort(key=lambda d: (d["direction"], d["bucket"], d["horizon"]))
+    return out
+
 # ---------- counterfactual reduction buckets (below the 0.3 fire threshold) ------
 
 

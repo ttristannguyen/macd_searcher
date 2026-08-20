@@ -158,6 +158,24 @@ def test_finalize_flag_tracks_horizon():
     assert old.finalize is True
 
 
+def test_finalize_waits_for_the_horizon_bar_to_close():
+    """Regression: a 00:00-UTC signal used to finalize on the outcomes run 14 days
+    and 90 minutes later — while the day+14 bar was still forming, and therefore
+    dropped before scoring — freezing px_14d at NULL forever. Finalization has to
+    wait the extra day so that bar has closed."""
+    df = _df(40, close=100.0)
+    fired = START + timedelta(days=1)
+
+    # The old cron timing that lost px_14d: 14 days + the 01:30 cron offset.
+    too_early = fired + timedelta(days=14, minutes=90)
+    assert score_signal(df, _flat_macd(40), fired, 100.0,
+                        "bullish", 14, too_early).finalize is False
+
+    # A day later the horizon bar has closed and the row can be frozen.
+    assert score_signal(df, _flat_macd(40), fired, 100.0,
+                        "bullish", 14, fired + timedelta(days=15, minutes=90)).finalize is True
+
+
 def test_unscorable_when_fire_bar_missing():
     # All bars are AFTER the fire date → no bar at-or-before it.
     df = _df(10, close=100.0)  # starts at START

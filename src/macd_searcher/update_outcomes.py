@@ -14,8 +14,10 @@ counterfactual *loosening*) is a separate, larger job.
 Conventions:
   - Everything anchors on the daily bar containing the signal's `fired_at` (UTC).
   - Closed bars only: the still-forming current day is dropped before scoring.
-  - A signal is finalized (`outcome_updated_at` set) once `horizon_days` have
+  - A signal is finalized (`outcome_updated_at` set) once `horizon_days` + 1 have
     elapsed since it fired; until then it's re-scored each run as bars complete.
+    The extra day is what guarantees the final horizon bar has closed — see the
+    comment in `score_signal`.
   - `bars_to_zero_cross` NULL after finalization == the predicted cross never
     happened within the horizon.
 """
@@ -81,7 +83,13 @@ def score_signal(
     `df` must be closed bars only (forming bar already dropped) and `macd_line`
     must share its positional index.
     """
-    out = Outcome(finalize=(now_dt - fired_at) >= timedelta(days=horizon_days))
+    # One extra day of slack before finalizing. A signal fired at 00:00 UTC crosses
+    # the bare `horizon_days` threshold at 00:00 on day+N — but the outcomes cron
+    # runs at 01:30 that same morning, when the day+N bar is still forming, and
+    # `_score_symbol` drops the forming bar before scoring. Finalizing at that
+    # moment froze px_{horizon} at NULL permanently, since finalized rows are never
+    # revisited. Waiting one more day guarantees the horizon bar has closed.
+    out = Outcome(finalize=(now_dt - fired_at) >= timedelta(days=horizon_days + 1))
 
     fire_idx = _bar_index_at_or_before(df, fired_at)
     if fire_idx is None or not fire_close or fire_close <= 0:

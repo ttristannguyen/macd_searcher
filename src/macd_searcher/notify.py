@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from .config import AppConfig
-from .signals import Signal, is_high_confidence
+from .signals import Signal, is_high_confidence, signal_line_pct_of_price
 
 
 log = logging.getLogger(__name__)
@@ -65,16 +65,19 @@ def in_quiet_hours(cfg: AppConfig, now_utc: datetime | None = None) -> bool:
 def _fmt_stage1_row(s: Signal) -> str:
     """One signal line. Deliberately sparse — the raw hist value, the peak it fell
     from, and the price were all dropped as noise you can look up in the dashboard.
-    What's left is the two things that drive the read: how far it has flattened,
-    and RSI as context.
+    What's left is what drives the read: how far it has flattened, where the trend
+    sits relative to price (`sig`, the MACD signal line as a % of price — negative
+    means the trend is below equilibrium), and RSI as context.
 
     High-confidence rows (see `is_high_confidence`) are bolded, which is why the
     sender uses HTML parse_mode.
     """
     assert s.reduction_from_peak is not None
     pct = s.reduction_from_peak * 100
+    sig_pct = signal_line_pct_of_price(s)
+    sig = f"  sig {sig_pct:+.1f}%" if sig_pct is not None else ""
     rsi = f"  RSI {s.rsi_14:.0f}" if s.rsi_14 is not None else ""
-    row = f"{escape(s.name):<10} ↓{pct:.0f}%{rsi}"
+    row = f"{escape(s.name):<10} ↓{pct:.0f}%{sig}{rsi}"
     return f"  <b>{row}</b>" if is_high_confidence(s) else f"  {row}"
 
 

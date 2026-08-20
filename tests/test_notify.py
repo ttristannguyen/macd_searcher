@@ -20,7 +20,7 @@ from macd_searcher.notify import (
     in_quiet_hours,
     send_signals,
 )
-from macd_searcher.signals import Signal
+from macd_searcher.signals import Signal, signal_line_pct_of_price
 
 
 # ---------- quiet hours ----------
@@ -205,6 +205,57 @@ def test_format_message_escapes_symbol_names():
     text = format_message([s], scanned_count=1, cfg=AppConfig())
     assert "A&lt;B&amp;C" in text
     assert "A<B&C" not in text
+
+
+def test_signal_line_pct_of_price_derivation():
+    """signal = macd - hist, as a % of close. Guards the identity the row prints."""
+    s = _mk_signal("BTC", "histogram_flattening", "bullish",
+                   close=100.0, macd=-7.2, hist=-0.2, hist_peak=-2.0,
+                   reduction_from_peak=0.4)
+    assert signal_line_pct_of_price(s) == pytest.approx(-7.0)
+    # Same raw signal at half the price reads twice as far from equilibrium.
+    s2 = _mk_signal("BTC", "histogram_flattening", "bullish",
+                    close=50.0, macd=-7.2, hist=-0.2, hist_peak=-2.0,
+                    reduction_from_peak=0.4)
+    assert signal_line_pct_of_price(s2) == pytest.approx(-14.0)
+
+
+def test_signal_line_pct_of_price_none_on_bad_close():
+    s = _mk_signal("BTC", "histogram_flattening", "bullish",
+                   close=0.0, macd=-7.2, hist=-0.2, reduction_from_peak=0.4)
+    assert signal_line_pct_of_price(s) is None
+
+
+def test_format_message_includes_signal_line_pct():
+    """The row carries `sig` — where the trend sits relative to price."""
+    signals = [
+        _mk_signal("ETH", "histogram_flattening", "bullish",
+                   close=100.0, macd=-7.2, hist=-0.2, hist_peak=-2.0,
+                   reduction_from_peak=0.4, rsi_14=38.0),
+    ]
+    text = format_message(signals, scanned_count=1, cfg=AppConfig())
+    row = next(ln for ln in text.split("\n") if "ETH" in ln)
+    assert "sig -7.0%" in row
+    assert "↓40%" in row and "RSI 38" in row
+
+
+def test_format_message_signal_line_pct_signed_both_ways():
+    """A bearish fire above equilibrium reads positive, so the sign carries the regime."""
+    s = _mk_signal("SOL", "histogram_flattening", "bearish",
+                   close=100.0, macd=3.2, hist=0.2, hist_peak=1.0,
+                   reduction_from_peak=0.5)
+    row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "SOL" in ln)
+    assert "sig +3.0%" in row
+
+
+def test_format_message_omits_signal_line_pct_when_undefined():
+    """A non-positive close can't be normalized; the field is dropped, not shown as nan."""
+    s = _mk_signal("BAD", "histogram_flattening", "bullish",
+                   close=0.0, macd=-1.0, hist=-0.2, hist_peak=-2.0,
+                   reduction_from_peak=0.4)
+    row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "BAD" in ln)
+    assert "sig" not in row
+    assert "↓40%" in row
 
 
 # ---------- chunking ----------

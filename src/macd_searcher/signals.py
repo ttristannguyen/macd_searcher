@@ -48,6 +48,23 @@ class Signal:
     hist_top_n: int = 0
 
 
+def signal_line_pct_of_price(s: Signal) -> float | None:
+    """MACD signal line at fire as a percent of price.
+
+    `hist = macd - signal` by construction, so the signal line is recovered from the
+    two values already on the Signal — same derivation the dashboard uses in SQL
+    (`perf._MACD_SIGNAL_PCT_EXPR`). Reads as how far the trend sits from equilibrium
+    in the token's own price terms; None when close is non-positive.
+
+    Note this is the *price*-normalized view, which is partly an asset-class proxy
+    (MACD scales with volatility too). The dashboard shows it beside an
+    ATR-normalized version for that reason — see docs/macd_signal_pct_analysis.md.
+    """
+    if s.close <= 0:
+        return None
+    return (s.macd - s.hist) / s.close * 100
+
+
 # ---------- confidence marker ----------
 #
 # Thresholds measured on 3,050 scored signals (2026-06-06 → 08-06, prod_snapshot,

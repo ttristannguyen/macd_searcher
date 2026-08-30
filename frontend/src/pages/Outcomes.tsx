@@ -28,6 +28,10 @@ const VIEWS: { value: ViewMode; label: string }[] = [
   { value: 'charts', label: 'Charts' },
 ]
 
+// Classes the tab opens on. Any class absent from the data is simply never
+// rendered as a toggle, so listing one that doesn't exist yet is harmless.
+const DEFAULT_CLASSES = ['crypto', 'equity']
+
 export function Outcomes() {
   const [horizon, setHorizon] = useState<Horizon>('7d')
   const [view, setView] = useState<ViewMode>('tables')
@@ -42,7 +46,11 @@ export function Outcomes() {
         .sort(),
     [classRows],
   )
-  const [selected, setSelected] = useState<Set<string>>(new Set()) // empty = all
+  // Default to the two classes that carry the sample. Commodity / index / fx have
+  // roughly 210 / 40 / 12 deduped signals against crypto's ~2,700 and equity's
+  // ~1,300, so their cells are noise that drags the all-class aggregates around.
+  // The toggles still expose them, and "all" resets to the unfiltered view.
+  const [selected, setSelected] = useState<Set<string>>(new Set(DEFAULT_CLASSES))
   const isAll = selected.size === 0 || (present.length > 0 && present.every((c) => selected.has(c)))
   const classesParam = isAll ? '' : [...selected].sort().join(',')
 

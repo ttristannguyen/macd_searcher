@@ -1,4 +1,4 @@
-# Regime-consistency analysis — what actually survives?
+                                                                  # Regime-consistency analysis — what actually survives?
 
 Findings doc. Measured against `state/prod_snapshot.sqlite3` (2026-08-19 pull:
 441 runs, 58,129 snapshots, 18,181 signals), **after** repairing the `px_14d`

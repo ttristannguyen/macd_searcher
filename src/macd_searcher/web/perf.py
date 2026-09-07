@@ -274,6 +274,68 @@ def lead_time(conn: sqlite3.Connection, classes: list[str] | None = None) -> lis
 # ---------- per-symbol scorecard with confidence bounds (section I + CIs) ----------
 
 
+def signals_for_symbol(
+    conn: sqlite3.Connection,
+    symbol: str,
+    horizon: Horizon = "7d",
+) -> dict:
+    """Every measured signal for one symbol as records, not an aggregate.
+
+    Reuses `_base()`, so these rows are provably the same cohort
+    `by_symbol_scorecard` counts: post-`DETECTOR_FIX_CUTOFF`, deduped to the
+    earliest fire per (symbol, direction, UTC-day). `measured` is the subset
+    scored at `horizon` and is what must equal that symbol's Scorecard `n`.
+
+    Rows whose horizon bar hasn't matured are still returned, flagged not
+    `finalized`, so a recent signal reads as unanswered rather than as a flat
+    result. `same_day_excluded` reports what the dedup dropped, so a date you
+    remember going missing is explained rather than mysterious.
+
+    No `classes` parameter: the Scorecard sits outside the Outcomes tab's class
+    scope so nothing would pass one, and leaving it out keeps `same_day_excluded`
+    exact — a class filter drops rows that the raw count still counts.
+    """
+    cte, params = _base()
+    sql = cte + (
+        "SELECT fired_at, direction, asset_class, fire_close, fire_macd, "
+        "fire_reduction_from_peak, fire_hist_peak_ratio, fire_hist_peak_pct, "
+        "fire_hist_top_n, fire_rsi_14, ret_1d, ret_3d, ret_7d, ret_14d, "
+        "max_favorable_move_pct AS mfe, max_adverse_move_pct AS mae, "
+        "bars_to_zero_cross, "
+        f"{_MACD_SIGNAL_PCT_EXPR} AS sig_pct_of_price, "
+        f"({_CONFIDENCE_SQL}) = 'confident' AS confident, "
+        "outcome_updated_at IS NOT NULL AS finalized "
+        "FROM perf WHERE symbol = ? ORDER BY fired_at DESC"
+    )
+    rows = _rows(conn, sql, (*params, symbol))
+
+    asset_class = None
+    for r in rows:
+        cls = r.pop("asset_class", None)
+        if asset_class is None:
+            asset_class = cls
+        # SQLite returns 0/1 for boolean expressions; the model wants real bools.
+        r["confident"] = bool(r["confident"])
+        r["finalized"] = bool(r["finalized"])
+
+    raw = conn.execute(
+        "SELECT COUNT(*) FROM signals "
+        "WHERE symbol = ? AND fired_at >= ? AND stage = 'histogram_flattening'",
+        (symbol, DETECTOR_FIX_CUTOFF),
+    ).fetchone()[0]
+
+    measured = sum(1 for r in rows if r[f"ret_{horizon}"] is not None)
+    return {
+        "symbol": symbol,
+        "asset_class": asset_class,
+        "horizon": horizon,
+        "rows": rows,
+        "measured": measured,
+        "pending": len(rows) - measured,
+        "same_day_excluded": raw - len(rows),
+    }
+
+
 def by_symbol_scorecard(
     conn: sqlite3.Connection,
     horizon: Horizon = "7d",

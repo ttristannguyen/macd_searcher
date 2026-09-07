@@ -14,7 +14,15 @@ function sqnTone(s: number | null): string {
 
 // ---------- the ranked table ----------
 
-export function ScorecardTable({ horizon, minN = 3 }: { horizon: Horizon; minN?: number }) {
+export function ScorecardTable({
+  horizon,
+  minN = 3,
+  onSelect,
+}: {
+  horizon: Horizon
+  minN?: number
+  onSelect?: (symbol: string) => void
+}) {
   const { data, isLoading, isError } = usePerfScorecard(horizon, minN)
   const rows = data ?? []
 
@@ -39,8 +47,22 @@ export function ScorecardTable({ horizon, minN = 3 }: { horizon: Horizon; minN?:
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.symbol} className="border-b border-slate-800/50 last:border-0">
-                  <td className="py-1.5 pr-2 text-slate-300">{r.symbol}</td>
+                <tr
+                  key={r.symbol}
+                  onClick={onSelect ? () => onSelect(r.symbol) : undefined}
+                  className={`border-b border-slate-800/50 last:border-0 ${
+                    onSelect ? 'cursor-pointer hover:bg-slate-800/40' : ''
+                  }`}
+                >
+                  <td className="py-1.5 pr-2 text-slate-300">
+                    {onSelect ? (
+                      <button type="button" className="underline-offset-2 hover:underline">
+                        {r.symbol}
+                      </button>
+                    ) : (
+                      r.symbol
+                    )}
+                  </td>
                   <td className="py-1.5 pr-2">
                     {r.asset_class ? (
                       <Badge color={ASSET_CLASS_COLOR[r.asset_class] ?? 'slate'}>{r.asset_class}</Badge>

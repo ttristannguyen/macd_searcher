@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import perf, queries
 from .db import connect
 from .models import (
+    AssetSignals,
     ClassCountRow,
     DayCount,
     Health,
@@ -330,6 +331,23 @@ def perf_macd_signal_buckets(
         PerfMacdSignalBucket(**r)
         for r in perf.macd_signal_buckets(conn, perf.parse_classes(classes))
     ]
+
+
+# ---------- per-asset drill-down ----------
+#
+# `symbol` is a path param and HIP-3 symbols contain a colon (`xyz:TSLA`), which is
+# legal in a path segment — the frontend must still encodeURIComponent it. Unknown
+# symbols return empty rows rather than 404: the Scorecard only links symbols that
+# exist, so a miss means a stale page, and an empty table reads better than an error.
+
+
+@app.get("/api/assets/{symbol}/signals", response_model=AssetSignals)
+def asset_signals(
+    symbol: str,
+    horizon: Horizon = "7d",
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> AssetSignals:
+    return AssetSignals(**perf.signals_for_symbol(conn, symbol, horizon))
 
 
 # Serve the built React app at / when it exists (production / one-port mode).

@@ -868,3 +868,99 @@ def test_macd_signal_buckets_respects_class_filter(macd_signal_client):
 
     rows = macd_signal_client.get("/api/perf/macd-signal-buckets?classes=crypto").json()
     assert sum(r["n"] for r in rows if r["horizon"] == "7d") == 6
+
+
+# ---------- per-asset signal dataset (Scorecard drill-down) ----------
+#
+# The seed already contains everything this view has to get right: BTC fires twice
+# on DAY_A (the dedup case), SOL is unscored (the pending case), xyz:TSLA carries a
+# colon (the HIP-3 path-param case), and OLD is pre-fix (the exclusion case).
+
+
+def test_asset_signals_measured_matches_scorecard_n(client):
+    """The anti-confusion guarantee: the drill-down must count exactly what the
+    Scorecard row above it claims, or the view creates doubt instead of removing it."""
+    scorecard = {r["symbol"]: r["n"] for r in
+                 client.get("/api/perf/scorecard?min_n=1&horizon=7d").json()}
+    for symbol, n in scorecard.items():
+        body = client.get(f"/api/assets/{symbol}/signals?horizon=7d").json()
+        assert body["measured"] == n, f"{symbol}: {body['measured']} != scorecard {n}"
+
+
+def test_asset_signals_dedups_and_reports_the_same_day_repeat(client):
+    """BTC fired at 08:00 (win) and 12:00 (loss) on one day. Only the earlier
+    survives, and the dropped one is reported rather than silently vanishing."""
+    body = client.get("/api/assets/BTC/signals").json()
+    assert len(body["rows"]) == 1
+    assert body["same_day_excluded"] == 1
+    row = body["rows"][0]
+    assert row["fired_at"].startswith(f"{DAY_A}T08:00")   # the earlier fire
+    assert row["ret_7d"] == pytest.approx(0.10)           # 110/100 - 1, the winner
+
+
+def test_asset_signals_returns_pending_rows_flagged(client):
+    """SOL has no outcome yet. It must still appear — an unscored signal that were
+    omitted would look like it never fired, and one shown as 0.0 would read as a
+    flat result rather than an unanswered question."""
+    body = client.get("/api/assets/SOL/signals").json()
+    assert len(body["rows"]) == 1
+    assert body["measured"] == 0 and body["pending"] == 1
+    row = body["rows"][0]
+    assert row["finalized"] is False
+    assert row["ret_7d"] is None
+
+
+def test_asset_signals_carries_all_four_horizons(client):
+    """The horizon profile is the point of the row; a single-horizon view hides it.
+    The seed sets px_1d..px_14d identically, so all four returns match."""
+    row = client.get("/api/assets/BTC/signals").json()["rows"][0]
+    for h in ("ret_1d", "ret_3d", "ret_7d", "ret_14d"):
+        assert row[h] == pytest.approx(0.10), h
+
+
+def test_asset_signals_handles_colon_symbols(client):
+    """HIP-3 symbols contain a colon. It is legal in a path segment, and the route
+    must accept it both raw and percent-encoded."""
+    for path in ("/api/assets/xyz:TSLA/signals", "/api/assets/xyz%3ATSLA/signals"):
+        body = client.get(path).json()
+        assert body["symbol"] == "xyz:TSLA"
+        assert len(body["rows"]) == 1
+        assert body["rows"][0]["direction"] == "bearish"
+        assert body["rows"][0]["ret_7d"] == pytest.approx(0.05)  # 1 - 380/400
+
+
+def test_asset_signals_excludes_pre_fix(client):
+    """OLD fired before DETECTOR_FIX_CUTOFF. _base() drops it, so the drill-down
+    shows nothing — and the excluded count must not go negative from the raw
+    count picking it up."""
+    body = client.get("/api/assets/OLD/signals").json()
+    assert body["rows"] == []
+    assert body["measured"] == 0
+    assert body["same_day_excluded"] == 0
+
+
+def test_asset_signals_unknown_symbol_is_empty_not_an_error(client):
+    """The Scorecard only links symbols that exist, so a miss means a stale page.
+    An empty table reads better there than a 404."""
+    r = client.get("/api/assets/NOT_A_SYMBOL/signals")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["rows"] == [] and body["measured"] == 0 and body["pending"] == 0
+
+
+def test_asset_signals_confident_flag_agrees_with_the_python_rule(macd_signal_client):
+    """`confident` is computed by _CONFIDENCE_SQL; is_high_confidence is the Python
+    original. They must agree row-for-row or the Telegram bolding and this table
+    disagree about the same signal."""
+    rows = macd_signal_client.get("/api/perf/scorecard?min_n=1").json()
+    for sc in rows:
+        body = macd_signal_client.get(f"/api/assets/{sc['symbol']}/signals").json()
+        for row in body["rows"]:
+            expected = is_high_confidence(Signal(
+                sc["symbol"], "histogram_flattening", row["direction"],
+                close=row["fire_close"], macd=row["fire_macd"], hist=0.0,
+                reduction_from_peak=row["fire_reduction_from_peak"],
+                hist_peak_pct=row["fire_hist_peak_pct"],
+                hist_top_n=row["fire_hist_top_n"] or 0,
+            ))
+            assert row["confident"] is expected, f"{sc['symbol']} {row['fired_at']}"

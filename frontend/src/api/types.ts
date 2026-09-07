@@ -281,3 +281,40 @@ export interface PerfReductionCounterfactual {
   ev_pct: number
   drawdown_proxy_pct: number
 }
+
+// ---------- per-asset signal dataset (Scorecard drill-down) ----------
+
+// One measured signal for a symbol: fire-time state and outcome side by side.
+// All four horizons ride along because the horizon *profile* is the point — the
+// same signals change sign between 7d and 14d (regime_consistency_analysis.md §1).
+export interface AssetSignalRow {
+  fired_at: string
+  direction: string
+  confident: boolean
+  finalized: boolean
+  fire_close: number | null
+  fire_macd: number | null
+  fire_reduction_from_peak: number | null
+  fire_hist_peak_ratio: number | null
+  fire_hist_peak_pct: number | null
+  fire_hist_top_n: number | null
+  fire_rsi_14: number | null
+  sig_pct_of_price: number | null
+  ret_1d: number | null
+  ret_3d: number | null
+  ret_7d: number | null
+  ret_14d: number | null
+  mfe: number | null
+  mae: number | null
+  bars_to_zero_cross: number | null
+}
+
+export interface AssetSignals {
+  symbol: string
+  asset_class: string | null
+  horizon: string
+  rows: AssetSignalRow[]
+  measured: number // equals this symbol's Scorecard n at the same horizon
+  pending: number // horizon bar hasn't matured yet
+  same_day_excluded: number // dropped by the one-per-symbol-day dedup
+}

@@ -111,3 +111,24 @@ runs (1) ──< signals           (only assets that fired, every run)
 - `runs` answers *"did the scan run, with what config, did it succeed?"*
 - `asset_snapshots` answers *"what was the market state — and what would have fired under different thresholds?"*
 - `signals` answers *"what did the model predict, and (via the outcome columns) was it right?"*
+
+---
+
+## Things the dashboard shows that are *not* stored
+
+Three tables is the whole schema. Some dashboard columns look like fields but are
+derived at query time — don't go hunting for them here:
+
+| shown as | actually | where |
+|---|---|---|
+| Scorecard → per-asset signal table | a query over `signals`, not a new table | `perf.signals_for_symbol` |
+| `ret_1d` / `ret_3d` / `ret_7d` / `ret_14d` | `px_Nd / fire_close − 1`, direction-normalized | `perf._base()` |
+| MACD signal line at fire | `fire_macd − fire_hist` (since `hist = macd − signal`) | `perf._MACD_SIGNAL_PCT_EXPR` |
+| `confident` flag | the `is_high_confidence` predicate as SQL | `perf._CONFIDENCE_SQL` |
+| "same-day repeats excluded" | raw post-fix count minus the deduped count | `perf.signals_for_symbol` |
+
+**No OHLC is stored anywhere.** `asset_snapshots.close` / `live_close` is a
+close-only series sampled per run (~4-hourly, starting when logging began) — it
+cannot reconstruct a candle, and it doesn't reach back far enough for the 200-bar
+MACD warmup. That is why the per-asset view is a dataset rather than a chart; see
+[scorecard_asset_detail.md](scorecard_asset_detail.md).

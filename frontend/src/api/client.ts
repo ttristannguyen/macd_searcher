@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type {
+  AssetSignals,
   ClassCountRow,
   DayCount,
   Health,
@@ -287,3 +288,20 @@ export const usePerfMacdSignalBuckets = () => {
     refetchInterval: PERF_REFRESH,
   })
 }
+
+// ---------- per-asset drill-down ----------
+//
+// Lives on the Scorecard tab, which sits outside ClassesContext, so no class
+// threading. `enabled` keeps it idle until a row is actually picked, and the
+// symbol is encoded because HIP-3 symbols carry a colon (`xyz:TSLA`).
+
+export const useAssetSignals = (symbol: string | null, horizon: Horizon = '7d') =>
+  useQuery({
+    queryKey: ['asset-signals', symbol, horizon],
+    queryFn: () =>
+      fetchJson<AssetSignals>(
+        `/api/assets/${encodeURIComponent(symbol as string)}/signals?horizon=${horizon}`,
+      ),
+    enabled: !!symbol,
+    refetchInterval: PERF_REFRESH,
+  })

@@ -264,6 +264,52 @@ class PerfReductionCounterfactual(BaseModel):
     drawdown_proxy_pct: float
 
 
+# ---------- per-asset signal dataset (Scorecard drill-down) ----------
+
+
+class AssetSignalRow(BaseModel):
+    """One measured signal, fire-time state and outcome side by side.
+
+    All four horizons are carried per row: the horizon *profile* is the point —
+    the same signals change sign between 7d and 14d (see
+    docs/regime_consistency_analysis.md §1), which a single-horizon view hides.
+    """
+
+    fired_at: str
+    direction: str
+    confident: bool
+    finalized: bool
+    # fire-time state
+    fire_close: Optional[float] = None
+    fire_macd: Optional[float] = None
+    fire_reduction_from_peak: Optional[float] = None
+    fire_hist_peak_ratio: Optional[float] = None
+    fire_hist_peak_pct: Optional[float] = None
+    fire_hist_top_n: Optional[int] = None
+    fire_rsi_14: Optional[float] = None
+    sig_pct_of_price: Optional[float] = None
+    # outcome
+    ret_1d: Optional[float] = None
+    ret_3d: Optional[float] = None
+    ret_7d: Optional[float] = None
+    ret_14d: Optional[float] = None
+    mfe: Optional[float] = None
+    mae: Optional[float] = None
+    bars_to_zero_cross: Optional[int] = None
+
+
+class AssetSignals(BaseModel):
+    symbol: str
+    asset_class: Optional[str] = None
+    horizon: str
+    rows: list[AssetSignalRow]
+    # `measured` must equal this symbol's Scorecard `n` at the same horizon —
+    # that equality is the whole point of reusing _base(), and a test pins it.
+    measured: int
+    pending: int          # horizon bar hasn't matured yet
+    same_day_excluded: int  # dropped by the one-per-symbol-day dedup
+
+
 class PerfDistribution(BaseModel):
     stage: str
     direction: str

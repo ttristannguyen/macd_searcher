@@ -247,7 +247,11 @@ class PerfPeakBucket(BaseModel):
 class PerfMacdSignalBucket(BaseModel):
     horizon: str
     direction: str
-    # ATR-normalized MACD signal line at fire, signed (e.g. 'e 0.5..1').
+    # ATR-normalized MACD signal line at fire, signed. An 'a '..'h ' sort prefix
+    # plus the range this bucket actually spans, e.g. 'd -0.54..-0.37'. Unlike the
+    # other bucket models the label is DATA-DEPENDENT: these are equal-n octiles,
+    # so the edges are recut whenever the class filter changes. The frontend reads
+    # the bucket list off these rows rather than holding a constant.
     bucket: str
     n: int
     win_pct: Optional[float] = None

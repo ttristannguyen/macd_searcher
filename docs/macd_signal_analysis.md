@@ -104,9 +104,11 @@ signal, `+1.2` = mature uptrend rolling over vs `−0.4` = downtrend continuatio
 existing **Bullish | Bearish** toggle keeps each half readable, exactly as the RSI
 section does.
 
-Edges `−1 / −0.5 / 0 / +0.5 / +1` → six buckets, mirroring the RSI six. Chosen from
-the observed spread over fired signals (p5 −0.90, p50 +0.13, p95 +1.17, min −1.51,
-max +1.60), so the tails are real but thin. Local occupancy over 101 pre-fix signals:
+~~Edges `−1 / −0.5 / 0 / +0.5 / +1` → six buckets, mirroring the RSI six.~~
+**Superseded — see "Fixed edges → equal-n octiles" below.** The original edges were
+chosen from the observed spread over fired signals (p5 −0.90, p50 +0.13, p95 +1.17,
+min −1.51, max +1.60), so the tails were real but thin. Local occupancy over 101
+pre-fix signals:
 
 ```
              <-1  -1..-0.5  -0.5..0  0..0.5  0.5..1  >=1
@@ -115,7 +117,95 @@ bearish       4       5         7      13      32      7
 ```
 
 Bullish fires cluster negative (median −0.44), bearish positive (+0.58) — the regime
-story showing up before we've measured a single outcome.
+story showing up before we've measured a single outcome. The signed/split-by-direction
+decision above still stands; only the edge scheme changed.
+
+### Fixed edges → equal-n octiles
+
+*Added 2026-09-08, once 5,093 signals had a scored 7d outcome (up from 101 unscored).*
+
+The caveat below predicted it: "outer buckets are thin per direction today and may
+need merging." At scale the problem turned out to be the whole shape of the scheme,
+not just the outer two cells. `signal ÷ ATR` is a ratio of two quantities that scale
+together, so it is naturally bounded and heavily concentrated: **only 6 of 5,093
+signals sit beyond ±2, and none beyond ±3.** Extending the range outward buys
+nothing — there is nothing out there.
+
+Going the other way, to a finer *fixed* grid, is worse rather than better. Measured
+at 0.25-wide edges on bullish (n=2,162):
+
+```
+  (-0.5, -0.25]  n=424  CI +/- 4.7pp     <- the middle finally splits...
+  ( 0.5,  0.75]  n= 37  CI +/-15.3pp     <- ...but the tails fall apart
+  ( 1.0,  1.25]  n=  5  CI +/-32.6pp     <- not a measurement
+```
+
+Seven of seventeen cells came back too small to read anything from, while the dense
+core — 52% of bullish signals live between −0.5 and +0.5 — still got only four cells.
+
+`NTILE` runs the same trade the other way round: fix the **count**, let the **width**
+float. It lands at 0.16–0.28 wide through the crowded core — *finer than the 0.25
+fixed grid, exactly where the data supports it* — and widens only in the tails:
+
+```
+  d1  -2.46..-1.00  width 1.46  n=284     <- wide on purpose; nothing else available
+  d4  -0.54..-0.37  width 0.17  n=273     <- finer than a 0.25 grid
+  d5  -0.37..-0.21  width 0.16  n=266
+  d8  +0.26..+1.57  width 1.31  n=178
+```
+
+**Eight, not ten.** Eight holds ~±6pp per cell on the full set and ~±7.5pp under the
+narrowest filter that actually gets used (crypto-only bullish, n≈1,230); ten degrades
+to ±8.4pp there, wider than most of the effects we are hunting. Eight is also about
+the most lines the win-rate curve can carry legibly.
+
+Same reasoning already settled `_PEAK_PCT_BUCKET_SQL`, which buckets the *percentile*
+rather than the raw ratio because the raw ratio's long tail dragged fixed edges around
+([hist_peak_context.md](hist_peak_context.md)).
+
+**Two consequences to keep in mind when reading the charts:**
+
+1. **The labels are data-dependent.** Each bucket reports the range it actually spans,
+   and those edges are recut from whichever classes are selected — an octile of crypto
+   is not an octile of everything. Two screenshots taken under different class filters
+   are *not* the same axis and must not be compared cell-for-cell.
+2. **Edges are cut once per direction over the whole ATR-eligible population**, not
+   per horizon. Ranking inside each horizon would give every column its own cut points
+   and a heatmap row would quietly mean a different range in each of its four cells.
+   The price is that per-horizon counts come out near-equal rather than exactly equal,
+   since 14d has fewer scored rows. A test (`..._edges_are_cut_once_not_per_horizon`)
+   pins this.
+
+### What the finer buckets actually showed
+
+The gradient the six fixed bands were too coarse to resolve, at 7d, crypto + equity:
+
+```
+bullish                        n     win      EV        crypto only    win
+  a -2.46..-1.00              284   62.7%   +2.85%                   69.8%
+  b -1.00..-0.74              278   57.9%   +3.91%                   62.8%
+  c -0.74..-0.54              269   53.9%   +2.43%                   56.8%
+  d -0.54..-0.37              273   47.3%   +0.46%                   56.4%
+  e -0.37..-0.21              266   39.1%   -0.35%                   33.9%
+  f -0.21..-0.02              249   40.2%   +0.10%                   53.5%
+  g -0.02..+0.26              215   35.8%   -0.51%                   34.9%
+  h +0.26..+1.57              178   51.7%   +1.21%                   44.9%
+```
+
+A near-monotone 27pp slide from the deepest bucket to the shallowest, which is the
+**deep-negative-signal-line bullish effect** seen three other ways in
+[regime_consistency_analysis.md](regime_consistency_analysis.md), now localized on
+this axis. It corroborates: Spearman IC on the raw (unbucketed) values is
+**ρ = −0.132, p < 0.0001, day-block bootstrap CI [−0.202, −0.059]** — negative,
+excluding zero. (Day-block because forward windows overlap; resampling whole UTC days
+keeps clustered observations together. 84 days, n=2,162, all classes.)
+
+**The bearish column is the trap.** It looks like the same clean story — 57.1% at
+`a −1.80..−0.66` sliding to 42.2% at `h +0.77..+2.01` — but its rank correlation is
+**ρ = −0.063 with a day-block CI of [−0.145, +0.027], which includes zero**, and every
+bearish octile has *negative* EV at 7d. Eight equal-n buckets will always trace some
+line; that a line looks monotone is not evidence. Read the bullish gradient as real
+and modest, and the bearish one as not yet distinguishable from noise.
 
 ### Analyze the signal line, **not** the MACD line
 
@@ -149,7 +239,8 @@ less noise. Both costs were checked rather than assumed:
 
 - *Lag* is the real cost, but it's small here. The gap between the two axes is
   `hist ÷ ATR`, whose median is **8–11% of a bucket width** (bullish −0.041, bearish
-  +0.056 against 0.5-wide buckets) — it does not materially displace values, it just
+  +0.056, measured against the original 0.5-wide buckets; roughly a quarter of the
+  narrowest octile now in use) — it does not materially displace values, it just
   reshuffles rows already sitting near a boundary.
 - *Noise* cuts the other way, and in our favour. Noise in the **bucketing** variable
   causes regression dilution: it smears rows across bucket boundaries and biases the
@@ -170,7 +261,8 @@ less noise. Both costs were checked rather than assumed:
 
 ### Phase 1 — Backend endpoint
 - [x] `web/perf.py`: `_MACD_SIGNAL_BUCKET_SQL` over
-      `(s.fire_macd - s.fire_hist) / a.atr`, edges as above, `a`-prefixed label sort
+      `(s.fire_macd - s.fire_hist) / a.atr`, `a`-prefixed label sort
+      *(edges since replaced by `NTILE(8)` octiles — see above)*
       keys (`'a <-1'` … `'f >=1'`) matching the `_RSI_BUCKET_SQL` convention.
 - [x] `macd_signal_buckets(conn, classes)` → rows `{horizon, direction, bucket, n,
       win_pct, avg_ret_pct}`; loop the four horizons like `rsi_buckets`.
@@ -210,13 +302,16 @@ less noise. Both costs were checked rather than assumed:
 ## Caveats to keep honest
 
 - **ATR comes from the closed-bar snapshot**, the signal line from the live fire bar.
-  ATR is a 14-period Wilder average — one bar of staleness is negligible against a
-  0.5-ATR bucket width. Worth a one-line comment at the SQL, not a redesign.
+  ATR is a 14-period Wilder average, so one bar moves it by at most ~1/14 — a few
+  hundredths on a mid-range signal, still small against even the narrowest octile
+  (0.16). Worth a one-line comment at the SQL, not a redesign.
 - **`atr` arrives via a LEFT JOIN on `asset_snapshots`**, so a signal whose snapshot
   row is missing drops out of this analysis. That's the same rows the class filter
   already drops; it is not silent — `n` per cell shows it.
-- Outer buckets (`<−1`, `≥+1`) are thin per direction today and may need merging if
-  they stay that way. Read them as noise until `n` says otherwise.
+- ~~Outer buckets (`<−1`, `≥+1`) are thin per direction and may need merging.~~
+  **Resolved** by the move to equal-n octiles — the tails are now absorbed into the
+  outer octiles rather than left as their own starved cells. See "Fixed edges →
+  equal-n octiles" above.
 - **The null distribution is wide — expect a modest gradient, if any.** Simulated over
   600 driftless random walks, `|signal ÷ ATR|` has a median of **0.66** and exceeds
   **1.0 about 30%** of the time (stable across realistic ATR calibrations). Our fired

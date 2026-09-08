@@ -599,18 +599,29 @@ export function PeakContextAnalysis() {
 // the detector's own firing variable — which ReductionHeatmap already covers.
 // See docs/macd_signal_analysis.md.
 
-const MACD_SIGNAL_BUCKETS = [
-  'a <-1', 'b -1..-0.5', 'c -0.5..0', 'd 0..0.5', 'e 0.5..1', 'f >=1',
-] as const
+// Unlike every other bucket family here, this list is NOT a constant. The server
+// buckets signal/ATR into equal-n octiles, so each label carries its own measured
+// range ('d -0.54..-0.37') and the edges move when the class filter changes — an
+// octile of crypto is not an octile of everything. Hardcoding a list here would go
+// stale the moment a filter is touched, so it is read off the rows instead. The
+// 'a '..'h ' sort prefix (which bucketLabel strips) is what keeps them in order.
+function macdSignalBuckets(rows: PerfMacdSignalBucket[]): string[] {
+  return [...new Set(rows.map((r) => r.bucket))].sort()
+}
 // Amber sequential ramp (low->high), kept distinct from the RSI section's violet so
-// the two ordered-bucket analyses don't read as one chart.
-const MACD_SIGNAL_RAMP = ['#fde68a', '#fcd34d', '#fbbf24', '#f59e0b', '#d97706', '#b45309']
+// the two ordered-bucket analyses don't read as one chart. Eight stops for eight
+// octiles; indexing is clamped since a thin cohort can yield fewer buckets.
+const MACD_SIGNAL_RAMP = [
+  '#fef3c7', '#fde68a', '#fcd34d', '#fbbf24', '#f59e0b', '#d97706', '#b45309', '#92400e',
+]
 
 function MacdSignalHeatmap({ rows, metric }: { rows: PerfMacdSignalBucket[]; metric: 'win' | 'ev' }) {
   const mid = metric === 'win' ? 50 : 0
   const span = metric === 'win' ? 25 : 10
   const title =
     metric === 'win' ? 'Win rate by signal line × horizon' : 'EV by signal line × horizon'
+
+  const buckets = macdSignalBuckets(rows)
 
   const cell = (bucket: string, horizon: string) => {
     const row = rows.find((r) => r.bucket === bucket && r.horizon === horizon)
@@ -631,9 +642,9 @@ function MacdSignalHeatmap({ rows, metric }: { rows: PerfMacdSignalBucket[]; met
             </tr>
           </thead>
           <tbody>
-            {MACD_SIGNAL_BUCKETS.map((bucket) => (
+            {buckets.map((bucket) => (
               <tr key={bucket}>
-                <td className="py-1 pr-2 text-slate-300">{bucketLabel(bucket)}</td>
+                <td className="py-1 pr-2 tabular-nums text-slate-300">{bucketLabel(bucket)}</td>
                 {HORIZONS.map((h) => {
                   const { value, n } = cell(bucket, h)
                   return (
@@ -661,19 +672,23 @@ function MacdSignalHeatmap({ rows, metric }: { rows: PerfMacdSignalBucket[]; met
         {metric === 'win'
           ? 'Colour: green ≥ 50% win-rate, red < 50%, slate at the 50% midpoint.'
           : 'Colour: green = positive EV, red = negative, slate at the 0% midpoint.'}{' '}
-        <span className="text-slate-400">n=</span> is the sample size per cell — small n is noisy; trust the big-n cells.
+        Rows are equal-n <strong>octiles</strong>, so each label is the range that bucket
+        actually spans — narrow through the crowded middle, wide out in the thin tails — and
+        every cell carries roughly the same sampling noise. Changing the class filter re-cuts
+        the octiles, so the edges move with it.
       </p>
     </Card>
   )
 }
 
 function MacdSignalWinCurve({ rows }: { rows: PerfMacdSignalBucket[] }) {
+  const buckets = macdSignalBuckets(rows)
   const byHB = new Map(rows.map((r) => [`${r.bucket}|${r.horizon}`, r]))
   const chartRows = HORIZONS.map((h) => {
     const row: Record<string, number | string | null> = { h }
     let wSum = 0
     let nSum = 0
-    for (const b of MACD_SIGNAL_BUCKETS) {
+    for (const b of buckets) {
       const r = byHB.get(`${b}|${h}`)
       row[b] = r?.win_pct ?? null
       if (r && r.win_pct != null) {
@@ -696,15 +711,15 @@ function MacdSignalWinCurve({ rows }: { rows: PerfMacdSignalBucket[] }) {
             <ReferenceLine y={50} stroke={AXIS} strokeDasharray="3 3" />
             <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => `${v}%`} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-            {MACD_SIGNAL_BUCKETS.map((b, i) => (
-              <Line key={b} name={bucketLabel(b)} type="monotone" dataKey={b} stroke={MACD_SIGNAL_RAMP[i]} strokeWidth={2} dot={{ r: 2 }} connectNulls />
+            {buckets.map((b, i) => (
+              <Line key={b} name={bucketLabel(b)} type="monotone" dataKey={b} stroke={MACD_SIGNAL_RAMP[Math.min(i, MACD_SIGNAL_RAMP.length - 1)]} strokeWidth={2} dot={{ r: 2 }} connectNulls />
             ))}
             <Line name="baseline (all buckets)" type="monotone" dataKey="baseline" stroke={AXIS} strokeWidth={1.5} strokeDasharray="4 3" dot={false} connectNulls />
           </LineChart>
         </ResponsiveContainer>
       </div>
       <p className="mt-2 text-xs text-slate-600">
-        Read the dashed baseline first. A driftless random walk still produces |signal÷ATR| above 1.0 about 30% of the time, so the question isn't whether the buckets differ from each other — it's whether any of them beats trading every signal.
+        Read the dashed baseline first. Octiles guarantee the buckets differ in <em>range</em>, so the question is never whether they differ from each other — it's whether any of them beats trading every signal, which is what the baseline draws.
       </p>
     </Card>
   )
@@ -712,7 +727,7 @@ function MacdSignalWinCurve({ rows }: { rows: PerfMacdSignalBucket[] }) {
 
 function MacdSignalTrendByBucket({ rows }: { rows: PerfMacdSignalBucket[] }) {
   const byHB = new Map(rows.map((r) => [`${r.bucket}|${r.horizon}`, r]))
-  const chartRows = MACD_SIGNAL_BUCKETS.map((b) => {
+  const chartRows = macdSignalBuckets(rows).map((b) => {
     const row: Record<string, number | string | null> = { bucket: bucketLabel(b) }
     for (const h of HORIZONS) {
       row[h] = byHB.get(`${b}|${h}`)?.win_pct ?? null
@@ -738,7 +753,7 @@ function MacdSignalTrendByBucket({ rows }: { rows: PerfMacdSignalBucket[] }) {
         </ResponsiveContainer>
       </div>
       <p className="mt-2 text-xs text-slate-600">
-        The direct read: a sloped line means where the trend sat at fire time correlates with the result. Flat means the signal line adds nothing over the reduction gate.
+        The direct read: a sloped line means where the trend sat at fire time correlates with the result. Flat means the signal line adds nothing over the reduction gate. The x-axis is octiles, so every step holds the same number of signals — a slope here is a real gradient rather than one thin tail bucket swinging.
       </p>
     </Card>
   )
@@ -963,7 +978,7 @@ export function MacdSignalAnalysis() {
       >
         <div className="space-y-4">
           <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            ATR-normalized <span className="normal-case text-slate-600">— comparable across asset classes</span>
+            ATR-normalized <span className="normal-case text-slate-600">— comparable across asset classes; equal-n octiles</span>
           </h3>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <MacdSignalHeatmap rows={atrRows} metric="win" />
@@ -999,7 +1014,11 @@ export function MacdSignalAnalysis() {
             <strong>Cross-check any finding in the lower group against the upper one
             before trusting it.</strong> Signed in both: for a bearish fire, positive = a
             mature uptrend rolling over, negative = a downtrend continuing. Both are
-            derived from existing columns, so they cover the full signal history.
+            derived from existing columns, so they cover the full signal history. The two
+            groups are bucketed differently on purpose: the ATR group uses{' '}
+            <strong>equal-n octiles</strong> whose edges are recut from whichever classes are
+            selected, while the price group keeps fixed 2% bands — so the ATR labels move when
+            you change the class filter and the price labels do not.
           </p>
         </div>
       </StateMsg>

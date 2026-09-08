@@ -780,9 +780,16 @@ def test_recent_signals_exposes_peak_context(peak_client):
 
 # ---- MACD signal-line bucket analysis ----
 #
-# The axis is (fire_macd - fire_hist) / atr. Every symbol below uses atr=2.0, so
-# a raw signal of -3.0 lands at -1.5 on the normalized axis. Values are chosen to
-# sit mid-bucket, away from the -1/-0.5/0/0.5/1 edges.
+# The axis is (fire_macd - fire_hist) / atr. Every symbol below uses atr=2.0, so a
+# raw signal of -3.0 lands at -1.5 on the normalized axis.
+#
+# Buckets are equal-n octiles, not fixed bands, so there are no edges to sit away
+# from — what matters is the ORDER of the values and the range each bucket reports.
+# With fewer rows than octiles SQLite's NTILE gives the first k groups one row each,
+# so these six signals produce one bucket per signal and every label reads
+# `x.xx..x.xx` with its own value on both sides. That makes the labels exact enough
+# to assert on, which is why the derivation test below can check a value rather than
+# just a bucket name.
 
 
 def _seed_macd_signal(path: str) -> None:
@@ -790,23 +797,31 @@ def _seed_macd_signal(path: str) -> None:
     db.init_schema(conn)
     db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
     db.insert_snapshots(conn, "r1", {}, [
-        *[_metrics(f"MS{i}", 0.001) for i in range(1, 7)],
-        _metrics("MS7", 0.001, atr=None),   # no ATR → not normalizable
+        *[_metrics(f"MS{i}", 0.001) for i in range(1, 9)],
+        _metrics("MS7", 0.001, atr=None),   # no ATR -> not normalizable
     ])
     at = f"{DAY_A}T08:00:00+00:00"
 
-    # Bullish (hist < 0), spanning the three negative buckets.
+    # Bullish (hist < 0), spanning the negative half of the axis.
     _fire(conn, "MS1", "bullish", at, 100.0, macd=-3.2, hist=-0.2, px_7d=110.0, finalized=True)  # -1.5  win +10%
     _fire(conn, "MS2", "bullish", at, 100.0, macd=-1.7, hist=-0.2, px_7d=95.0, finalized=True)   # -0.75 loss -5%
     _fire(conn, "MS3", "bullish", at, 100.0, macd=-0.7, hist=-0.2, px_7d=108.0, finalized=True)  # -0.25 win +8%
-    # Bearish (hist > 0), spanning the three positive buckets. MS4's hist is large
-    # enough that the MACD line alone (1.5/2 = 0.75) would bucket one step higher —
-    # it pins the derivation to signal, not macd.
+    # Bearish (hist > 0), spanning the positive half. MS4's hist is large enough that
+    # the MACD line alone (1.5/2 = 0.75) would report a different range — it pins the
+    # label to the signal line, not the MACD line.
     _fire(conn, "MS4", "bearish", at, 100.0, macd=1.5, hist=1.0, px_7d=88.0, finalized=True)     # +0.25 win +12%
     _fire(conn, "MS5", "bearish", at, 100.0, macd=1.7, hist=0.2, px_7d=106.0, finalized=True)    # +0.75 loss -6%
     _fire(conn, "MS6", "bearish", at, 100.0, macd=3.2, hist=0.2, px_7d=90.0, finalized=True)     # +1.5  win +10%
-    # NULL atr → excluded entirely.
+    # NULL atr -> excluded entirely.
     _fire(conn, "MS7", "bullish", at, 100.0, macd=-0.7, hist=-0.2, px_7d=120.0, finalized=True)
+
+    # Scored at 7d but NOT at 14d, and positioned between MS1 and MS2. It exists to
+    # prove the octile edges are cut once over the whole population rather than
+    # per-horizon: it must shift MS2/MS3 down a bucket in EVERY horizon, including
+    # the one it is itself missing from.
+    _fire(conn, "MS8", "bullish", at, 100.0, macd=-2.2, hist=-0.2, px_7d=103.0)                  # -1.0  win +3%
+    conn.execute("UPDATE signals SET px_14d=NULL WHERE symbol='MS8'")
+    conn.commit()
     conn.close()
 
 
@@ -821,53 +836,103 @@ def macd_signal_client(tmp_path):
 
 def test_macd_signal_buckets_win_and_ev(macd_signal_client):
     rows = macd_signal_client.get("/api/perf/macd-signal-buckets").json()
-    # px_1d=px_3d=px_7d=px_14d in _fire, so every horizon is identical.
+    # px_1d=px_3d=px_7d in _fire, so those three horizons are identical.
     by = {(r["direction"], r["bucket"], r["horizon"]): r for r in rows}
 
-    r = by[("bullish", "a <-1", "7d")]
+    r = by[("bullish", "a -1.50..-1.50", "7d")]
     assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 10.0
 
-    r = by[("bullish", "b -1..-0.5", "7d")]
+    r = by[("bullish", "c -0.75..-0.75", "7d")]
     assert r["n"] == 1 and r["win_pct"] == 0.0 and r["avg_ret_pct"] == -5.0
 
-    r = by[("bullish", "c -0.5..0", "7d")]
+    r = by[("bullish", "d -0.25..-0.25", "7d")]
     assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 8.0
 
-    r = by[("bearish", "e 0.5..1", "7d")]
+    r = by[("bearish", "b +0.75..+0.75", "7d")]
     assert r["n"] == 1 and r["win_pct"] == 0.0 and r["avg_ret_pct"] == -6.0
 
-    r = by[("bearish", "f >=1", "7d")]
+    r = by[("bearish", "c +1.50..+1.50", "7d")]
     assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 10.0
 
     assert {r["horizon"] for r in rows} == {"1d", "3d", "7d", "14d"}
 
 
+def test_macd_signal_buckets_label_their_own_range(macd_signal_client):
+    """The bucket string is a sort prefix plus the range the bucket actually spans.
+
+    The frontend has no hardcoded bucket list any more — it reads these labels off
+    the rows — so the format ('a ' .. 'h ' then a signed 2dp range) is a contract,
+    not cosmetics. Ordering must follow the prefix, ascending by signal value.
+    """
+    rows = macd_signal_client.get("/api/perf/macd-signal-buckets").json()
+    bullish = sorted({r["bucket"] for r in rows if r["direction"] == "bullish"})
+
+    assert bullish == [
+        "a -1.50..-1.50", "b -1.00..-1.00", "c -0.75..-0.75", "d -0.25..-0.25",
+    ]
+    # Prefixes are consecutive from 'a', and every label carries an explicit sign on
+    # both edges so a positive band can't be misread as a negative one.
+    assert [b[0] for b in bullish] == ["a", "b", "c", "d"]
+    assert all(b[2] in "+-" for b in bullish)
+
+
 def test_macd_signal_buckets_uses_signal_line_not_macd_line(macd_signal_client):
-    """MS4: signal = (1.5 - 1.0)/2 = +0.25 → 'd 0..0.5'. The MACD line alone would
-    be 1.5/2 = +0.75 → 'e 0.5..1'. Guards the `macd - hist` derivation."""
+    """MS4: signal = (1.5 - 1.0)/2 = +0.25. The MACD line alone would be 1.5/2 =
+    +0.75. Because each bucket reports its own measured range, the label names the
+    value outright — a stronger guard on the `macd - hist` derivation than a bucket
+    name, which both values could have shared."""
     rows = macd_signal_client.get("/api/perf/macd-signal-buckets").json()
     by = {(r["direction"], r["bucket"], r["horizon"]): r for r in rows}
 
-    r = by[("bearish", "d 0..0.5", "7d")]
+    r = by[("bearish", "a +0.25..+0.25", "7d")]
     assert r["n"] == 1 and r["win_pct"] == 100.0 and r["avg_ret_pct"] == 12.0
-    # MS5 is the only other bearish signal in 'e', so it stayed put.
-    assert by[("bearish", "e 0.5..1", "7d")]["n"] == 1
+    # Nothing landed on the MACD-line value, which would be the bug's signature.
+    assert not any(r["bucket"].endswith("+0.75..+0.75")
+                   and r["direction"] == "bearish" and r["bucket"][0] == "a"
+                   for r in rows)
+
+
+def test_macd_signal_bucket_edges_are_cut_once_not_per_horizon(macd_signal_client):
+    """A heatmap row must mean the same range in all four of its cells.
+
+    MS8 is scored at 7d but not at 14d. Ranking within each horizon would re-cut the
+    14d octiles over the three remaining bullish signals and relabel them; cutting
+    once over the whole population leaves the labels fixed and simply drops MS8's
+    cell. The second is what the heatmap needs.
+    """
+    rows = macd_signal_client.get("/api/perf/macd-signal-buckets").json()
+    at = {h: {r["bucket"] for r in rows if r["direction"] == "bullish" and r["horizon"] == h}
+          for h in ("7d", "14d")}
+
+    assert "b -1.00..-1.00" in at["7d"]          # MS8 is scored here
+    assert "b -1.00..-1.00" not in at["14d"]     # ...and not here
+    # Every other label is untouched: MS2 stays 'c', MS3 stays 'd'. Per-horizon
+    # ranking would have promoted them to 'b' and 'c'.
+    assert at["14d"] == at["7d"] - {"b -1.00..-1.00"}
 
 
 def test_macd_signal_buckets_excludes_signals_without_atr(macd_signal_client):
     rows = macd_signal_client.get("/api/perf/macd-signal-buckets").json()
-    # MS7's snapshot has NULL atr → normalization undefined → contributes nowhere.
-    assert sum(r["n"] for r in rows if r["horizon"] == "7d") == 6
+    # MS7's snapshot has NULL atr -> normalization undefined -> contributes nowhere.
+    # 7 of the 8 seeded signals remain; MS8 drops out again at 14d.
+    assert sum(r["n"] for r in rows if r["horizon"] == "7d") == 7
+    assert sum(r["n"] for r in rows if r["horizon"] == "14d") == 6
 
 
 def test_macd_signal_buckets_respects_class_filter(macd_signal_client):
     """All seeded symbols classify as crypto, so 'equity' must return nothing while
-    'crypto' returns the full set — the same classes threading as the other endpoints."""
+    'crypto' returns the full set — the same classes threading as the other endpoints.
+
+    The filter also re-cuts the octiles, since the quantiles are of the selected
+    cohort; here the cohort is unchanged, so the labels must be too.
+    """
     rows = macd_signal_client.get("/api/perf/macd-signal-buckets?classes=equity").json()
     assert rows == []
 
     rows = macd_signal_client.get("/api/perf/macd-signal-buckets?classes=crypto").json()
-    assert sum(r["n"] for r in rows if r["horizon"] == "7d") == 6
+    assert sum(r["n"] for r in rows if r["horizon"] == "7d") == 7
+    unfiltered = macd_signal_client.get("/api/perf/macd-signal-buckets").json()
+    assert {r["bucket"] for r in rows} == {r["bucket"] for r in unfiltered}
 
 
 # ---------- per-asset signal dataset (Scorecard drill-down) ----------

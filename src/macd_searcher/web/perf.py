@@ -759,40 +759,92 @@ def peak_context_buckets(
 # mature uptrend rolling over while -0.4 is a downtrend continuing — different trades.
 _MACD_SIGNAL_EXPR = "(fire_macd - fire_hist) / atr"
 
-_MACD_SIGNAL_BUCKET_SQL = (
-    f"CASE WHEN {_MACD_SIGNAL_EXPR} < -1 THEN 'a <-1' "
-    f"WHEN {_MACD_SIGNAL_EXPR} < -0.5 THEN 'b -1..-0.5' "
-    f"WHEN {_MACD_SIGNAL_EXPR} < 0 THEN 'c -0.5..0' "
-    f"WHEN {_MACD_SIGNAL_EXPR} < 0.5 THEN 'd 0..0.5' "
-    f"WHEN {_MACD_SIGNAL_EXPR} < 1 THEN 'e 0.5..1' "
-    f"ELSE 'f >=1' END"
-)
+# Equal-n quantile buckets, not fixed edges. Fixed 0.5-wide bands looked tidy but
+# spent their resolution in the wrong place: signal/ATR is dense near zero and thin in
+# the tails, so half the signals landed in two middle cells while the outer cells ran
+# to single digits. Narrowing the fixed grid to 0.25 makes that worse, not better --
+# the middle finally splits, but the tails go to n=5 with a +/-33pp confidence
+# interval, which is not a measurement.
+#
+# NTILE runs the same trade the other way round: equal COUNTS per bucket, letting the
+# WIDTH vary. That lands at ~0.16-0.28 wide through the crowded core -- finer than a
+# 0.25 fixed grid, where it matters -- and widens only out in the tails where nothing
+# better is available. Every cell then carries about the same noise, which is what
+# makes cells in a heatmap comparable to each other in the first place.
+#
+# Same reasoning already settled _PEAK_PCT_BUCKET_SQL, which buckets the percentile
+# rather than the raw ratio because the raw ratio's long tail dragged fixed edges
+# around.
+#
+# Eight, not ten: 8 holds ~+/-6pp per cell on the full set and ~+/-7.5pp under the
+# narrowest filter that actually gets used (crypto-only bullish, n~1230), where 10
+# degrades to +/-8.4pp -- wider than most of the effects we are looking for. Eight is
+# also the width of the colour ramp and about the most lines the win-curve can carry.
+_MACD_SIGNAL_QUANTILES = 8
+
+# Edges are computed ONCE per direction over the whole ATR-eligible population and
+# then reused for all four horizons. Ranking inside each horizon instead would give
+# every column its own cut points, and a single heatmap row would quietly mean a
+# different range in each cell. The cost is that per-horizon counts come out
+# near-equal rather than exactly equal, since 14d has fewer scored rows.
+#
+# Consequence worth knowing at the reading end: these labels are DATA-DEPENDENT.
+# Change the class filter and the edges move, because the quantiles are of whichever
+# cohort is selected -- an octile of crypto is not an octile of everything. That is
+# the correct behaviour, but it means two views under different filters are not the
+# same axis and must not be compared cell-for-cell.
+_MACD_SIGNAL_RANKED_SQL = f"""
+    , ranked AS (
+        SELECT *, {_MACD_SIGNAL_EXPR} AS sig,
+               NTILE({_MACD_SIGNAL_QUANTILES}) OVER (
+                   PARTITION BY direction ORDER BY {_MACD_SIGNAL_EXPR}
+               ) AS q
+        FROM perf WHERE atr IS NOT NULL AND atr > 0
+    ),
+    edges AS (
+        SELECT direction, q, MIN(sig) AS lo, MAX(sig) AS hi
+        FROM ranked GROUP BY direction, q
+    )
+"""
+
+# char(96 + q) is the 'a'..'h' sort prefix the frontend's bucketLabel() slices off;
+# what follows is the bucket's real range, so the axis labels itself and no bucket
+# list has to be kept in sync on the frontend.
+_MACD_SIGNAL_BUCKET_LABEL = "char(96 + r.q) || ' ' || printf('%+.2f..%+.2f', e.lo, e.hi)"
 
 
 def macd_signal_buckets(
     conn: sqlite3.Connection, classes: list[str] | None = None
 ) -> list[dict]:
-    """Win-rate + EV by ATR-normalized MACD-signal-line-at-fire bucket, direction,
+    """Win-rate + EV by ATR-normalized MACD-signal-line-at-fire octile, direction,
     and horizon.
 
     One row per (horizon, direction, bucket); the frontend pivots into
     heatmaps/lines. Mirrors `rsi_buckets`, but the metric is derived rather than
     stored, so it covers the full signal history with no backfill.
 
+    Buckets are equal-n octiles rather than fixed bands, and `bucket` therefore
+    carries its own measured range (e.g. `'d -0.54..-0.37'`) instead of a constant
+    label -- see the comments above for why, and for the fact that the edges shift
+    with the class filter.
+
     `atr` rides in on the `_base()` join to asset_snapshots. It's the closed-bar
-    value while the signal line is the live fire bar — ATR is a 14-period Wilder
-    average, so one bar of staleness is negligible against a 0.5-wide bucket.
+    value while the signal line is the live fire bar; ATR is a 14-period Wilder
+    average, so one bar moves it by at most ~1/14, shifting a mid-range signal by
+    a few hundredths -- small against even the narrowest octile here.
     """
     cte, params = _base(classes)
     out: list[dict] = []
     for h in ("1d", "3d", "7d", "14d"):
         ret = f"ret_{h}"
-        sql = cte + (
-            f"SELECT direction, {_MACD_SIGNAL_BUCKET_SQL} AS bucket, COUNT(*) AS n, "
-            f"ROUND(AVG({ret} > 0) * 100, 1) AS win_pct, "
-            f"ROUND(AVG({ret}) * 100, 2) AS avg_ret_pct "
-            f"FROM perf WHERE atr IS NOT NULL AND atr > 0 AND {ret} IS NOT NULL "
-            f"GROUP BY direction, bucket"
+        sql = cte + _MACD_SIGNAL_RANKED_SQL + (
+            f"SELECT r.direction, {_MACD_SIGNAL_BUCKET_LABEL} AS bucket, "
+            f"COUNT(*) AS n, "
+            f"ROUND(AVG(r.{ret} > 0) * 100, 1) AS win_pct, "
+            f"ROUND(AVG(r.{ret}) * 100, 2) AS avg_ret_pct "
+            f"FROM ranked r JOIN edges e ON e.direction = r.direction AND e.q = r.q "
+            f"WHERE r.{ret} IS NOT NULL "
+            f"GROUP BY r.direction, r.q"
         )
         for row in _rows(conn, sql, tuple(params)):
             out.append({"horizon": h, **row})

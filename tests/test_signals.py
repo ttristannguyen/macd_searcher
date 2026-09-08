@@ -23,6 +23,7 @@ from macd_searcher.signals import (
     compute_asset_metrics,
     evaluate_all,
 )
+from macd_searcher.indicators import atr as compute_atr
 from macd_searcher.indicators import macd as compute_macd
 
 
@@ -157,6 +158,45 @@ def test_signal_carries_rsi_at_fire():
     # A decelerating rally is a bearish top-forming setup and reads overbought-ish.
     assert sig.direction == "bearish"
     assert sig.rsi_14 > 50.0
+
+
+def test_detector_attaches_closed_bar_atr():
+    """The fired Signal carries ATR(14), and it is the CLOSED bar's value even when
+    the detector itself fired on today's forming bar.
+
+    This asymmetry is deliberate and load-bearing: perf.macd_signal_buckets divides
+    the fire-bar signal line by `asset_snapshots.atr`, which compute_asset_metrics
+    records from the closed bar. Matching it is what lets the alert's ×ATR figure be
+    read against the dashboard's published octile ranges. A forming bar has only a
+    partial high/low, so its true range is understated and aligning to the fire view
+    would quietly inflate the ratio.
+    """
+    df = _df_ending_today(_rally_then_fade())
+    cfg = AppConfig()
+    assert cfg.signal.histogram_flattening.use_forming_candle, (
+        "fixture assumes the detector reads the forming bar, which is what makes "
+        "the closed-vs-fire distinction observable at all"
+    )
+    assert _last_bar_is_forming(df, cfg)
+
+    sig = _detect_for_asset("ATRCTX", df, cfg)
+    assert sig is not None and sig.atr is not None
+
+    series = compute_atr(df["high"], df["low"], df["close"])
+    assert sig.atr == pytest.approx(float(series.iloc[-2]))
+    # The two must actually differ, or the assertion above proves nothing.
+    assert float(series.iloc[-2]) != pytest.approx(float(series.iloc[-1]))
+
+
+def test_detector_atr_is_the_last_bar_when_nothing_is_forming():
+    """With a settled final bar there is no distinction to draw — take iloc[-1]."""
+    df = _df_from_close(_rally_then_fade())
+    assert not _last_bar_is_forming(df, AppConfig())
+
+    sig = _detect_for_asset("ATRCTX2", df, AppConfig())
+    assert sig is not None
+    series = compute_atr(df["high"], df["low"], df["close"])
+    assert sig.atr == pytest.approx(float(series.iloc[-1]))
 
 
 # ---------- evaluate_all integration ----------

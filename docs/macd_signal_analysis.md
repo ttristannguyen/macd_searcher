@@ -207,6 +207,42 @@ bearish octile has *negative* EV at 7d. Eight equal-n buckets will always trace 
 line; that a line looks monotone is not evidence. Read the bullish gradient as real
 and modest, and the bearish one as not yet distinguishable from noise.
 
+### Reading it live: `×ATR` on the Telegram row
+
+*Added 2026-09-08.* The alert row already carried `sig` as a % of price; it now
+carries both normalizations, `sig -7.1% / -0.63×ATR`, so a signal can be placed
+against the octile ranges above without opening the dashboard:
+
+```
+🟢 BULLISH (3)
+  ZRO        ↓70%  sig +5.0% / +0.56×ATR  RSI 60
+  JTO        ↓80%  sig -7.1% / -0.63×ATR  RSI 41
+  TRX        ↓96%  sig +0.1% / +0.04×ATR  RSI 56
+```
+
+JTO sits in bullish octile `c −0.74..−0.54` (53.9% win at 7d); TRX, on the same
+reduction gate, sits in `g −0.02..+0.26` (35.8%). That gap is the point of printing
+it.
+
+**`Signal.atr` is the CLOSED-bar value**, even when `use_forming_candle` is on and
+the detector fired on today's forming bar. This is the one indicator on the Signal
+deliberately not aligned to the fire view, and it is load-bearing: the octiles above
+divide the fire-bar signal line by `asset_snapshots.atr`, which `compute_asset_metrics`
+records from the closed bar. Matching that is what makes the alert's number and the
+dashboard's buckets the same axis. Aligning to the fire view would be more internally
+consistent and less useful — a forming bar has only a partial high/low, so its true
+range is understated and the ratio would read high. Two tests pin this
+(`test_detector_attaches_closed_bar_atr` and its settled-bar counterpart).
+
+**Not persisted.** `signals` has no ATR column and doesn't need one — the dashboard
+already reaches the same value through its `asset_snapshots` join, so a column would
+be a second source of truth for a number we can already get. (`fire_atr_multiple`
+exists but is a *legacy Stage-3* column with different semantics, always NULL for
+Stage 1; repurposing it would conflate two meanings across history.) The cost of not
+storing it is that a signal whose snapshot row is missing shows `×ATR` in the alert
+but drops out of the dashboard buckets — the same rows the class filter already
+drops, and `n` per cell makes it visible.
+
 ### Analyze the signal line, **not** the MACD line
 
 The ask mentioned both. They're near-collinear (`corr(macd÷ATR, signal÷ATR) = 0.99`),

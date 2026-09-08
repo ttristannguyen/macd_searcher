@@ -28,7 +28,12 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from .config import AppConfig
-from .signals import Signal, is_high_confidence, signal_line_pct_of_price
+from .signals import (
+    Signal,
+    is_high_confidence,
+    signal_line_atr_multiple,
+    signal_line_pct_of_price,
+)
 
 
 log = logging.getLogger(__name__)
@@ -66,16 +71,29 @@ def _fmt_stage1_row(s: Signal) -> str:
     """One signal line. Deliberately sparse — the raw hist value, the peak it fell
     from, and the price were all dropped as noise you can look up in the dashboard.
     What's left is what drives the read: how far it has flattened, where the trend
-    sits relative to price (`sig`, the MACD signal line as a % of price — negative
-    means the trend is below equilibrium), and RSI as context.
+    sits (`sig`, the MACD signal line — negative means the trend is below
+    equilibrium), and RSI as context.
+
+    `sig` is given under both normalizations, `% of price / ×ATR`, because they
+    answer different questions. The percent is the legible one ("3% of price below
+    equilibrium"); the ATR multiple is the one that means the same thing on BTC and
+    on gold, and it is the axis the dashboard buckets into octiles — so -0.74×ATR
+    can be read straight off the published bucket ranges. Either half is omitted on
+    its own if undefined, rather than dropping the pair.
 
     High-confidence rows (see `is_high_confidence`) are bolded, which is why the
     sender uses HTML parse_mode.
     """
     assert s.reduction_from_peak is not None
     pct = s.reduction_from_peak * 100
+    sig_parts = []
     sig_pct = signal_line_pct_of_price(s)
-    sig = f"  sig {sig_pct:+.1f}%" if sig_pct is not None else ""
+    if sig_pct is not None:
+        sig_parts.append(f"{sig_pct:+.1f}%")
+    sig_atr = signal_line_atr_multiple(s)
+    if sig_atr is not None:
+        sig_parts.append(f"{sig_atr:+.2f}×ATR")
+    sig = f"  sig {' / '.join(sig_parts)}" if sig_parts else ""
     rsi = f"  RSI {s.rsi_14:.0f}" if s.rsi_14 is not None else ""
     row = f"{escape(s.name):<10} ↓{pct:.0f}%{sig}{rsi}"
     return f"  <b>{row}</b>" if is_high_confidence(s) else f"  {row}"

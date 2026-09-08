@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from dataclasses import replace
+
 from macd_searcher.config import AppConfig
 from macd_searcher.notify import (
     chunk_for_telegram,
@@ -20,7 +22,11 @@ from macd_searcher.notify import (
     in_quiet_hours,
     send_signals,
 )
-from macd_searcher.signals import Signal, signal_line_pct_of_price
+from macd_searcher.signals import (
+    Signal,
+    signal_line_atr_multiple,
+    signal_line_pct_of_price,
+)
 
 
 # ---------- quiet hours ----------
@@ -226,6 +232,29 @@ def test_signal_line_pct_of_price_none_on_bad_close():
     assert signal_line_pct_of_price(s) is None
 
 
+def test_signal_line_atr_multiple_derivation():
+    """Same `macd - hist` signal line, divided by ATR instead of price."""
+    s = _mk_signal("BTC", "histogram_flattening", "bullish",
+                   close=100.0, macd=-7.2, hist=-0.2, atr=4.0,
+                   hist_peak=-2.0, reduction_from_peak=0.4)
+    assert signal_line_atr_multiple(s) == pytest.approx(-1.75)
+    # Price is irrelevant to this axis — that is the whole point of it. The same
+    # trend on a token priced 20x lower reads identically here, while
+    # signal_line_pct_of_price would read 20x further from equilibrium.
+    s2 = replace(s, close=5.0)
+    assert signal_line_atr_multiple(s2) == pytest.approx(-1.75)
+    assert signal_line_pct_of_price(s2) != pytest.approx(signal_line_pct_of_price(s))
+
+
+def test_signal_line_atr_multiple_none_when_atr_unusable():
+    """No ATR, or a flat series with zero range, leaves nothing to normalize by."""
+    base = dict(close=100.0, macd=-7.2, hist=-0.2, reduction_from_peak=0.4)
+    assert signal_line_atr_multiple(
+        _mk_signal("BTC", "histogram_flattening", "bullish", atr=None, **base)) is None
+    assert signal_line_atr_multiple(
+        _mk_signal("BTC", "histogram_flattening", "bullish", atr=0.0, **base)) is None
+
+
 def test_format_message_includes_signal_line_pct():
     """The row carries `sig` — where the trend sits relative to price."""
     signals = [
@@ -246,6 +275,41 @@ def test_format_message_signal_line_pct_signed_both_ways():
                    reduction_from_peak=0.5)
     row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "SOL" in ln)
     assert "sig +3.0%" in row
+
+
+def test_format_message_shows_both_normalizations():
+    """`sig` carries % of price AND the ATR multiple, joined by ' / '.
+
+    The ATR half is the axis perf.macd_signal_buckets buckets into octiles, so the
+    number in the alert is meant to be readable straight off those ranges.
+    """
+    s = _mk_signal("ETH", "histogram_flattening", "bullish",
+                   close=100.0, macd=-7.2, hist=-0.2, atr=4.0, hist_peak=-2.0,
+                   reduction_from_peak=0.4, rsi_14=38.0)
+    row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "ETH" in ln)
+    assert "sig -7.0% / -1.75\u00d7ATR" in row
+    assert "↓40%" in row and "RSI 38" in row
+
+
+def test_format_message_keeps_pct_when_atr_missing():
+    """Either half stands alone rather than dropping the pair — `atr` is a new field,
+    so anything constructed without it must still render its price reading."""
+    s = _mk_signal("ETH", "histogram_flattening", "bullish",
+                   close=100.0, macd=-7.2, hist=-0.2, hist_peak=-2.0,
+                   reduction_from_peak=0.4)
+    row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "ETH" in ln)
+    assert "sig -7.0%" in row
+    assert "ATR" not in row
+
+
+def test_format_message_keeps_atr_when_price_normalization_undefined():
+    """The mirror case: a non-positive close kills the percent, not the ATR half."""
+    s = _mk_signal("BAD", "histogram_flattening", "bullish",
+                   close=0.0, macd=-7.2, hist=-0.2, atr=4.0, hist_peak=-2.0,
+                   reduction_from_peak=0.4)
+    row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "BAD" in ln)
+    assert "sig -1.75\u00d7ATR" in row
+    assert "%" not in row.split("sig")[1]
 
 
 def test_format_message_omits_signal_line_pct_when_undefined():

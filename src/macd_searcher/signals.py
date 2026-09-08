@@ -40,6 +40,11 @@ class Signal:
     # 14-day Wilder RSI at fire time (0–100). Context for later signal-quality
     # analysis — not a firing condition. None if the value is NaN.
     rsi_14: float | None = None
+    # Wilder ATR(14) on the CLOSED bar — see `_detect_for_asset` for why closed and
+    # not the fire view. Carried only so the alert can normalize the signal line by
+    # it; not a firing condition, and deliberately not persisted (the dashboard
+    # already reaches the same value through its asset_snapshots join).
+    atr: float | None = None
     # This excursion's peak measured against the token's OWN prior same-sign tops
     # (see _peak_vs_history). Context, not a firing condition. ratio/pct are None
     # and top_n is 0 when the window holds no prior same-sign excursion.
@@ -63,6 +68,28 @@ def signal_line_pct_of_price(s: Signal) -> float | None:
     if s.close <= 0:
         return None
     return (s.macd - s.hist) / s.close * 100
+
+
+def signal_line_atr_multiple(s: Signal) -> float | None:
+    """MACD signal line at fire in units of ATR — roughly "bars of trend drift per
+    bar of typical range".
+
+    The companion to `signal_line_pct_of_price`, and the one that survives
+    cross-class comparison: dividing by price leaves the volatility term in, so
+    those buckets partly re-read asset class (median |signal/price| is 0.17% for fx
+    against 4.08% for crypto — 24x — versus ~1.4x once ATR-normalized).
+
+    This is the exact quantity the dashboard buckets into octiles
+    (`perf.macd_signal_buckets`), so a number here can be read straight against
+    those ranges. Keeping that true is why `Signal.atr` is the closed-bar value:
+    the dashboard divides by `asset_snapshots.atr`, which is also closed-bar.
+
+    None when ATR is missing or non-positive (a flat series has no range to
+    normalize by, and dividing by it would be meaningless rather than infinite).
+    """
+    if s.atr is None or s.atr <= 0:
+        return None
+    return (s.macd - s.hist) / s.atr
 
 
 # ---------- confidence marker ----------
@@ -360,12 +387,26 @@ def _detect_for_asset(
     drop_forming = last_is_forming and not hf.use_forming_candle
     rsi_val = float(rsi(df["close"]).iloc[-2 if drop_forming else -1])
 
+    # ATR(14) for the alert's signal-line-per-ATR reading. Computed here rather than
+    # up front so only the handful of assets that actually fire pay for it.
+    #
+    # Note this is the ONLY indicator here deliberately NOT aligned to the fire view:
+    # it takes the CLOSED bar even when use_forming_candle is on. That is not an
+    # oversight. The dashboard's octile buckets divide the fire-bar signal line by
+    # `asset_snapshots.atr`, which `compute_asset_metrics` records from the closed
+    # bar; matching it means the number in the alert can be read directly against
+    # those published ranges. Aligning to the fire view instead would be more
+    # internally consistent and less useful — a forming bar has only a partial
+    # high/low, so its true range is understated and the ratio would read high.
+    atr_val = float(atr(df["high"], df["low"], df["close"]).iloc[-2 if last_is_forming else -1])
+
     # Peak-vs-history on `m["hist"]` — the exact series the detector just fired on,
     # so the current excursion is the one that triggered the signal.
     ratio, pct, top_n = _peak_vs_history(m["hist"], sig.direction)
     return replace(
         sig,
         rsi_14=None if pd.isna(rsi_val) else rsi_val,
+        atr=None if pd.isna(atr_val) else atr_val,
         hist_peak_ratio=ratio,
         hist_peak_pct=pct,
         hist_top_n=top_n,

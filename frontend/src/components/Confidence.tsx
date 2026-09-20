@@ -360,8 +360,12 @@ export function SensitivityGrid({ horizon, metric }: { horizon: Horizon; metric:
   const cell = (sig: number, red: number): PerfConfidenceSensitivity | undefined =>
     rows.find((r) => r.max_sig_atr === sig && r.max_reduction === red)
 
-  const mid = metric === 'win' ? 55 : 1
-  const span = metric === 'win' ? 15 : 1.5
+  // Centred on the v2 grid's own range (win 50-71, EV +1.5 to +4.4) rather than on
+  // an absolute good/bad line. Every cell in this grid is positive, so a scale
+  // anchored at 0 would saturate almost all of them and flatten exactly the
+  // shape this panel exists to show. Recentre if a retune moves the range.
+  const mid = metric === 'win' ? 60 : 2.9
+  const span = metric === 'win' ? 10 : 1.5
 
   return (
     <Card

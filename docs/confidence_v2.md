@@ -195,8 +195,18 @@ to a still-derived rule.
 - [x] Dry-run message renders: confident bullish rows bold and floated to the top of
       the BULLISH block; a row failing only the reduction cap (red 0.88) and one
       failing only the sig/ATR cut (-0.20) both correctly stay plain.
-- [ ] Visual pass over the Confidence tab in a browser — the grid axes changed and
-      several captions were rewritten, but nobody has looked at the pixels.
+- [x] Confidence tab audited end to end against `prod_snapshot`: all five panels
+      200 across horizons and with `classes=`, every tile/caption re-read for stale
+      v1 wording, and each panel's numbers checked against the source data. Found
+      and fixed one real bug — see below. **Still not looked at as rendered pixels**;
+      layout and colour are verified by construction, not by eye.
+
+**Bug caught by the audit.** `SensitivityGrid`'s colour scale was still tuned to v1
+(`mid=1, span=1.5` for EV). v2's grid runs +1.47 to +4.37, so **18 of 25 cells
+saturated** — every cell above 2.5 rendered identically and the plateau-vs-spike
+read, which is the panel's whole purpose, was flattened. Recentred on the grid's own
+range (EV mid 2.9 / span 1.5, win mid 60 / span 10): 0/25 saturated, and the plateau
+around the ringed cell is now visible with the falloff toward the loose corner.
 
 ## Caveats to keep honest
 

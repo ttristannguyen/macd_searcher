@@ -92,44 +92,57 @@ def signal_line_atr_multiple(s: Signal) -> float | None:
     return (s.macd - s.hist) / s.atr
 
 
-# ---------- confidence marker ----------
+# ---------- confidence marker (v2) ----------
 #
-# Thresholds measured on 3,050 scored signals (2026-06-06 → 08-06, prod_snapshot,
-# after the peak-context backfill). Kept as constants rather than config knobs
-# because they're empirical findings, not preferences — changing one should follow a
-# re-measurement, not a whim. See docs/hist_peak_context.md.
+# Measured on 5,818 scored signals (2026-06-06 -> 09-18, prod_snapshot). Constants,
+# not config knobs: they're empirical findings, so changing one should follow a
+# re-measurement rather than a preference. See docs/confidence_v2.md.
 #
-# The rule marks 11.4% of signals: 70.1% win / +2.65% EV at 7d, against a 51.6% /
-# +0.02% baseline. What earns the "confident" label is that it clears both bars in
-# EACH regime half independently (1st: 73.6% / +3.88%, 2nd: 67.8% / +1.82%) — a rule
-# that only works in a good tape isn't confidence, it's a bull market.
+# The rule marks 8.7% of signals: 62.7% win / +3.86% EV at 7d against 47.8% / -1.17%
+# for everything else, and an MFE/MAE ratio of 2.05 against 0.80. It is positive in
+# BOTH regime halves (+3.04%, +5.64%) and stronger in the second.
+#
+# WHY these two conditions, in one line each:
+#   * sig/ATR < -0.5 — a bullish fire anticipates the histogram crossing back above
+#     zero, and whether that cross completes is the largest split in the dataset
+#     (completed: 65.6% win / +4.93% EV; failed: 16.0% / -6.11%). A signal line far
+#     below zero predicts completion monotonically (88% below -1, ~52% near zero):
+#     deep downtrend means MACD crosses back above it on any bounce, with room to run.
+#   * reduction < 0.6 — a CEILING, not a floor. Deep reduction also predicts
+#     completion, but near-tautologically (an 80%-shrunk histogram already sits at
+#     zero) and you pay for it in entry price: +3.83% EV at 0.3-0.4 decaying to
+#     +0.56% at 0.8+. The detector's own 30% minimum stays as the floor.
+#
+# v1 (bearish + shallow reduction + modest peak) is RETIRED. It measured 70.1% win /
+# +2.65% EV through 2026-08-06 and decayed to +0.07% by 09-18, with its second half
+# at -5.46%. Instructive shape: the win rate held at 60.9% while EV went to zero,
+# because bearish signals run an MFE/MAE ratio near 0.6 — being right six times in
+# ten loses money when the four losses are twice the size. v1 selected for win rate
+# on the wrong side of the book; v2 selects on the side where the ratio is 2.05.
 #
 # Deliberately NOT included:
-#   * RSI — every RSI-carrying signal falls in the second half (logging started
-#     mid-sample), so it cannot be regime-tested at all, and within that one regime
-#     it shows no monotonic relationship. Revisit after --backfill-rsi.
-#   * bullish — the same filter reads 77.8% / +5.05% in the first half and
-#     19.4% / -4.34% in the second. Marking those bold would mislead exactly when
-#     it matters most.
-CONFIDENCE_MAX_REDUCTION = 0.6   # shallower = caught earlier; deep fires are late
-CONFIDENCE_MAX_PEAK_PCT = 40.0   # a modest peak by this token's own standards
-CONFIDENCE_MIN_TOP_N = 3         # below this the peak baseline is not trustworthy
+#   * bearish — EV is -1.17% across the rest of the book. Losing the marker is the
+#     intended outcome, not collateral damage.
+#   * asset class — crypto carries the rule (+6.08% vs equity +0.21%), but equity is
+#     flat rather than negative and excluding a class is one more threshold fitted to
+#     this sample. Revisit if equity stays flat with more data.
+#   * peak context / RSI — neither adds to the pair above once sig/ATR is in.
+CONFIDENCE_MAX_SIG_ATR = -0.5   # signal line at least half a daily range below zero
+CONFIDENCE_MAX_REDUCTION = 0.6  # a cap: past this the cross is mechanical and late
 
 
 def is_high_confidence(s: Signal) -> bool:
     """True if this signal falls in the measured high-expectancy slice.
 
-    Bearish only, shallow reduction, and a peak that's unremarkable for this token.
-    Presentation-only today — it bolds the Telegram row; it does not gate firing.
+    Bullish, with the signal line well below zero and the histogram not yet mostly
+    collapsed. Presentation-only — it bolds the Telegram row; it does not gate firing.
     """
-    return (
-        s.direction == "bearish"
-        and s.reduction_from_peak is not None
-        and s.reduction_from_peak < CONFIDENCE_MAX_REDUCTION
-        and s.hist_peak_pct is not None
-        and s.hist_top_n >= CONFIDENCE_MIN_TOP_N
-        and s.hist_peak_pct < CONFIDENCE_MAX_PEAK_PCT
-    )
+    if s.direction != "bullish":
+        return False
+    if s.reduction_from_peak is None or s.reduction_from_peak >= CONFIDENCE_MAX_REDUCTION:
+        return False
+    per_atr = signal_line_atr_multiple(s)
+    return per_atr is not None and per_atr < CONFIDENCE_MAX_SIG_ATR
 
 
 def _strictly_decreasing(series: pd.Series) -> bool:

@@ -144,11 +144,12 @@ def test_format_message_floats_high_confidence_to_top():
     """A bolded row buried under 30 others is useless, so confidence outranks
     reduction — even when the confident row has a deeper reduction."""
     signals = [
-        _mk_signal("PLAIN", "histogram_flattening", "bearish",
-                   close=100, hist=1, hist_peak=2, reduction_from_peak=0.31),
-        _mk_signal("CONFIDENT", "histogram_flattening", "bearish",
-                   close=100, hist=1, hist_peak=2, reduction_from_peak=0.55,
-                   hist_peak_ratio=0.3, hist_peak_pct=12.0, hist_top_n=8),
+        _mk_signal("PLAIN", "histogram_flattening", "bullish",
+                   close=100, macd=-0.3, hist=-0.2, atr=2.0,
+                   hist_peak=-2, reduction_from_peak=0.31),   # sig/ATR -0.05
+        _mk_signal("CONFIDENT", "histogram_flattening", "bullish",
+                   close=100, macd=-2.2, hist=-0.2, atr=2.0,
+                   hist_peak=-2, reduction_from_peak=0.55),   # sig/ATR -1.00
     ]
     text = format_message(signals, scanned_count=2, cfg=AppConfig())
     assert text.index("CONFIDENT") < text.index("PLAIN")
@@ -172,11 +173,12 @@ def test_format_message_omits_hist_peak_and_price():
 
 
 def test_format_message_bolds_high_confidence_row():
-    """Bearish + shallow reduction + modest peak = the measured high-EV slice."""
+    """Bullish + signal line well below zero + reduction under the cap = the
+    measured high-EV slice. atr=2.0 makes sig/ATR = (macd - hist) / 2."""
     signals = [
-        _mk_signal("SOL", "histogram_flattening", "bearish",
-                   hist=0.1, close=85.0, hist_peak=0.5, reduction_from_peak=0.45,
-                   hist_peak_ratio=0.3, hist_peak_pct=12.0, hist_top_n=8),
+        _mk_signal("SOL", "histogram_flattening", "bullish",
+                   macd=-2.2, hist=-0.2, close=85.0, hist_peak=-0.5,
+                   reduction_from_peak=0.45, atr=2.0),   # sig/ATR -1.00
     ]
     text = format_message(signals, scanned_count=1, cfg=AppConfig())
     assert "<b>" in text and "</b>" in text
@@ -186,21 +188,21 @@ def test_format_message_bolds_high_confidence_row():
 def test_format_message_does_not_bold_ordinary_rows():
     """Each miss on its own is enough to withhold the marker."""
     cases = [
-        # deep reduction
-        dict(direction="bearish", reduction_from_peak=0.85, hist_peak_pct=12.0, hist_top_n=8),
-        # large peak for this token
-        dict(direction="bearish", reduction_from_peak=0.45, hist_peak_pct=75.0, hist_top_n=8),
-        # baseline too thin to trust
-        dict(direction="bearish", reduction_from_peak=0.45, hist_peak_pct=12.0, hist_top_n=1),
-        # no peak context at all
-        dict(direction="bearish", reduction_from_peak=0.45, hist_peak_pct=None, hist_top_n=0),
-        # bullish never qualifies — it reversed sign between regime halves
-        dict(direction="bullish", reduction_from_peak=0.45, hist_peak_pct=12.0, hist_top_n=8),
+        # reduction past the cap — the cross is mechanical by then, and late
+        dict(direction="bullish", macd=-2.2, hist=-0.2, atr=2.0, reduction_from_peak=0.85),
+        # signal line not far enough below zero (sig/ATR exactly -0.5)
+        dict(direction="bullish", macd=-1.2, hist=-0.2, atr=2.0, reduction_from_peak=0.45),
+        # signal line above zero entirely
+        dict(direction="bullish", macd=+1.8, hist=-0.2, atr=2.0, reduction_from_peak=0.45),
+        # no ATR to normalize by
+        dict(direction="bullish", macd=-2.2, hist=-0.2, atr=None, reduction_from_peak=0.45),
+        # bearish never qualifies — EV is negative across the rest of the book
+        dict(direction="bearish", macd=-2.2, hist=-0.2, atr=2.0, reduction_from_peak=0.45),
     ]
     for kw in cases:
         direction = kw.pop("direction")
         s = _mk_signal("XYZ", "histogram_flattening", direction,
-                       hist=0.1, close=100.0, hist_peak=0.5, **kw)
+                       close=100.0, hist_peak=-0.5, **kw)
         assert "<b>" not in format_message([s], scanned_count=1, cfg=AppConfig()), kw
 
 

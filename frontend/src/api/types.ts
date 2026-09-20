@@ -228,8 +228,9 @@ export interface PerfConfidencePoint {
 }
 
 export interface PerfConfidenceSensitivity {
+  // v2 axes: signal-line-per-ATR cut x reduction cap.
+  max_sig_atr: number
   max_reduction: number
-  max_peak_pct: number
   n: number
   share_pct: number
   win_pct: number | null

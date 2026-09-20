@@ -490,15 +490,17 @@ def test_rsi_buckets_excludes_signals_without_rsi(rsi_client):
 # only thing stopping the two implementations from drifting apart.
 
 # (direction, reduction, peak_pct, top_n) laid out around every boundary.
+# (direction, reduction, macd, hist). _metrics pins atr=2.0, so the rule's axis
+# sig/ATR = (macd - hist) / 2.0 is exactly half the raw signal line here.
 _CONF_CASES = [
-    ("bearish", 0.45, 12.0, 8),    # comfortably inside
-    ("bearish", 0.59, 39.0, 3),    # just inside on all three
-    ("bearish", 0.60, 12.0, 8),    # reduction exactly at the cutoff -> out
-    ("bearish", 0.45, 40.0, 8),    # peak pct exactly at the cutoff -> out
-    ("bearish", 0.45, 12.0, 2),    # baseline one short of trustworthy -> out
-    ("bearish", 0.85, 75.0, 8),    # misses on two counts
-    ("bearish", 0.45, None, 0),    # never backfilled -> out
-    ("bullish", 0.45, 12.0, 8),    # would qualify but for direction
+    ("bullish", 0.45, -2.2, -0.2),   # sig/ATR -1.00, red 0.45 -> in
+    ("bullish", 0.59, -1.3, -0.2),   # sig/ATR -0.55, red 0.59 -> just inside both
+    ("bullish", 0.60, -2.2, -0.2),   # reduction exactly at the cap -> out
+    ("bullish", 0.45, -1.2, -0.2),   # sig/ATR exactly -0.50 -> out (strict <)
+    ("bullish", 0.45, +1.8, -0.2),   # signal line above zero -> out
+    ("bullish", 0.85, -0.3, -0.2),   # misses on both counts
+    ("bearish", 0.45, -2.2, -0.2),   # would qualify but for direction
+    ("bearish", 0.45, +3.2, +0.2),   # an ordinary bearish fire
 ]
 
 
@@ -510,10 +512,12 @@ def _seed_confidence(path: str) -> None:
         _metrics(f"CF{i}", 0.001) for i in range(len(_CONF_CASES))
     ])
     # Alternating win/loss so win-rate and EV are non-degenerate in both cohorts.
-    for i, (direction, red, pk, tn) in enumerate(_CONF_CASES):
-        px = 90.0 if i % 2 == 0 else 106.0   # bearish: +10% win / -6% loss
+    # Direction-normalized: bullish wants price up, bearish wants it down.
+    for i, (direction, red, macd, hist) in enumerate(_CONF_CASES):
+        up = i % 2 == 0
+        px = (110.0 if up else 94.0) if direction == "bullish" else (90.0 if up else 106.0)
         _fire(conn, f"CF{i}", direction, f"{DAY_A}T08:00:00+00:00", 100.0,
-              reduction=red, peak_pct=pk, top_n=tn, peak_ratio=None if pk is None else pk / 50,
+              reduction=red, macd=macd, hist=hist,
               px_7d=px, mfe=0.12, mae=-0.03, finalized=True)
     conn.close()
 
@@ -541,12 +545,14 @@ def test_confidence_sql_matches_python_predicate(confidence_client, tmp_path):
     conn.close()
 
     assert len(from_sql) == len(_CONF_CASES)
-    for i, (direction, red, pk, tn) in enumerate(_CONF_CASES):
+    for i, (direction, red, macd, hist) in enumerate(_CONF_CASES):
+        # atr=2.0 matches what _metrics wrote to asset_snapshots, which is the value
+        # the SQL divides by — the whole point of the closed-bar alignment.
         sig = Signal(f"CF{i}", "histogram_flattening", direction, close=100.0,
-                     macd=-0.5, hist=-0.1, hist_peak=0.5, reduction_from_peak=red,
-                     hist_peak_pct=pk, hist_top_n=tn)
+                     macd=macd, hist=hist, hist_peak=0.5, reduction_from_peak=red,
+                     atr=2.0)
         expected = "confident" if is_high_confidence(sig) else "rest"
-        assert from_sql[f"CF{i}"] == expected, f"CF{i} {(direction, red, pk, tn)}"
+        assert from_sql[f"CF{i}"] == expected, f"CF{i} {(direction, red, macd, hist)}"
 
 
 def test_confidence_summary_splits_cohorts(confidence_client):
@@ -572,8 +578,8 @@ def test_confidence_summary_payoff_none_without_losses(confidence_client, tmp_pa
     db.init_schema(conn)
     db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
     db.insert_snapshots(conn, "r1", {}, [_metrics("AW1", 0.001)])
-    _fire(conn, "AW1", "bearish", f"{DAY_A}T08:00:00+00:00", 100.0,
-          reduction=0.45, peak_pct=10.0, top_n=8, px_7d=90.0, finalized=True)
+    _fire(conn, "AW1", "bullish", f"{DAY_A}T08:00:00+00:00", 100.0,
+          reduction=0.45, macd=-2.2, hist=-0.2, px_7d=110.0, finalized=True)
     conn.close()
 
     app.dependency_overrides[get_conn] = _conn_to(path)
@@ -596,13 +602,13 @@ def test_confidence_sensitivity_grid_marks_current_and_agrees_with_summary(confi
     """The flagged cell must reproduce the headline exactly — if the grid and the
     summary disagree, one of them is lying about what the rule does."""
     grid = confidence_client.get("/api/perf/confidence-sensitivity").json()
-    assert len(grid) == 4 * 5
+    assert len(grid) == 5 * 5
 
     current = [c for c in grid if c["is_current"]]
     assert len(current) == 1
     cell = current[0]
+    assert cell["max_sig_atr"] == signals.CONFIDENCE_MAX_SIG_ATR
     assert cell["max_reduction"] == signals.CONFIDENCE_MAX_REDUCTION
-    assert cell["max_peak_pct"] == signals.CONFIDENCE_MAX_PEAK_PCT
 
     summary = confidence_client.get("/api/perf/confidence-summary").json()
     conf = next(r for r in summary if r["cohort"] == "confident")
@@ -1021,11 +1027,14 @@ def test_asset_signals_confident_flag_agrees_with_the_python_rule(macd_signal_cl
     for sc in rows:
         body = macd_signal_client.get(f"/api/assets/{sc['symbol']}/signals").json()
         for row in body["rows"]:
+            # atr=1 with macd=sig_atr and hist=0 reproduces the rule's axis
+            # exactly: (macd - hist) / atr == sig_atr.
+            sig_atr = row["sig_atr"]
             expected = is_high_confidence(Signal(
                 sc["symbol"], "histogram_flattening", row["direction"],
-                close=row["fire_close"], macd=row["fire_macd"], hist=0.0,
+                close=row["fire_close"],
+                macd=sig_atr if sig_atr is not None else 0.0, hist=0.0,
+                atr=1.0 if sig_atr is not None else None,
                 reduction_from_peak=row["fire_reduction_from_peak"],
-                hist_peak_pct=row["fire_hist_peak_pct"],
-                hist_top_n=row["fire_hist_top_n"] or 0,
             ))
             assert row["confident"] is expected, f"{sc['symbol']} {row['fired_at']}"

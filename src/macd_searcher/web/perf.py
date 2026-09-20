@@ -26,9 +26,8 @@ from typing import Literal
 import numpy as np
 
 from ..signals import (
-    CONFIDENCE_MAX_PEAK_PCT,
     CONFIDENCE_MAX_REDUCTION,
-    CONFIDENCE_MIN_TOP_N,
+    CONFIDENCE_MAX_SIG_ATR,
 )
 from ..stats import summarize
 
@@ -303,6 +302,7 @@ def signals_for_symbol(
         "max_favorable_move_pct AS mfe, max_adverse_move_pct AS mae, "
         "bars_to_zero_cross, "
         f"{_MACD_SIGNAL_PCT_EXPR} AS sig_pct_of_price, "
+        f"CASE WHEN atr > 0 THEN {_CONFIDENCE_SIG_ATR} END AS sig_atr, "
         f"({_CONFIDENCE_SQL}) = 'confident' AS confident, "
         "outcome_updated_at IS NOT NULL AS finalized "
         "FROM perf WHERE symbol = ? ORDER BY fired_at DESC"
@@ -522,11 +522,16 @@ def rsi_buckets(conn: sqlite3.Connection, classes: list[str] | None = None) -> l
 #
 # NULLs fall through to 'rest' by SQL's three-valued logic — a signal with no peak
 # context is not confident, which is the honest reading.
+# The signal line in ATR units — the same expression `macd_signal_buckets` uses,
+# and the mirror of `signals.signal_line_atr_multiple`. `atr` rides in on _base()'s
+# asset_snapshots join and covers 100% of post-fix signals, so nothing is stored.
+_CONFIDENCE_SIG_ATR = "(fire_macd - fire_hist) / atr"
+
 _CONFIDENCE_SQL = (
-    "CASE WHEN direction = 'bearish' "
+    "CASE WHEN direction = 'bullish' "
+    f"AND atr > 0 "
+    f"AND {_CONFIDENCE_SIG_ATR} < {CONFIDENCE_MAX_SIG_ATR} "
     f"AND fire_reduction_from_peak < {CONFIDENCE_MAX_REDUCTION} "
-    f"AND fire_hist_top_n >= {CONFIDENCE_MIN_TOP_N} "
-    f"AND fire_hist_peak_pct < {CONFIDENCE_MAX_PEAK_PCT} "
     "THEN 'confident' ELSE 'rest' END"
 )
 
@@ -631,8 +636,8 @@ def confidence_timeline(
 # Grid swept by `confidence_sensitivity`. Brackets the live thresholds on both
 # sides so the shape around them is visible — the point is to see whether the
 # current setting sits on a PLATEAU (robust) or a spike (fitted to noise).
-_SENSITIVITY_REDUCTIONS = (0.4, 0.5, 0.6, 0.7)
-_SENSITIVITY_PEAK_PCTS = (20.0, 30.0, 40.0, 50.0, 60.0)
+_SENSITIVITY_SIG_ATRS = (-1.0, -0.75, -0.5, -0.25, 0.0)
+_SENSITIVITY_REDUCTIONS = (0.5, 0.6, 0.7, 0.8, 1.1)
 
 
 def confidence_sensitivity(
@@ -653,38 +658,38 @@ def confidence_sensitivity(
     cte, params = _base(classes)
     sql = cte + (
         f"SELECT direction, fire_reduction_from_peak AS red, "
-        f"fire_hist_peak_pct AS pk, fire_hist_top_n AS top_n, {col} AS r "
+        f"CASE WHEN atr > 0 THEN {_CONFIDENCE_SIG_ATR} END AS sig_atr, {col} AS r "
         f"FROM perf WHERE {col} IS NOT NULL"
     )
 
     rows = [dict(r) for r in conn.execute(sql, tuple(params))]
     total = len(rows)
-    # The cohort is bearish-only and needs a trustworthy baseline; those two
-    # conditions are fixed, only the thresholds move across the grid.
+    # The cohort is bullish-only; that condition is fixed and only the two
+    # thresholds move across the grid.
     eligible = [
         r for r in rows
-        if r["direction"] == "bearish"
+        if r["direction"] == "bullish"
         and r["red"] is not None
-        and r["pk"] is not None
-        and (r["top_n"] or 0) >= CONFIDENCE_MIN_TOP_N
+        and r["sig_atr"] is not None
     ]
 
     out: list[dict] = []
-    for max_red in _SENSITIVITY_REDUCTIONS:
-        for max_pk in _SENSITIVITY_PEAK_PCTS:
-            hits = [r for r in eligible if r["red"] < max_red and r["pk"] < max_pk]
+    for max_sig_atr in _SENSITIVITY_SIG_ATRS:
+        for max_red in _SENSITIVITY_REDUCTIONS:
+            hits = [r for r in eligible
+                    if r["sig_atr"] < max_sig_atr and r["red"] < max_red]
             n = len(hits)
             arr = np.asarray([r["r"] for r in hits], dtype=float) if n else None
             out.append({
+                "max_sig_atr": max_sig_atr,
                 "max_reduction": max_red,
-                "max_peak_pct": max_pk,
                 "n": n,
                 "share_pct": round(n / total * 100, 1) if total else 0.0,
                 "win_pct": round(float((arr > 0).mean()) * 100, 1) if n else None,
                 "ev_pct": round(float(arr.mean()) * 100, 2) if n else None,
                 "is_current": (
-                    max_red == CONFIDENCE_MAX_REDUCTION
-                    and max_pk == CONFIDENCE_MAX_PEAK_PCT
+                    max_sig_atr == CONFIDENCE_MAX_SIG_ATR
+                    and max_red == CONFIDENCE_MAX_REDUCTION
                 ),
             })
     return out

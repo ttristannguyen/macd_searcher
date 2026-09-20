@@ -3,11 +3,12 @@
 // Different job from the Outcomes tab: that one explores *whether* a factor
 // matters, this one reports on a rule that already does, in the smallest number of
 // decision-grade figures. Every panel shows the confident cohort against the rest,
-// because a 70% win rate only means something next to the ~49% you'd get taking
+// because a 63% win rate only means something next to the ~48% you'd get taking
 // everything.
 //
 // The rule and its thresholds live in src/macd_searcher/signals.py; the measurement
-// behind them is in docs/hist_peak_context.md and docs/confidence.md.
+// behind them is in docs/confidence_v2.md. (v1 was a bearish peak-context rule; it
+// decayed to +0.07% EV and was retired — docs/confidence.md keeps that record.)
 
 import {
   CartesianGrid,
@@ -148,7 +149,7 @@ export function ConfidenceScorecard({ horizon }: { horizon: Horizon }) {
             mid={1}
             digits={2}
             suffix=""
-            hint="Average win ÷ average loss. Near 1.0 means the edge comes from being right more often, not from bigger winners."
+            hint="Average win ÷ average loss. Above 1.0 means winners are bigger than losers — the v1 rule sat near 1.0 and won on frequency alone, which is how it decayed to zero EV."
           />
         </div>
       </StateMsg>
@@ -184,10 +185,10 @@ export function ExcursionTiles({ horizon }: { horizon: Horizon }) {
           />
         </div>
         <p className="mt-3 text-xs text-slate-600">
-          Measured over the {horizon} window from the fire price. The confident cohort's
-          edge shows up more in a <em>shallower</em> adverse excursion than in a bigger
-          favourable one — it loses less rather than winning bigger, which is also what
-          the ~1.0 payoff ratio is saying.
+          Measured over the {horizon} window from the fire price. The confident cohort
+          both runs further in your favour and draws down less — an MFE/MAE ratio near
+          <strong>2.0</strong> against roughly 0.8 for everything else. That asymmetry,
+          not the win rate, is what the v2 rule selects for.
         </p>
       </StateMsg>
     </Card>
@@ -353,10 +354,11 @@ export function SensitivityGrid({ horizon, metric }: { horizon: Horizon; metric:
   const { data, isLoading, isError } = usePerfConfidenceSensitivity(horizon)
   const rows = data ?? []
 
+  // Rows are sig/ATR cuts (deepest first), columns are reduction caps.
+  const sigAtrs = Array.from(new Set(rows.map((r) => r.max_sig_atr))).sort((a, b) => a - b)
   const reductions = Array.from(new Set(rows.map((r) => r.max_reduction))).sort((a, b) => a - b)
-  const peaks = Array.from(new Set(rows.map((r) => r.max_peak_pct))).sort((a, b) => a - b)
-  const cell = (red: number, pk: number): PerfConfidenceSensitivity | undefined =>
-    rows.find((r) => r.max_reduction === red && r.max_peak_pct === pk)
+  const cell = (sig: number, red: number): PerfConfidenceSensitivity | undefined =>
+    rows.find((r) => r.max_sig_atr === sig && r.max_reduction === red)
 
   const mid = metric === 'win' ? 55 : 1
   const span = metric === 'win' ? 15 : 1.5
@@ -371,24 +373,24 @@ export function SensitivityGrid({ horizon, metric }: { horizon: Horizon; metric:
           <table className="w-full border-separate text-sm" style={{ borderSpacing: 2 }}>
             <thead>
               <tr className="text-xs uppercase tracking-wide text-slate-500">
-                <th className="py-1 pr-2 text-left font-medium">Max red ↓ / peak pct →</th>
-                {peaks.map((p) => (
-                  <th key={p} className="px-2 py-1 text-center font-medium">
-                    &lt;{p}
+                <th className="py-1 pr-2 text-left font-medium">sig÷ATR ↓ / max red →</th>
+                {reductions.map((r) => (
+                  <th key={r} className="px-2 py-1 text-center font-medium">
+                    &lt;{r}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {reductions.map((red) => (
-                <tr key={red}>
-                  <td className="py-1 pr-2 text-slate-300">&lt;{red}</td>
-                  {peaks.map((pk) => {
-                    const c = cell(red, pk)
+              {sigAtrs.map((sig) => (
+                <tr key={sig}>
+                  <td className="py-1 pr-2 text-slate-300">&lt;{sig}</td>
+                  {reductions.map((red) => {
+                    const c = cell(sig, red)
                     const value = c ? (metric === 'win' ? c.win_pct : c.ev_pct) : null
                     return (
                       <td
-                        key={pk}
+                        key={red}
                         className={`rounded px-2 py-1.5 text-center tabular-nums ${
                           c?.is_current ? 'ring-2 ring-emerald-400' : ''
                         }`}
@@ -398,7 +400,7 @@ export function SensitivityGrid({ horizon, metric }: { horizon: Horizon; metric:
                         }}
                         title={
                           c
-                            ? `reduction <${red}, peak pct <${pk} · n=${c.n} (${c.share_pct}% of signals)` +
+                            ? `sig÷ATR <${sig}, reduction <${red} · n=${c.n} (${c.share_pct}% of signals)` +
                               (c.is_current ? ' · CURRENT SETTING' : '')
                             : 'no data'
                         }

@@ -213,8 +213,9 @@ class PerfConfidencePoint(BaseModel):
 
 
 class PerfConfidenceSensitivity(BaseModel):
+    # Grid axes for the v2 rule: signal-line-per-ATR cut x reduction cap.
+    max_sig_atr: float
     max_reduction: float
-    max_peak_pct: float
     n: int
     share_pct: float
     win_pct: Optional[float] = None
@@ -292,6 +293,9 @@ class AssetSignalRow(BaseModel):
     fire_hist_top_n: Optional[int] = None
     fire_rsi_14: Optional[float] = None
     sig_pct_of_price: Optional[float] = None
+    # The confidence rule's own axis — the signal line in ATR units. NULL when the
+    # snapshot join has no usable ATR.
+    sig_atr: Optional[float] = None
     # outcome
     ret_1d: Optional[float] = None
     ret_3d: Optional[float] = None

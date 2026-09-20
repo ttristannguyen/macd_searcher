@@ -49,8 +49,9 @@ export function Confidence() {
           <div>
             <h2 className="text-sm font-medium text-slate-300">High-confidence signals</h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              Bearish fires with a shallow reduction and an unremarkable peak for that
-              token — the slice bolded in Telegram.
+              Bullish fires with the MACD signal line at least half a daily range
+              below zero, and the histogram not yet mostly collapsed — the slice
+              bolded in Telegram.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

@@ -13,10 +13,14 @@ function keyMetric(s: SignalRow): string {
   return '—'
 }
 
-// Peak size vs this token's OWN prior same-sign tops. Measurement found the low
-// end is the good end for bearish fires — fading a monster move fails, fading a
-// tired one works — so a modest peak is highlighted, not dimmed. Bearish only;
-// bullish shows the number without a verdict. See docs/hist_peak_context.md.
+// Peak size vs this token's OWN prior same-sign tops.
+//
+// This used to paint a modest bearish peak green, on a measurement that a low
+// percentile was the good side. Re-measured through 2026-09 it is only RELATIVELY
+// better: bearish pct<40 runs -0.37% EV (and -4.88% in the recent half) against
+// -3.34% for pct>=40. Better than the alternative is not a reason to trade, so the
+// colour is gone and the number stays as context. The confidence marker moved to a
+// bullish sig/ATR rule instead — see docs/confidence_v2.md.
 const PEAK_TRUST_FLOOR = 3
 
 function PeakCell({ signal: s }: { signal: SignalRow }) {
@@ -26,16 +30,14 @@ function PeakCell({ signal: s }: { signal: SignalRow }) {
   }
 
   const thin = n < PEAK_TRUST_FLOOR
-  // Only bearish has held up across both regime halves, so only bearish is coloured.
-  const favourable = s.direction === 'bearish' && pct < 40
-  const colour = thin ? 'text-slate-500' : favourable ? 'text-emerald-400' : 'text-slate-300'
+  const colour = thin ? 'text-slate-500' : 'text-slate-300'
   const verdict = thin
     ? 'baseline too thin to read'
     : s.direction === 'bearish'
-      ? favourable
-        ? 'modest peak for this token — the side that has performed'
-        : 'large peak for this token — historically the weaker side'
-      : 'bullish: no reliable read yet'
+      ? pct < 40
+        ? 'modest peak for this token — loses less than a large one, but still negative EV'
+        : 'large peak for this token — the weakest slice measured'
+      : 'bullish: no reliable read from peak context'
 
   return (
     <td

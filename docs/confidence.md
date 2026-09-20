@@ -9,6 +9,17 @@ queryable dimension with a dashboard tab built to answer one question:
 The existing Outcomes tab is for *exploring* whether a factor matters. This is for
 *acting* on the ones that already do.
 
+> **⚠️ SUPERSEDED — this rule was retired on 2026-09-20.**
+> Re-measured on data through 2026-09-18 it had decayed from +2.65% EV to **+0.07%**,
+> with its second regime half at **−5.46%** and 2026-08 at −10.41%. The win rate held
+> at 60.9% the whole way: bearish signals run an MFE/MAE ratio near 0.6, so being
+> right six times in ten still loses money. **v1 selected for win rate on the wrong
+> side of the book.** Replaced by a bullish sig/ATR rule —
+> [confidence_v2.md](confidence_v2.md).
+>
+> Kept rather than deleted: the decay is the most useful thing in this document, and
+> the stability chart built here is what caught it.
+
 ## Context / why
 
 The rule (`bearish` + `reduction < 0.6` + `peak percentile < 40` + `top_n >= 3`)

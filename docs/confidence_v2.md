@@ -85,7 +85,7 @@ keeping 504 of 997 signals.
 
 7d EV across the two thresholds (cell = EV / n):
 
-| | red<0.5 | red<0.6 | red<0.7 | red<0.8 | no cap |
+| | 0.3–0.5 | 0.3–0.6 | 0.3–0.7 | 0.3–0.8 | 0.3–1.0 |
 |---|---|---|---|---|---|
 | **sig < −1.0** | +4.09 / 121 | +4.10 / 151 | +3.45 / 197 | +3.09 / 232 | +2.43 / 323 |
 | **sig < −0.75** | +4.20 / 235 | +4.37 / 313 | +3.88 / 401 | +3.60 / 465 | +2.89 / 622 |
@@ -96,6 +96,35 @@ keeping 504 of 997 signals.
 Every cell is positive and the surface is smooth — no isolated bright square. The
 chosen corner isn't the maximum (that's −0.75 / 0.6 at +4.37%); **−0.5 was picked
 for sample size, not for EV**, which is the right way round.
+
+### Reading the grid
+
+Both axes are **cumulative caps**, not bands: a cell holds every signal at or below
+that sig/ATR *and* inside that reduction range. The reduction range always starts at
+**0.3** — the detector's own `min_reduction_from_peak` — so the columns read
+`0.3–0.5`, `0.3–0.6` and so on, with `0.3–1.0` meaning no cap.
+
+(An earlier version labelled that last column `<1.1` — a sentinel that reads as a
+threshold reduction can never reach, and which prompted the obvious "this doesn't
+make sense". Measured range is 0.3000–0.9999 with nothing at or above 1.0, so `1.0`
+is the honest label and selects the identical cohort.)
+
+Because the axes nest, a cell tighter on **both** is a strict subset of the live
+rule — its signals are already inside what gets marked confident. The grid shades
+that whole region rather than ringing one square, so the rule reads as the area it
+actually is:
+
+```
+   sig/ATR      0.3-0.5    0.3-0.6    0.3-0.7    0.3-0.8    0.3-1.0
+   <= -1.0    #  +4.08  #  +4.09       +3.45      +3.09      +2.43
+   <= -0.75   #  +4.19  #  +4.36       +3.88      +3.61      +2.91
+   <= -0.5    #  +3.75  @  +3.87       +3.58      +3.36      +2.66
+   <= -0.25      +2.92     +2.86       +2.67      +2.48      +1.75
+   <= 0.0        +2.82     +2.52       +2.37      +2.17      +1.50
+```
+
+`@` is the setting in force (solid ring in the UI); `#` are its strict subsets
+(faint ring). Six cells, not one.
 
 ## Decisions (locked in)
 

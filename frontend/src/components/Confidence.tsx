@@ -360,6 +360,15 @@ export function SensitivityGrid({ horizon, metric }: { horizon: Horizon; metric:
   const cell = (sig: number, red: number): PerfConfidenceSensitivity | undefined =>
     rows.find((r) => r.max_sig_atr === sig && r.max_reduction === red)
 
+  // Both axes are cumulative caps, so a cell tighter on BOTH is a strict subset of
+  // the live rule — its signals are already inside what gets marked confident.
+  // Shading that whole region shows the rule as an area instead of a lone square,
+  // which is what the grid is actually describing. Derived from the flagged cell's
+  // own coordinates so the frontend needn't carry a copy of the thresholds.
+  const current = rows.find((r) => r.is_current)
+  const withinRule = (sig: number, red: number) =>
+    current != null && sig <= current.max_sig_atr && red <= current.max_reduction
+
   // Centred on the v2 grid's own range (win 50-71, EV +1.5 to +4.4) rather than on
   // an absolute good/bad line. Every cell in this grid is positive, so a scale
   // anchored at 0 would saturate almost all of them and flatten exactly the
@@ -377,10 +386,13 @@ export function SensitivityGrid({ horizon, metric }: { horizon: Horizon; metric:
           <table className="w-full border-separate text-sm" style={{ borderSpacing: 2 }}>
             <thead>
               <tr className="text-xs uppercase tracking-wide text-slate-500">
-                <th className="py-1 pr-2 text-left font-medium">sig÷ATR ↓ / max red →</th>
+                <th className="py-1 pr-2 text-left font-medium">sig÷ATR ↓ / reduction →</th>
                 {reductions.map((r) => (
                   <th key={r} className="px-2 py-1 text-center font-medium">
-                    &lt;{r}
+                    {/* Every cell is floored at the detector's own 0.3 minimum, so a
+                        bare "<0.6" reads as a band it isn't. 1.0 means no cap. */}
+                    0.3–{r.toFixed(1)}
+                    {r >= 1 && <span className="ml-1 normal-case text-slate-600">(all)</span>}
                   </th>
                 ))}
               </tr>
@@ -388,15 +400,20 @@ export function SensitivityGrid({ horizon, metric }: { horizon: Horizon; metric:
             <tbody>
               {sigAtrs.map((sig) => (
                 <tr key={sig}>
-                  <td className="py-1 pr-2 text-slate-300">&lt;{sig}</td>
+                  <td className="py-1 pr-2 text-slate-300">≤ {sig.toFixed(2)}</td>
                   {reductions.map((red) => {
                     const c = cell(sig, red)
                     const value = c ? (metric === 'win' ? c.win_pct : c.ev_pct) : null
+                    const inRule = withinRule(sig, red)
                     return (
                       <td
                         key={red}
                         className={`rounded px-2 py-1.5 text-center tabular-nums ${
-                          c?.is_current ? 'ring-2 ring-emerald-400' : ''
+                          c?.is_current
+                            ? 'ring-2 ring-emerald-400'
+                            : inRule
+                              ? 'ring-1 ring-emerald-400/40'
+                              : ''
                         }`}
                         style={{
                           background: sensColor(value, mid, span),
@@ -404,8 +421,12 @@ export function SensitivityGrid({ horizon, metric }: { horizon: Horizon; metric:
                         }}
                         title={
                           c
-                            ? `sig÷ATR <${sig}, reduction <${red} · n=${c.n} (${c.share_pct}% of signals)` +
-                              (c.is_current ? ' · CURRENT SETTING' : '')
+                            ? `sig÷ATR ≤ ${sig}, reduction 0.3–${red} · n=${c.n} (${c.share_pct}% of signals)` +
+                              (c.is_current
+                                ? ' · CURRENT SETTING'
+                                : inRule
+                                  ? ' · subset of the current rule'
+                                  : '')
                             : 'no data'
                         }
                       >
@@ -426,11 +447,16 @@ export function SensitivityGrid({ horizon, metric }: { horizon: Horizon; metric:
           </table>
         </div>
         <p className="mt-2 text-xs text-slate-600">
-          The ringed cell is the setting in force. Read this for <strong>shape, not for a
-          winner</strong>: a smooth region around the ring means the rule is robust to where
-          exactly the lines are drawn, while an isolated bright square would mean it is
-          fitted to noise. Retuning to the best-looking cell on the same data the rule was
-          derived from is how it gets overfit — that needs fresh data, not a brighter square.
+          Both axes are <strong>cumulative</strong>: a cell holds every signal at or below
+          that sig÷ATR and inside that reduction band, which always starts at the detector's
+          own 0.3 floor. The <span className="text-emerald-400">solid ring</span> is the
+          setting in force; the <span className="text-emerald-400/60">faint rings</span> are
+          cells tighter on both axes, so their signals are already a subset of what gets
+          marked confident. Read this for <strong>shape, not for a winner</strong>: a smooth
+          region around the ring means the rule is robust to where exactly the lines are
+          drawn, while an isolated bright square would mean it is fitted to noise. Retuning
+          to the best-looking cell on the same data the rule was derived from is how it gets
+          overfit — that needs fresh data, not a brighter square.
         </p>
       </StateMsg>
     </Card>

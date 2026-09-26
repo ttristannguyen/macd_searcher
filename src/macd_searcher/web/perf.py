@@ -636,8 +636,16 @@ def confidence_timeline(
 # Grid swept by `confidence_sensitivity`. Brackets the live thresholds on both
 # sides so the shape around them is visible — the point is to see whether the
 # current setting sits on a PLATEAU (robust) or a spike (fitted to noise).
+# Both axes are CUMULATIVE caps, not bands: a cell holds every signal at or below
+# that sig/ATR and below that reduction. So each cell is a nested region, and a cell
+# tighter on both axes is a strict subset of a looser one — which is what lets the
+# grid show the rule as an area rather than a point.
+#
+# The reduction axis is bounded below at 0.3 by the detector itself
+# (min_reduction_from_peak), so 1.0 is "no cap" rather than a real threshold —
+# measured range is 0.3000..0.9999 with nothing at or above 1.0.
 _SENSITIVITY_SIG_ATRS = (-1.0, -0.75, -0.5, -0.25, 0.0)
-_SENSITIVITY_REDUCTIONS = (0.5, 0.6, 0.7, 0.8, 1.1)
+_SENSITIVITY_REDUCTIONS = (0.5, 0.6, 0.7, 0.8, 1.0)
 
 
 def confidence_sensitivity(

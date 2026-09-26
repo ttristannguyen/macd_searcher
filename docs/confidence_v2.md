@@ -99,32 +99,32 @@ for sample size, not for EV**, which is the right way round.
 
 ### Reading the grid
 
-Both axes are **cumulative caps**, not bands: a cell holds every signal at or below
-that sig/ATR *and* inside that reduction range. The reduction range always starts at
-**0.3** — the detector's own `min_reduction_from_peak` — so the columns read
-`0.3–0.5`, `0.3–0.6` and so on, with `0.3–1.0` meaning no cap.
+Cells are **disjoint bands** on both axes — each bullish signal sits in exactly one
+cell, so a cell's win/EV describes that slice alone. Reduction bands run 0.3–0.4 …
+0.8–1.0 (0.3 is the detector's own floor; nothing reaches 1.0). The rule is a
+rectangle of whole cells, outlined as one box, and those 9 cells add up to exactly
+the confident cohort (n=514, +3.82% EV at 7d — a test pins this).
 
-(An earlier version labelled that last column `<1.1` — a sentinel that reads as a
-threshold reduction can never reach, and which prompted the obvious "this doesn't
-make sense". Measured range is 0.3000–0.9999 with nothing at or above 1.0, so `1.0`
-is the honest label and selects the identical cohort.)
-
-Because the axes nest, a cell tighter on **both** is a strict subset of the live
-rule — its signals are already inside what gets marked confident. The grid shades
-that whole region rather than ringing one square, so the rule reads as the area it
-actually is:
+7d EV / n, bullish only, box marked with `[ ]`:
 
 ```
-   sig/ATR      0.3-0.5    0.3-0.6    0.3-0.7    0.3-0.8    0.3-1.0
-   <= -1.0    #  +4.08  #  +4.09       +3.45      +3.09      +2.43
-   <= -0.75   #  +4.19  #  +4.36       +3.88      +3.61      +2.91
-   <= -0.5    #  +3.75  @  +3.87       +3.58      +3.36      +2.66
-   <= -0.25      +2.92     +2.86       +2.67      +2.48      +1.75
-   <= 0.0        +2.82     +2.52       +2.37      +2.17      +1.50
+   sig/ATR        0.3-0.4    0.4-0.5    0.5-0.6    0.6-0.7    0.7-0.8    0.8-1.0
+   < -1.0       [ +4.18/59   +3.71/64   +4.15/30 ]  +1.31/46   +1.08/35   +0.76/92
+   -1.0..-0.75  [ +3.82/61   +4.82/55   +5.30/49 ]  +3.24/47   +2.81/31   +1.01/70
+   -0.75..-0.5  [ +3.60/98   +2.21/62   +2.94/36 ]  +2.86/44   +2.31/49   +0.15/94
+   -0.5..-0.25    +1.65/98   +0.64/74   -0.05/65    +1.38/61   -0.08/53   -2.40/115
+   -0.25..0       +6.07/130  +0.76/89   +0.19/59    +1.77/43   -0.89/35   -1.28/71
+   >= 0           +3.35/269  +4.54/167  +6.38/92    -0.31/106  +0.85/75   +3.24/121
 ```
 
-`@` is the setting in force (solid ring in the UI); `#` are its strict subsets
-(faint ring). Six cells, not one.
+Every boxed cell is positive; the rows just below the box turn flat to negative.
+The bottom row (sig/ATR ≥ 0) is worth watching: several of its cells are strong on
+decent n. It sits outside the rule and would need its own regime check before it
+earned a place in it.
+
+An earlier version showed **cumulative** caps (each cell = everything below a
+threshold) with a `<1.1` "no cap" column. That was a threshold-sensitivity sweep,
+not a map of where the edge lives, and it was replaced at the user's request.
 
 ## Decisions (locked in)
 

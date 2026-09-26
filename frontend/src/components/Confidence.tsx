@@ -10,6 +10,7 @@
 // behind them is in docs/confidence_v2.md. (v1 was a bearish peak-context rule; it
 // decayed to +0.07% EV and was retired — docs/confidence.md keeps that record.)
 
+import { Fragment } from 'react'
 import {
   CartesianGrid,
   Legend,
@@ -342,121 +343,136 @@ export function StabilityChart({ horizon, metric }: { horizon: Horizon; metric: 
 
 function sensColor(v: number | null, mid: number, span: number): string {
   if (v == null) return '#0f172a'
+  // Diverging around a real line (0% EV / 50% win): with disjoint bands some cells
+  // genuinely lose money, and that should read as red, not as a paler green.
   const t = Math.max(-1, Math.min(1, (v - mid) / span))
-  // Single-hue teal ramp: this grid is about finding a smooth plateau, and a
-  // diverging scale would imply a good/bad split that isn't the question here.
   const alpha = 0.12 + 0.55 * Math.abs(t)
-  return t >= 0 ? `rgba(45, 212, 191, ${alpha})` : `rgba(100, 116, 139, ${alpha})`
+  return t >= 0 ? `rgba(16, 185, 129, ${alpha})` : `rgba(244, 63, 94, ${alpha})`
 }
 
-/** Threshold sensitivity — a plateau check, explicitly NOT a tuner. */
+// Below this a cell's win/EV is too noisy to read; it is shown dimmed, not hidden.
+const THIN_CELL = 20
+
+function sigBandLabel(lo: number | null, hi: number | null): string {
+  if (lo == null) return `< ${hi}`
+  if (hi == null) return `≥ ${lo}`
+  return `${lo} to ${hi}`
+}
+
+/** Bullish signals by sig/ATR band x reduction band, with the rule boxed. */
 export function SensitivityGrid({ horizon, metric }: { horizon: Horizon; metric: 'win' | 'ev' }) {
   const { data, isLoading, isError } = usePerfConfidenceSensitivity(horizon)
   const rows = data ?? []
 
-  // Rows are sig/ATR cuts (deepest first), columns are reduction caps.
-  const sigAtrs = Array.from(new Set(rows.map((r) => r.max_sig_atr))).sort((a, b) => a - b)
-  const reductions = Array.from(new Set(rows.map((r) => r.max_reduction))).sort((a, b) => a - b)
-  const cell = (sig: number, red: number): PerfConfidenceSensitivity | undefined =>
-    rows.find((r) => r.max_sig_atr === sig && r.max_reduction === red)
+  // Row order: deepest sig/ATR first (an open lower end sorts first). Columns:
+  // lowest reduction first. Both are read off the data, not hardcoded.
+  const sigKey = (r: PerfConfidenceSensitivity) => r.sig_atr_lo ?? -Infinity
+  const sigBands = Array.from(
+    new Map(rows.map((r) => [sigKey(r), { lo: r.sig_atr_lo, hi: r.sig_atr_hi }])).entries(),
+  )
+    .sort(([a], [b]) => a - b)
+    .map(([, band]) => band)
+  const redBands = Array.from(
+    new Map(rows.map((r) => [r.red_lo, { lo: r.red_lo, hi: r.red_hi }])).values(),
+  ).sort((a, b) => a.lo - b.lo)
+  const cell = (sigLo: number | null, redLo: number) =>
+    rows.find((r) => r.sig_atr_lo === sigLo && r.red_lo === redLo)
 
-  // Both axes are cumulative caps, so a cell tighter on BOTH is a strict subset of
-  // the live rule — its signals are already inside what gets marked confident.
-  // Shading that whole region shows the rule as an area instead of a lone square,
-  // which is what the grid is actually describing. Derived from the flagged cell's
-  // own coordinates so the frontend needn't carry a copy of the thresholds.
-  const current = rows.find((r) => r.is_current)
-  const withinRule = (sig: number, red: number) =>
-    current != null && sig <= current.max_sig_atr && red <= current.max_reduction
+  // The confident region as a rectangle of whole cells. The backend places the
+  // rule's thresholds on band edges, so the in-rule cells are always contiguous
+  // from the top-left corner — one box, not a scatter.
+  const ruleRows = sigBands.flatMap((b, i) => (rows.some((r) => r.in_rule && r.sig_atr_lo === b.lo) ? [i] : []))
+  const ruleCols = redBands.flatMap((b, j) => (rows.some((r) => r.in_rule && r.red_lo === b.lo) ? [j] : []))
+  const box =
+    ruleRows.length && ruleCols.length
+      ? {
+          // +2: grid line 1 is the header row / label column.
+          gridRow: `${Math.min(...ruleRows) + 2} / span ${ruleRows.length}`,
+          gridColumn: `${Math.min(...ruleCols) + 2} / span ${ruleCols.length}`,
+        }
+      : null
 
-  // Centred on the v2 grid's own range (win 50-71, EV +1.5 to +4.4) rather than on
-  // an absolute good/bad line. Every cell in this grid is positive, so a scale
-  // anchored at 0 would saturate almost all of them and flatten exactly the
-  // shape this panel exists to show. Recentre if a retune moves the range.
-  const mid = metric === 'win' ? 60 : 2.9
-  const span = metric === 'win' ? 10 : 1.5
+  const mid = metric === 'win' ? 50 : 0
+  const span = metric === 'win' ? 20 : 5
 
   return (
     <Card
-      title={metric === 'win' ? 'Threshold sensitivity — win rate' : 'Threshold sensitivity — EV'}
-      right={<span className="text-xs text-slate-500">{horizon}</span>}
+      title={metric === 'win' ? 'Win rate by sig÷ATR × reduction' : 'EV by sig÷ATR × reduction'}
+      right={<span className="text-xs text-slate-500">bullish · {horizon}</span>}
     >
       <StateMsg loading={isLoading} error={isError} empty={rows.length === 0}>
         <div className="overflow-x-auto">
-          <table className="w-full border-separate text-sm" style={{ borderSpacing: 2 }}>
-            <thead>
-              <tr className="text-xs uppercase tracking-wide text-slate-500">
-                <th className="py-1 pr-2 text-left font-medium">sig÷ATR ↓ / reduction →</th>
-                {reductions.map((r) => (
-                  <th key={r} className="px-2 py-1 text-center font-medium">
-                    {/* Every cell is floored at the detector's own 0.3 minimum, so a
-                        bare "<0.6" reads as a band it isn't. 1.0 means no cap. */}
-                    0.3–{r.toFixed(1)}
-                    {r >= 1 && <span className="ml-1 normal-case text-slate-600">(all)</span>}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sigAtrs.map((sig) => (
-                <tr key={sig}>
-                  <td className="py-1 pr-2 text-slate-300">≤ {sig.toFixed(2)}</td>
-                  {reductions.map((red) => {
-                    const c = cell(sig, red)
-                    const value = c ? (metric === 'win' ? c.win_pct : c.ev_pct) : null
-                    const inRule = withinRule(sig, red)
-                    return (
-                      <td
-                        key={red}
-                        className={`rounded px-2 py-1.5 text-center tabular-nums ${
-                          c?.is_current
-                            ? 'ring-2 ring-emerald-400'
-                            : inRule
-                              ? 'ring-1 ring-emerald-400/40'
-                              : ''
-                        }`}
-                        style={{
-                          background: sensColor(value, mid, span),
-                          color: value == null ? '#475569' : '#e2e8f0',
-                        }}
-                        title={
-                          c
-                            ? `sig÷ATR ≤ ${sig}, reduction 0.3–${red} · n=${c.n} (${c.share_pct}% of signals)` +
-                              (c.is_current
-                                ? ' · CURRENT SETTING'
-                                : inRule
-                                  ? ' · subset of the current rule'
-                                  : '')
-                            : 'no data'
-                        }
-                      >
-                        {value == null ? (
-                          '—'
-                        ) : (
-                          <>
-                            <div>{fmtPctPts(value, metric === 'win' ? 1 : 2, metric === 'ev')}</div>
-                            <div className="text-[10px] text-slate-300/70">n={c?.n}</div>
-                          </>
-                        )}
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div
+            className="relative grid min-w-[36rem] gap-0.5 text-sm"
+            style={{ gridTemplateColumns: `auto repeat(${redBands.length}, minmax(0, 1fr))` }}
+          >
+            {/* header row */}
+            <div className="py-1 pr-2 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+              sig÷ATR ↓ / red →
+            </div>
+            {redBands.map((b) => (
+              <div key={b.lo} className="px-1 py-1 text-center text-xs font-medium text-slate-500">
+                {b.lo.toFixed(1)}–{b.hi.toFixed(1)}
+              </div>
+            ))}
+
+            {/* body */}
+            {sigBands.map((sb) => (
+              <Fragment key={String(sb.lo)}>
+                <div className="py-1 pr-2 text-xs text-slate-300">{sigBandLabel(sb.lo, sb.hi)}</div>
+                {redBands.map((rb) => {
+                  const c = cell(sb.lo, rb.lo)
+                  const value = c ? (metric === 'win' ? c.win_pct : c.ev_pct) : null
+                  const thin = (c?.n ?? 0) < THIN_CELL
+                  return (
+                    <div
+                      key={rb.lo}
+                      className={`rounded px-1 py-1.5 text-center tabular-nums ${thin ? 'opacity-50' : ''}`}
+                      style={{
+                        background: sensColor(value, mid, span),
+                        color: value == null ? '#475569' : '#e2e8f0',
+                      }}
+                      title={
+                        c
+                          ? `sig÷ATR ${sigBandLabel(sb.lo, sb.hi)}, reduction ${rb.lo}–${rb.hi} · n=${c.n}` +
+                            (c.in_rule ? ' · inside the confidence rule' : '') +
+                            (thin ? ' · thin, read with care' : '')
+                          : 'no data'
+                      }
+                    >
+                      {value == null ? (
+                        '—'
+                      ) : (
+                        <>
+                          <div>{fmtPctPts(value, metric === 'win' ? 1 : 2, metric === 'ev')}</div>
+                          <div className="text-[10px] text-slate-300/70">n={c?.n}</div>
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+              </Fragment>
+            ))}
+
+            {/* One outline around the whole confident region, laid over the cells in
+                the same grid area so it tracks the layout exactly. */}
+            {box && (
+              <div
+                aria-hidden
+                className="pointer-events-none rounded-md ring-2 ring-emerald-400"
+                style={{ ...box, margin: -2 }}
+              />
+            )}
+          </div>
         </div>
         <p className="mt-2 text-xs text-slate-600">
-          Both axes are <strong>cumulative</strong>: a cell holds every signal at or below
-          that sig÷ATR and inside that reduction band, which always starts at the detector's
-          own 0.3 floor. The <span className="text-emerald-400">solid ring</span> is the
-          setting in force; the <span className="text-emerald-400/60">faint rings</span> are
-          cells tighter on both axes, so their signals are already a subset of what gets
-          marked confident. Read this for <strong>shape, not for a winner</strong>: a smooth
-          region around the ring means the rule is robust to where exactly the lines are
-          drawn, while an isolated bright square would mean it is fitted to noise. Retuning
-          to the best-looking cell on the same data the rule was derived from is how it gets
-          overfit — that needs fresh data, not a brighter square.
+          Bullish signals only, split into <strong>disjoint bands</strong> — each signal
+          sits in exactly one cell, so a cell describes that slice alone. The{' '}
+          <span className="text-emerald-400">outlined box</span> is the confidence rule
+          (sig÷ATR below −0.5, reduction 0.3–0.6); its cells add up to exactly the confident
+          cohort. Read it for whether the edge concentrates inside the box and fades outside
+          it. Faded cells have fewer than {THIN_CELL} signals. Picking the brightest cell on
+          the same data the rule came from is how it gets overfit — that needs fresh data.
         </p>
       </StateMsg>
     </Card>

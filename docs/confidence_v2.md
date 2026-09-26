@@ -227,8 +227,8 @@ to a still-derived rule.
 - [x] Confidence tab audited end to end against `prod_snapshot`: all five panels
       200 across horizons and with `classes=`, every tile/caption re-read for stale
       v1 wording, and each panel's numbers checked against the source data. Found
-      and fixed one real bug — see below. **Still not looked at as rendered pixels**;
-      layout and colour are verified by construction, not by eye.
+      and fixed one real bug — see below. Rendered and inspected in headless Edge at 1440, 1100, 1024 and
+      420px (see the heatmap note below).
 
 **Bug caught by the audit.** `SensitivityGrid`'s colour scale was still tuned to v1
 (`mid=1, span=1.5` for EV). v2's grid runs +1.47 to +4.37, so **18 of 25 cells
@@ -236,6 +236,14 @@ saturated** — every cell above 2.5 rendered identically and the plateau-vs-spi
 read, which is the panel's whole purpose, was flattened. Recentred on the grid's own
 range (EV mid 2.9 / span 1.5, win mid 60 / span 10): 0/25 saturated, and the plateau
 around the ringed cell is now visible with the falloff toward the loose corner.
+
+**Visual check (2026-09-27), rendered in headless Edge.** The banded heatmap
+first shipped broken: the rule outline was the only explicitly-placed CSS grid
+item, and grid places explicit items first and auto-flows the rest around them,
+so the nine rule cells were shoved out of position. Every item is now placed
+explicitly. Checked at 1440 / 1100 / 1024 (fits) and 420px (scrolls inside its
+card, as intended). The same pass caught two dropped JSX spaces ("near2.0",
+"moving</em>rather") and one pre-existing on the Scorecard tab, all fixed.
 
 ## Caveats to keep honest
 

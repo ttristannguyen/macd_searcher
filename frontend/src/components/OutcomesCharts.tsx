@@ -1004,7 +1004,7 @@ export function MacdSignalAnalysis() {
           <p className="text-xs text-slate-600">
             Both groups plot the same value — the MACD signal line at fire — under two
             normalizations. <strong>÷ ATR</strong> is roughly 7 bars of trend drift per bar
-            of typical range, so it reads as <em>how cleanly the trend was moving</em>
+            of typical range, so it reads as <em>how cleanly the trend was moving</em>{' '}
             rather than how far, and it stays comparable across asset classes.{' '}
             <strong>÷ price</strong> is the more legible unit ("3% of price above
             equilibrium") but is partly an asset-class proxy, since MACD scales with

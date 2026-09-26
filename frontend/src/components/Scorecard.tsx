@@ -120,7 +120,7 @@ export function ScorecardLegend() {
         </Def>
         <Def term="Win % (95% CI)">
           Share of signals that resolved in the predicted direction (bullish up /
-          bearish down), with the Wilson confidence interval. A <em>wide</em>
+          bearish down), with the Wilson confidence interval. A <em>wide</em>{' '}
           bracket means too few signals to trust yet.
         </Def>
         <Def term="EV % (95% CI)">

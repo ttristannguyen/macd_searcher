@@ -187,7 +187,7 @@ export function ExcursionTiles({ horizon }: { horizon: Horizon }) {
         </div>
         <p className="mt-3 text-xs text-slate-600">
           Measured over the {horizon} window from the fire price. The confident cohort
-          both runs further in your favour and draws down less — an MFE/MAE ratio near
+          both runs further in your favour and draws down less — an MFE/MAE ratio near{' '}
           <strong>2.0</strong> against roughly 0.8 for everything else. That asymmetry,
           not the win rate, is what the v2 rule selects for.
         </p>
@@ -353,10 +353,15 @@ function sensColor(v: number | null, mid: number, span: number): string {
 // Below this a cell's win/EV is too noisy to read; it is shown dimmed, not hidden.
 const THIN_CELL = 20
 
+/** Signed edge with a true minus sign, fixed width so the row labels align. */
+function fmtEdge(v: number): string {
+  return `${v < 0 ? '−' : ''}${Math.abs(v).toFixed(2)}`
+}
+
 function sigBandLabel(lo: number | null, hi: number | null): string {
-  if (lo == null) return `< ${hi}`
-  if (hi == null) return `≥ ${lo}`
-  return `${lo} to ${hi}`
+  if (lo == null && hi != null) return `< ${fmtEdge(hi)}`
+  if (hi == null && lo != null) return `≥ ${fmtEdge(lo)}`
+  return `${fmtEdge(lo ?? 0)} to ${fmtEdge(hi ?? 0)}`
 }
 
 /** Bullish signals by sig/ATR band x reduction band, with the rule boxed. */
@@ -364,88 +369,117 @@ export function SensitivityGrid({ horizon, metric }: { horizon: Horizon; metric:
   const { data, isLoading, isError } = usePerfConfidenceSensitivity(horizon)
   const rows = data ?? []
 
-  // Row order: deepest sig/ATR first (an open lower end sorts first). Columns:
-  // lowest reduction first. Both are read off the data, not hardcoded.
-  const sigKey = (r: PerfConfidenceSensitivity) => r.sig_atr_lo ?? -Infinity
+  // Row order: deepest sig/ATR first (the open lower end sorts first). Columns:
+  // lowest reduction first. Both are read off the data rather than hardcoded.
   const sigBands = Array.from(
-    new Map(rows.map((r) => [sigKey(r), { lo: r.sig_atr_lo, hi: r.sig_atr_hi }])).entries(),
+    new Map(rows.map((r) => [r.sig_atr_lo ?? -Infinity, { lo: r.sig_atr_lo, hi: r.sig_atr_hi }])).entries(),
   )
     .sort(([a], [b]) => a - b)
     .map(([, band]) => band)
   const redBands = Array.from(
     new Map(rows.map((r) => [r.red_lo, { lo: r.red_lo, hi: r.red_hi }])).values(),
   ).sort((a, b) => a.lo - b.lo)
-  const cell = (sigLo: number | null, redLo: number) =>
+  const cell = (sigLo: number | null, redLo: number): PerfConfidenceSensitivity | undefined =>
     rows.find((r) => r.sig_atr_lo === sigLo && r.red_lo === redLo)
 
-  // The confident region as a rectangle of whole cells. The backend places the
-  // rule's thresholds on band edges, so the in-rule cells are always contiguous
-  // from the top-left corner — one box, not a scatter.
-  const ruleRows = sigBands.flatMap((b, i) => (rows.some((r) => r.in_rule && r.sig_atr_lo === b.lo) ? [i] : []))
-  const ruleCols = redBands.flatMap((b, j) => (rows.some((r) => r.in_rule && r.red_lo === b.lo) ? [j] : []))
-  const box =
-    ruleRows.length && ruleCols.length
-      ? {
-          // +2: grid line 1 is the header row / label column.
-          gridRow: `${Math.min(...ruleRows) + 2} / span ${ruleRows.length}`,
-          gridColumn: `${Math.min(...ruleCols) + 2} / span ${ruleCols.length}`,
-        }
-      : null
+  // EVERY item below is placed explicitly, and that is load-bearing. CSS grid lays
+  // out explicitly-positioned items first and then auto-flows the rest AROUND them,
+  // so an explicitly placed outline among auto-placed cells shoves the cells out of
+  // position (that was the original bug: a 3x3 hole with the data wrapped past it).
+  // With everything explicit, grid items may overlap, and the outline sits on top.
+  const HEADER_ROWS = 2 // axis title, then band labels
+  const LABEL_COLS = 1
+  const place = (row: number, col: number, rowSpan = 1, colSpan = 1) => ({
+    gridRow: `${row + 1} / span ${rowSpan}`,
+    gridColumn: `${col + 1} / span ${colSpan}`,
+  })
+
+  // The confident region as a rectangle of whole cells. The rule is
+  // "sig/ATR below X and reduction below Y" over ascending bands, so its cells are
+  // always a contiguous block anchored at the top-left — one box, never a scatter.
+  const ruleRowCount = sigBands.filter((b) => rows.some((r) => r.in_rule && r.sig_atr_lo === b.lo)).length
+  const ruleColCount = redBands.filter((b) => rows.some((r) => r.in_rule && r.red_lo === b.lo)).length
 
   const mid = metric === 'win' ? 50 : 0
   const span = metric === 'win' ? 20 : 5
 
   return (
     <Card
-      title={metric === 'win' ? 'Win rate by sig÷ATR × reduction' : 'EV by sig÷ATR × reduction'}
+      title={metric === 'win' ? 'Win rate — signal line × reduction' : 'EV — signal line × reduction'}
       right={<span className="text-xs text-slate-500">bullish · {horizon}</span>}
     >
       <StateMsg loading={isLoading} error={isError} empty={rows.length === 0}>
         <div className="overflow-x-auto">
           <div
-            className="relative grid min-w-[36rem] gap-0.5 text-sm"
-            style={{ gridTemplateColumns: `auto repeat(${redBands.length}, minmax(0, 1fr))` }}
+            className="grid gap-0.5"
+            style={{
+              gridTemplateColumns: `max-content repeat(${redBands.length}, minmax(3.25rem, 1fr))`,
+              minWidth: '28rem',
+            }}
           >
-            {/* header row */}
-            <div className="py-1 pr-2 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-              sig÷ATR ↓ / red →
+            {/* column-axis title */}
+            <div
+              className="pb-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-slate-500"
+              style={place(0, LABEL_COLS, 1, redBands.length)}
+            >
+              reduction from peak →
             </div>
-            {redBands.map((b) => (
-              <div key={b.lo} className="px-1 py-1 text-center text-xs font-medium text-slate-500">
+
+            {/* row-axis title + band labels */}
+            <div
+              className="self-end pb-1 pr-3 text-[10px] font-medium uppercase tracking-wide text-slate-500"
+              style={place(1, 0)}
+            >
+              signal ÷ ATR ↓
+            </div>
+            {redBands.map((b, j) => (
+              <div
+                key={b.lo}
+                className="self-end pb-1 text-center text-xs tabular-nums text-slate-400"
+                style={place(1, LABEL_COLS + j)}
+              >
                 {b.lo.toFixed(1)}–{b.hi.toFixed(1)}
               </div>
             ))}
 
-            {/* body */}
-            {sigBands.map((sb) => (
+            {sigBands.map((sb, i) => (
               <Fragment key={String(sb.lo)}>
-                <div className="py-1 pr-2 text-xs text-slate-300">{sigBandLabel(sb.lo, sb.hi)}</div>
-                {redBands.map((rb) => {
+                <div
+                  className="flex items-center whitespace-nowrap pr-3 text-xs tabular-nums text-slate-300"
+                  style={place(HEADER_ROWS + i, 0)}
+                >
+                  {sigBandLabel(sb.lo, sb.hi)}
+                </div>
+                {redBands.map((rb, j) => {
                   const c = cell(sb.lo, rb.lo)
                   const value = c ? (metric === 'win' ? c.win_pct : c.ev_pct) : null
                   const thin = (c?.n ?? 0) < THIN_CELL
                   return (
                     <div
                       key={rb.lo}
-                      className={`rounded px-1 py-1.5 text-center tabular-nums ${thin ? 'opacity-50' : ''}`}
+                      className={`flex h-12 flex-col items-center justify-center rounded tabular-nums ${
+                        thin ? 'opacity-50' : ''
+                      }`}
                       style={{
+                        ...place(HEADER_ROWS + i, LABEL_COLS + j),
                         background: sensColor(value, mid, span),
-                        color: value == null ? '#475569' : '#e2e8f0',
                       }}
                       title={
                         c
-                          ? `sig÷ATR ${sigBandLabel(sb.lo, sb.hi)}, reduction ${rb.lo}–${rb.hi} · n=${c.n}` +
+                          ? `signal ÷ ATR ${sigBandLabel(sb.lo, sb.hi)}, reduction ${rb.lo}–${rb.hi} · n=${c.n}` +
                             (c.in_rule ? ' · inside the confidence rule' : '') +
                             (thin ? ' · thin, read with care' : '')
                           : 'no data'
                       }
                     >
                       {value == null ? (
-                        '—'
+                        <span className="text-slate-600">—</span>
                       ) : (
                         <>
-                          <div>{fmtPctPts(value, metric === 'win' ? 1 : 2, metric === 'ev')}</div>
-                          <div className="text-[10px] text-slate-300/70">n={c?.n}</div>
+                          <span className="text-[13px] font-medium leading-tight text-slate-50">
+                            {fmtPctPts(value, metric === 'win' ? 1 : 2, metric === 'ev')}
+                          </span>
+                          <span className="text-[10px] leading-tight text-slate-300/70">n={c?.n}</span>
                         </>
                       )}
                     </div>
@@ -454,25 +488,30 @@ export function SensitivityGrid({ horizon, metric }: { horizon: Horizon; metric:
               </Fragment>
             ))}
 
-            {/* One outline around the whole confident region, laid over the cells in
-                the same grid area so it tracks the layout exactly. */}
-            {box && (
+            {/* One outline around the whole confident region. Neutral ink rather than
+                a data colour: it annotates, it doesn't encode a value, so it must stay
+                legible over both the green and the red cells. */}
+            {ruleRowCount > 0 && ruleColCount > 0 && (
               <div
                 aria-hidden
-                className="pointer-events-none rounded-md ring-2 ring-emerald-400"
-                style={{ ...box, margin: -2 }}
+                className="pointer-events-none relative z-10 rounded-md border-2 border-slate-100"
+                style={{
+                  ...place(HEADER_ROWS, LABEL_COLS, ruleRowCount, ruleColCount),
+                  margin: '-3px',
+                }}
               />
             )}
           </div>
         </div>
-        <p className="mt-2 text-xs text-slate-600">
+        <p className="mt-3 text-xs text-slate-600">
           Bullish signals only, split into <strong>disjoint bands</strong> — each signal
           sits in exactly one cell, so a cell describes that slice alone. The{' '}
-          <span className="text-emerald-400">outlined box</span> is the confidence rule
-          (sig÷ATR below −0.5, reduction 0.3–0.6); its cells add up to exactly the confident
-          cohort. Read it for whether the edge concentrates inside the box and fades outside
-          it. Faded cells have fewer than {THIN_CELL} signals. Picking the brightest cell on
-          the same data the rule came from is how it gets overfit — that needs fresh data.
+          <span className="font-medium text-slate-300">outlined box</span> is the confidence
+          rule (signal ÷ ATR below −0.50, reduction 0.3–0.6); its cells add up to exactly the
+          confident cohort. Read it for whether the edge concentrates inside the box and
+          fades outside it. Faded cells have fewer than {THIN_CELL} signals. Picking the
+          brightest cell on the same data the rule came from is how it gets overfit — that
+          needs fresh data.
         </p>
       </StateMsg>
     </Card>

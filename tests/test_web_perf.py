@@ -598,23 +598,26 @@ def test_confidence_timeline_buckets_by_month(confidence_client):
     assert sum(r["n"] for r in rows) == len(_CONF_CASES)
 
 
-def test_confidence_sensitivity_grid_marks_current_and_agrees_with_summary(confidence_client):
-    """The flagged cell must reproduce the headline exactly — if the grid and the
-    summary disagree, one of them is lying about what the rule does."""
+def test_confidence_sensitivity_box_tiles_the_confident_cohort(confidence_client):
+    """Cells are disjoint bands, and the boxed (`in_rule`) ones must add up to the
+    confident cohort exactly — if they don't, the box on the tab is drawn around
+    something other than what gets marked confident."""
     grid = confidence_client.get("/api/perf/confidence-sensitivity").json()
-    assert len(grid) == 5 * 5
+    assert len(grid) == 6 * 6
 
-    current = [c for c in grid if c["is_current"]]
-    assert len(current) == 1
-    cell = current[0]
-    assert cell["max_sig_atr"] == signals.CONFIDENCE_MAX_SIG_ATR
-    assert cell["max_reduction"] == signals.CONFIDENCE_MAX_REDUCTION
+    box = [c for c in grid if c["in_rule"]]
+    assert box, "the rule should cover at least one cell"
+    # Every boxed band sits wholly below both thresholds.
+    for c in box:
+        assert c["sig_atr_hi"] is not None and c["sig_atr_hi"] <= signals.CONFIDENCE_MAX_SIG_ATR
+        assert c["red_hi"] <= signals.CONFIDENCE_MAX_REDUCTION
 
     summary = confidence_client.get("/api/perf/confidence-summary").json()
     conf = next(r for r in summary if r["cohort"] == "confident")
-    assert cell["n"] == conf["n"]
-    assert cell["win_pct"] == conf["win_pct"]
-    assert cell["ev_pct"] == conf["ev_pct"]
+    boxed_n = sum(c["n"] for c in box)
+    assert boxed_n == conf["n"]
+    boxed_ev = sum(c["n"] * c["ev_pct"] for c in box if c["n"]) / boxed_n
+    assert boxed_ev == pytest.approx(conf["ev_pct"], abs=0.01)
 
 
 def test_confidence_endpoints_respect_class_filter(confidence_client):

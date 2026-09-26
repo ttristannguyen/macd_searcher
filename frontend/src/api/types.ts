@@ -228,14 +228,17 @@ export interface PerfConfidencePoint {
 }
 
 export interface PerfConfidenceSensitivity {
-  // v2 axes: signal-line-per-ATR cut x reduction cap.
-  max_sig_atr: number
-  max_reduction: number
+  // One DISJOINT cell: bullish signals with sig/ATR in [lo, hi) and reduction in
+  // [red_lo, red_hi). A null sig edge is an open end (JSON has no infinity).
+  sig_atr_lo: number | null
+  sig_atr_hi: number | null
+  red_lo: number
+  red_hi: number
   n: number
   share_pct: number
   win_pct: number | null
   ev_pct: number | null
-  is_current: boolean
+  in_rule: boolean // inside the live confidence rule; these cells tile it exactly
 }
 
 // One row per (horizon, direction, peak-vs-own-history percentile band). Low

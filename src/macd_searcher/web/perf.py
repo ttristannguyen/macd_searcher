@@ -636,16 +636,23 @@ def confidence_timeline(
 # Grid swept by `confidence_sensitivity`. Brackets the live thresholds on both
 # sides so the shape around them is visible — the point is to see whether the
 # current setting sits on a PLATEAU (robust) or a spike (fitted to noise).
-# Both axes are CUMULATIVE caps, not bands: a cell holds every signal at or below
-# that sig/ATR and below that reduction. So each cell is a nested region, and a cell
-# tighter on both axes is a strict subset of a looser one — which is what lets the
-# grid show the rule as an area rather than a point.
+# Band edges for `confidence_sensitivity`. Each cell is a DISJOINT band on both
+# axes — a signal lands in exactly one cell — so a cell's win/EV describes that
+# slice alone, not everything below it. The confidence rule is then a rectangle of
+# whole cells (sig/ATR < -0.5, reduction 0.3-0.6), which the UI outlines as one box.
 #
-# The reduction axis is bounded below at 0.3 by the detector itself
-# (min_reduction_from_peak), so 1.0 is "no cap" rather than a real threshold —
-# measured range is 0.3000..0.9999 with nothing at or above 1.0.
-_SENSITIVITY_SIG_ATRS = (-1.0, -0.75, -0.5, -0.25, 0.0)
-_SENSITIVITY_REDUCTIONS = (0.5, 0.6, 0.7, 0.8, 1.0)
+# Edges are chosen so the rule's thresholds fall exactly ON band boundaries; that is
+# what makes the boxed cells' union equal the confident cohort signal-for-signal
+# (a test pins this). Reduction starts at 0.3 because the detector never fires
+# below its own min_reduction_from_peak, and the last band closes at 1.0, which no
+# signal reaches (measured max 0.9999).
+_SIG_ATR_EDGES = (float("-inf"), -1.0, -0.75, -0.5, -0.25, 0.0, float("inf"))
+_REDUCTION_EDGES = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0)
+
+
+def _edge(v: float) -> float | None:
+    """JSON can't carry infinity; an open end is sent as null."""
+    return None if v in (float("inf"), float("-inf")) else v
 
 
 def confidence_sensitivity(
@@ -653,14 +660,15 @@ def confidence_sensitivity(
     horizon: Horizon = "7d",
     classes: list[str] | None = None,
 ) -> list[dict]:
-    """Win-rate / EV across a grid of the two confidence thresholds.
+    """Win-rate / EV of bullish signals by sig/ATR band x reduction band.
 
-    Diagnostic, NOT a tuner: retuning to the best-looking cell on the same data the
-    rule was fitted on is how this becomes overfit. Read it for smoothness around
-    the current setting, which is flagged by `is_current`.
+    Cells are disjoint, and `in_rule` marks those inside the live confidence rule —
+    together they tile it exactly. Read the grid for whether the edge is
+    concentrated inside the box and fades outside it; it is a diagnostic, not a
+    tuner (picking the brightest cell on the data the rule came from is overfitting).
 
     One pass over the candidate rows; the grid is evaluated in Python because
-    twenty SQL round-trips for twenty cells would be silly.
+    thirty-six SQL round-trips for thirty-six cells would be silly.
     """
     col = f"ret_{horizon}"
     cte, params = _base(classes)
@@ -672,8 +680,7 @@ def confidence_sensitivity(
 
     rows = [dict(r) for r in conn.execute(sql, tuple(params))]
     total = len(rows)
-    # The cohort is bullish-only; that condition is fixed and only the two
-    # thresholds move across the grid.
+    # The rule is bullish-only, so the grid describes the bullish book.
     eligible = [
         r for r in rows
         if r["direction"] == "bullish"
@@ -682,23 +689,29 @@ def confidence_sensitivity(
     ]
 
     out: list[dict] = []
-    for max_sig_atr in _SENSITIVITY_SIG_ATRS:
-        for max_red in _SENSITIVITY_REDUCTIONS:
-            hits = [r for r in eligible
-                    if r["sig_atr"] < max_sig_atr and r["red"] < max_red]
+    for sig_lo, sig_hi in zip(_SIG_ATR_EDGES, _SIG_ATR_EDGES[1:]):
+        for red_lo, red_hi in zip(_REDUCTION_EDGES, _REDUCTION_EDGES[1:]):
+            # The last reduction band is closed at the top so nothing at exactly
+            # 1.0 could fall through; nothing does today, but it costs nothing.
+            last_red = red_hi == _REDUCTION_EDGES[-1]
+            hits = [
+                r for r in eligible
+                if sig_lo <= r["sig_atr"] < sig_hi
+                and red_lo <= r["red"] and (r["red"] <= red_hi if last_red else r["red"] < red_hi)
+            ]
             n = len(hits)
             arr = np.asarray([r["r"] for r in hits], dtype=float) if n else None
             out.append({
-                "max_sig_atr": max_sig_atr,
-                "max_reduction": max_red,
+                "sig_atr_lo": _edge(sig_lo),
+                "sig_atr_hi": _edge(sig_hi),
+                "red_lo": red_lo,
+                "red_hi": red_hi,
                 "n": n,
                 "share_pct": round(n / total * 100, 1) if total else 0.0,
                 "win_pct": round(float((arr > 0).mean()) * 100, 1) if n else None,
                 "ev_pct": round(float(arr.mean()) * 100, 2) if n else None,
-                "is_current": (
-                    max_sig_atr == CONFIDENCE_MAX_SIG_ATR
-                    and max_red == CONFIDENCE_MAX_REDUCTION
-                ),
+                # Inside the rule iff the whole band sits below both thresholds.
+                "in_rule": sig_hi <= CONFIDENCE_MAX_SIG_ATR and red_hi <= CONFIDENCE_MAX_REDUCTION,
             })
     return out
 

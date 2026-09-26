@@ -213,14 +213,17 @@ class PerfConfidencePoint(BaseModel):
 
 
 class PerfConfidenceSensitivity(BaseModel):
-    # Grid axes for the v2 rule: signal-line-per-ATR cut x reduction cap.
-    max_sig_atr: float
-    max_reduction: float
+    # One DISJOINT cell: bullish signals with sig/ATR in [lo, hi) and reduction in
+    # [red_lo, red_hi). Null sig edges are open ends (JSON has no infinity).
+    sig_atr_lo: Optional[float] = None
+    sig_atr_hi: Optional[float] = None
+    red_lo: float
+    red_hi: float
     n: int
     share_pct: float
     win_pct: Optional[float] = None
     ev_pct: Optional[float] = None
-    is_current: bool    # marks the thresholds actually in force
+    in_rule: bool   # inside the live confidence rule; these cells tile it exactly
 
 
 class PerfMacdSignalPctBucket(BaseModel):

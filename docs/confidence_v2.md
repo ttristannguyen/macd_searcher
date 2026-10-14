@@ -5,6 +5,14 @@ Working doc + plan + progress tracker. **Retires** the current
 with a bullish rule built on the MACD signal line's distance from zero. **Built** — all phases done;
 one visual check outstanding.
 
+> **Audited 2026-10-14 — read [confidence_v3_research.md](confidence_v3_research.md)
+> before relying on the numbers below.** Measured against a same-instant,
+> same-class benchmark, v2's +3.82% in-sample EV is +4.60% market move and −0.56%
+> alpha: it timed class-wide bounces but picked assets no better than their peers,
+> and `sig/ATR` carries no selection information. Out of sample its raw EV is
+> negative. The same audit finds v1 was retired on a market rally rather than a
+> broken rule, and proposes a `peak_pct`-based v3.
+
 ## Why retire v1
 
 v1 was derived on data through 2026-08-06 and measured 70.1% win / +2.65% EV at 7d,

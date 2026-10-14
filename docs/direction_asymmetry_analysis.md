@@ -355,11 +355,13 @@ class-day. Four holes, the first two fatal:
    would reverse in a chop or a downtrend. This is the single biggest risk to the
    finding.
 4. **Effect size is unstable even inside that regime** — H1 +0.24% vs H2 +1.36%.
-5. **Funding is not measured.** These are perps; a sustained long in a bull market
-   pays funding continuously, and we store no funding data (`runs`,
-   `asset_snapshots`, `signals` have no funding column). At typical perp funding a
-   7-day hold would eat most or all of a +0.86% alpha on its own. **There is very
-   likely nothing left net of carry.**
+5. **Funding is not stored** (`runs`, `asset_snapshots`, `signals` have no funding
+   column). ~~At typical perp funding a 7-day hold would eat most or all of a +0.86%
+   alpha.~~ **Measured since, and this was an overstatement:** realised funding over a
+   7-day long hold averaged **+0.16–0.18%** of notional (≈8–9% APR) across the book —
+   about a fifth of a +0.86% alpha, not most of it. Funding is a cost, not the reason
+   the flip fails; the split-half failure above is. See
+   [confidence_v3_research.md](confidence_v3_research.md) §7.
 
 Also unmeasured: fees, slippage, borrow, and the fact that every number here is a
 close-to-close paper return on a signal that fired intraday on a forming bar.

@@ -15,7 +15,8 @@ dashboard API and any offline analysis script can share them.
 
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from datetime import date
+from typing import Iterable, Optional, Sequence
 
 import numpy as np
 
@@ -54,3 +55,64 @@ def summarize(values: Iterable[Optional[float]], winsor: float = 0.05) -> Option
         # Sample std (ddof=1); undefined for a single point.
         "std": float(arr.std(ddof=1)) if n > 1 else None,
     }
+
+
+# ---------- dependence-aware inference ----------
+#
+# Signals are not independent: forward windows overlap, many symbols fire on the
+# same day, and ~69% of deduped signals re-fire the next day. Resampling single rows
+# reports significance that is not there. Group repeat fires into episodes, and
+# resample whole blocks (weeks) — see docs/research_method.md.
+
+CI_LEVEL = 0.95
+
+
+def block_ci(values, blocks, n_boot: int = 2000, seed: int = 0) -> tuple[float, float, float]:
+    """(mean, lo, hi), resampling whole blocks with replacement.
+
+    Vectorised over per-block sums and counts, so it is cheap enough to run on every
+    cell of a report or a dashboard panel. NaN values are dropped; the interval is
+    NaN with fewer than 3 blocks.
+    """
+    v = np.asarray(values, dtype=float)
+    b = np.asarray(blocks)
+    keep = ~np.isnan(v)
+    v, b = v[keep], b[keep]
+    if len(v) == 0:
+        return float("nan"), float("nan"), float("nan")
+    keys, inv = np.unique(b, return_inverse=True)
+    if len(keys) < 3:
+        return float(v.mean()), float("nan"), float("nan")
+    sums = np.bincount(inv, weights=v)
+    counts = np.bincount(inv)
+    idx = np.random.default_rng(seed).integers(0, len(keys), size=(n_boot, len(keys)))
+    boot = sums[idx].sum(axis=1) / counts[idx].sum(axis=1)
+    tail = (1 - CI_LEVEL) / 2 * 100
+    lo, hi = np.percentile(boot, [tail, 100 - tail])
+    return float(v.mean()), float(lo), float(hi)
+
+
+def episodes(symbols: Sequence[str], directions: Sequence[str], days: Sequence[str],
+             gap_days: int = 1) -> tuple[list[str], list[bool]]:
+    """Group repeat fires into episodes; returns ``(episode_id, is_first_fire)`` per
+    input row, in input order.
+
+    A fire whose same-symbol, same-direction predecessor fired within ``gap_days``
+    calendar days (``days`` are 'YYYY-MM-DD') continues that episode.
+    """
+    n = len(symbols)
+    order = sorted(range(n), key=lambda i: (symbols[i], directions[i], days[i]))
+    last: dict[tuple[str, str], date] = {}
+    count: dict[tuple[str, str], int] = {}
+    ids, starts = [""] * n, [False] * n
+    for i in order:
+        key = (symbols[i], directions[i])
+        d = date.fromisoformat(days[i])
+        prev = last.get(key)
+        start = prev is None or (d - prev).days > gap_days
+        if start:
+            count[key] = count.get(key, 0) + 1
+        ids[i] = f"{symbols[i]}|{directions[i]}|{count[key]}"
+        starts[i] = start
+        last[key] = d
+    return ids, starts

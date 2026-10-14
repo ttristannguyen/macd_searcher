@@ -189,6 +189,34 @@ class PerfRsiBucket(BaseModel):
     avg_ret_pct: Optional[float] = None
 
 
+class PerfRuleCompare(BaseModel):
+    # 'v2' = the live marker; 'v3' / 'v3_bear' = shadow legs (signals.CONFIDENCE_V3_*);
+    # 'record' = bullish fires on a record trough (the warning); 'all' = everything.
+    rule: str
+    n: int
+    episodes: int                        # repeat fires grouped — the effective sample size
+    win_pct: float
+    ev_pct: Optional[float] = None       # raw EV = market_pct + alpha_pct where benchmarked
+    market_pct: Optional[float] = None   # what a random same-class asset gave this side
+    alpha_pct: Optional[float] = None    # what the rule's choice of asset added
+    alpha_lo: Optional[float] = None     # 95% CI: one number per episode, weeks resampled
+    alpha_hi: Optional[float] = None
+    n_alpha: int                         # rows with a benchmark
+
+
+class PerfRuleMonth(BaseModel):
+    rule: str
+    month: str
+    n: int
+    alpha_pct: float
+
+
+class PerfConfidenceCompare(BaseModel):
+    horizon: str
+    rules: list[PerfRuleCompare]
+    months: list[PerfRuleMonth]
+
+
 class PerfConfidenceSummary(BaseModel):
     # 'confident' = the measured high-expectancy slice (see signals.is_high_confidence);
     # 'rest' = every other scored signal. Always read as a pair.

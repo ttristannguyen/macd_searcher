@@ -145,6 +145,41 @@ def is_high_confidence(s: Signal) -> bool:
     return per_atr is not None and per_atr < CONFIDENCE_MAX_SIG_ATR
 
 
+# ---------- confidence v3 — SHADOW, not yet the live marker ----------
+#
+# Measured 2026-10-14 (docs/confidence_v3_research.md, plan in docs/confidence_v3.md).
+# Against a same-run, same-class benchmark, v2's in-sample edge was market move, not
+# selection (alpha -0.56%), and sig/ATR carries no selection information. peak_pct is
+# the one feature that survives episode-level and out-of-sample checks.
+#
+# These are shown on the Confidence tab beside v2 and do NOT bold Telegram rows until
+# the research watchlist confirms them out of sample (docs/confidence_v3.md, Phase 4).
+#
+# WHY peak_pct, in one line: a record histogram trough is usually a token-specific
+# collapse (median -10% vs its class over the prior 14 days), and those keep drifting
+# — the flattening is deceleration, not exhaustion. A modest trough is the token's
+# normal rhythm and mean-reverts against its peers.
+CONFIDENCE_V3_MAX_PEAK_PCT = 50       # no deeper than the token's median swing
+CONFIDENCE_V3_MAX_REDUCTION = 0.6     # same late-entry cap as v2
+CONFIDENCE_V3_BEAR_MAX_PEAK_PCT = 25  # bearish leg: tracked only, fails episode-level inference
+RECORD_PEAK_PCT = 100                 # the deepest excursion in the lookback window
+
+
+def is_v3_confident(s: Signal) -> bool:
+    """v3's bullish leg. Shadow only: compared against v2 on the dashboard, not bolded."""
+    return (
+        s.direction == "bullish"
+        and s.hist_peak_pct is not None and s.hist_peak_pct <= CONFIDENCE_V3_MAX_PEAK_PCT
+        and s.reduction_from_peak is not None and s.reduction_from_peak < CONFIDENCE_V3_MAX_REDUCTION
+    )
+
+
+def is_record_peak(s: Signal) -> bool:
+    """A bullish fire on the deepest selling swing in the token's lookback window —
+    the worst slice in the book (7d alpha -2.4% in-sample, -8% out of sample)."""
+    return s.direction == "bullish" and s.hist_peak_pct is not None and s.hist_peak_pct >= RECORD_PEAK_PCT
+
+
 def _strictly_decreasing(series: pd.Series) -> bool:
     """True if every value is strictly less than the previous."""
     if len(series) < 2:

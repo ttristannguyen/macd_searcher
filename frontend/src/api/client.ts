@@ -18,6 +18,7 @@ import type {
   PerfReductionCounterfactual,
   PerfConfidencePoint,
   PerfConfidenceSensitivity,
+  PerfConfidenceCompare,
   PerfConfidenceSummary,
   PerfMacdSignalBucket,
   PerfMacdSignalPctBucket,
@@ -228,6 +229,18 @@ export const usePerfConfidenceSummary = (horizon: Horizon = '7d') => {
     queryFn: () =>
       fetchJson<PerfConfidenceSummary[]>(
         withClasses(`/api/perf/confidence-summary?horizon=${horizon}`, classes),
+      ),
+    refetchInterval: PERF_REFRESH,
+  })
+}
+
+export const usePerfConfidenceCompare = (horizon: Horizon = '7d') => {
+  const classes = useSelectedClasses()
+  return useQuery({
+    queryKey: ['perf-confidence-compare', horizon, classes],
+    queryFn: () =>
+      fetchJson<PerfConfidenceCompare>(
+        withClasses(`/api/perf/confidence-compare?horizon=${horizon}`, classes),
       ),
     refetchInterval: PERF_REFRESH,
   })

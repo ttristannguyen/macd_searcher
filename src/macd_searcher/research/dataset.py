@@ -13,6 +13,7 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
+from ..stats import episodes
 from ..web.perf import _base
 
 HORIZONS = (1, 3, 7, 14)
@@ -36,7 +37,8 @@ def load_signals(conn: sqlite3.Connection) -> pd.DataFrame:
     cte, params = _base(None)
     df = pd.read_sql(cte + """
         SELECT signal_id, run_id, symbol, asset_class, direction, fired_at, fire_close,
-               fire_macd, fire_hist, fire_reduction_from_peak AS red, fire_rsi_14 AS rsi,
+               fire_macd, fire_hist, fire_hist_peak, fire_reduction_from_peak AS red,
+               fire_rsi_14 AS rsi,
                fire_hist_peak_pct AS peak_pct, fire_hist_peak_ratio AS peak_ratio,
                fire_hist_top_n AS top_n, atr, px_1d, px_3d, px_7d, px_14d,
                ret_1d, ret_3d, ret_7d, ret_14d
@@ -137,12 +139,8 @@ def assign_episodes(sig: pd.DataFrame, gap_days: int = 1) -> pd.DataFrame:
     overlap almost completely — counting them separately overstates the evidence
     about fourfold. ``episode_start`` marks the first alert of each episode.
     """
-    df = sig.sort_values("fired_at").copy()
-    gap = pd.to_datetime(df["day"]).groupby([df["symbol"], df["direction"]]).diff().dt.days
-    df["episode_start"] = gap.isna() | (gap > gap_days)
-    n = df.groupby(["symbol", "direction"])["episode_start"].cumsum()
-    df["episode"] = df["symbol"] + "|" + df["direction"] + "|" + n.astype(str)
-    return df.sort_index()
+    ids, starts = episodes(sig["symbol"].tolist(), sig["direction"].tolist(), sig["day"].tolist(), gap_days)
+    return sig.assign(episode=ids, episode_start=starts)
 
 
 # ---------------------------------------------------------------- features

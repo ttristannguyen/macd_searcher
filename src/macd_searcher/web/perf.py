@@ -28,8 +28,12 @@ import numpy as np
 from ..signals import (
     CONFIDENCE_MAX_REDUCTION,
     CONFIDENCE_MAX_SIG_ATR,
+    CONFIDENCE_V3_BEAR_MAX_PEAK_PCT,
+    CONFIDENCE_V3_MAX_PEAK_PCT,
+    CONFIDENCE_V3_MAX_REDUCTION,
+    RECORD_PEAK_PCT,
 )
-from ..stats import summarize
+from ..stats import block_ci, episodes, summarize
 
 # Horizon is whitelisted (not bound) because it names a column. The Literal is
 # enforced at the FastAPI layer, so only these four values ever reach the SQL.
@@ -714,6 +718,148 @@ def confidence_sensitivity(
                 "in_rule": sig_hi <= CONFIDENCE_MAX_SIG_ATR and red_hi <= CONFIDENCE_MAX_REDUCTION,
             })
     return out
+
+
+# ---------- rule comparison: v2 (live) vs v3 (shadow), raw EV = market + alpha ----------
+#
+# The panels above report raw EV, and raw EV is market move + alpha. Nothing here
+# predicts the market move: v1 was retired and v2 adopted on market direction, not
+# selection (docs/confidence_v3_research.md). This panel splits the two, so a rule is
+# judged on the part it can actually control.
+#
+# Benchmark: the MEAN forward return of every same-class symbol in the signal's own
+# run, entered at that run's live_close and exited on the same daily bar as px_Nd.
+# A random pick scores 0. Mean, not median — right-skewed returns make a median hand
+# every selection ~+1% of free alpha.
+#
+# KNOWN BIAS, accepted for monitoring: exits come from asset_snapshots, which only
+# hold symbols still inside the liquidity filter, and the ones that fall out are the
+# losers. That inflates the benchmark and understates bullish alpha by ~0.2pp at 7d.
+# The research report uses candle exits and is the authoritative number:
+# `python -m macd_searcher.research`. Same definitions as research/dataset.py.
+
+_MIN_BENCH_SYMBOLS = 10   # a class needs this many symbols in a run to be a benchmark
+
+
+def _benchmark_cte(days: int) -> str:
+    """CTEs appended after `_base()`: `seen_close` — the close OF each symbol-day,
+    read from any run on the following day (asset_snapshots.close is always the
+    previous day's closed bar) — and `bench`, per run and asset class."""
+    return f""",
+    seen_close AS (
+        SELECT a.symbol, date(substr(r.started_at, 1, 10), '-1 day') AS day,
+               MIN(a.close) AS close
+        FROM asset_snapshots a JOIN runs r ON r.run_id = a.run_id
+        GROUP BY a.symbol, substr(r.started_at, 1, 10)
+    ),
+    bench AS (
+        SELECT a.run_id, a.asset_class, AVG(sc.close / a.live_close - 1) AS bench
+        FROM asset_snapshots a JOIN runs r ON r.run_id = a.run_id
+        JOIN seen_close sc ON sc.symbol = a.symbol
+         AND sc.day = date(substr(r.started_at, 1, 10), '+{days} day')
+        WHERE a.run_id IN (SELECT run_id FROM perf) AND a.live_close > 0
+        GROUP BY a.run_id, a.asset_class
+        HAVING COUNT(*) >= {_MIN_BENCH_SYMBOLS}
+    )
+    """
+
+
+# The cohorts compared, as SQL predicates over `perf`. Thresholds are imported from
+# signals.py, so this cannot drift from the live marker or the research report.
+# NULL peak context falls through to "not in the rule", as with _CONFIDENCE_SQL.
+_COMPARE_RULES: dict[str, str] = {
+    "v2": f"({_CONFIDENCE_SQL}) = 'confident'",
+    "v3": (f"direction = 'bullish' AND fire_hist_peak_pct <= {CONFIDENCE_V3_MAX_PEAK_PCT} "
+           f"AND fire_reduction_from_peak < {CONFIDENCE_V3_MAX_REDUCTION}"),
+    "v3_bear": f"direction = 'bearish' AND fire_hist_peak_pct <= {CONFIDENCE_V3_BEAR_MAX_PEAK_PCT}",
+    "record": f"direction = 'bullish' AND fire_hist_peak_pct >= {RECORD_PEAK_PCT}",
+    "all": "1",
+}
+
+
+def _iso_week(fired_at: str) -> str:
+    y, w, _ = date.fromisoformat(fired_at[:10]).isocalendar()
+    return f"{y}-W{w:02d}"
+
+
+def confidence_compare(
+    conn: sqlite3.Connection,
+    horizon: Horizon = "7d",
+    classes: list[str] | None = None,
+) -> dict:
+    """v2 against v3's shadow legs, with raw EV split into market move + alpha.
+
+    Per rule: n, episodes (re-fires within a day grouped, as in research), win rate,
+    raw EV, market, and alpha with a 95% interval that collapses each episode to one
+    number and resamples whole weeks — row-level intervals overstate the evidence
+    about fourfold here. Plus alpha by month, the stability read.
+    """
+    col = f"ret_{horizon}"
+    cte, params = _base(classes)
+    # Two queries joined in Python rather than one SQL join: with a class filter,
+    # SQLite's planner turned the single join into a 60s query (2s unfiltered). Two
+    # plain queries cost ~2.5s either way and are easier to reason about.
+    bench_of = {
+        (b["run_id"], b["asset_class"]): b["bench"]
+        for b in conn.execute(
+            cte + _benchmark_cte(_HORIZON_DAYS[horizon]) + "SELECT run_id, asset_class, bench FROM bench",
+            tuple(params))
+    }
+    flags = ", ".join(f"({cond}) AS is_{name}" for name, cond in _COMPARE_RULES.items())
+    rows = conn.execute(cte + f"""
+        SELECT run_id, asset_class, symbol, direction, fired_at, {col} AS r,
+               px_{horizon} / fire_close - 1 AS raw, {flags}
+        FROM perf WHERE {col} IS NOT NULL""", tuple(params)).fetchall()
+    ids, _ = episodes([r["symbol"] for r in rows], [r["direction"] for r in rows],
+                      [r["fired_at"][:10] for r in rows])
+
+    def pct(x: float) -> float | None:
+        return None if np.isnan(x) else round(float(x) * 100, 2)
+
+    rules, months = [], []
+    for name in _COMPARE_RULES:
+        sel = [i for i, row in enumerate(rows) if row[f"is_{name}"]]
+        if not sel:
+            continue
+        r = np.array([rows[i]["r"] for i in sel], dtype=float)
+        sign = np.array([1.0 if rows[i]["direction"] == "bullish" else -1.0 for i in sel])
+        bench = np.array([bench_of.get((rows[i]["run_id"], rows[i]["asset_class"]), np.nan)
+                          for i in sel], dtype=float)
+        raw = np.array([rows[i]["raw"] for i in sel], dtype=float)
+        alpha = sign * (raw - bench)
+
+        # One number per episode, dated by its first fire.
+        per_ep: dict[str, list[float]] = {}
+        first: dict[str, str] = {}
+        for k, i in enumerate(sel):
+            if not np.isnan(alpha[k]):
+                per_ep.setdefault(ids[i], []).append(alpha[k])
+            first[ids[i]] = min(first.get(ids[i], rows[i]["fired_at"]), rows[i]["fired_at"])
+        ep_alpha = [float(np.mean(v)) for v in per_ep.values()]
+        ep_week = [_iso_week(first[e]) for e in per_ep]
+        _, lo, hi = block_ci(ep_alpha, ep_week)
+
+        rules.append({
+            "rule": name,
+            "n": len(sel),
+            "episodes": len(first),
+            "win_pct": round(float((r > 0).mean()) * 100, 1),
+            "ev_pct": pct(r.mean()),
+            "market_pct": pct(np.nanmean(sign * bench)) if (~np.isnan(bench)).any() else None,
+            "alpha_pct": pct(np.nanmean(alpha)) if (~np.isnan(alpha)).any() else None,
+            "alpha_lo": pct(lo),
+            "alpha_hi": pct(hi),
+            "n_alpha": int((~np.isnan(alpha)).sum()),
+        })
+
+        by_month: dict[str, list[float]] = {}
+        for k, i in enumerate(sel):
+            if not np.isnan(alpha[k]):
+                by_month.setdefault(rows[i]["fired_at"][:7], []).append(alpha[k])
+        for month, vals in sorted(by_month.items()):
+            months.append({"rule": name, "month": month, "n": len(vals),
+                           "alpha_pct": round(float(np.mean(vals)) * 100, 2)})
+    return {"horizon": horizon, "rules": rules, "months": months}
 
 
 # ---------- histogram peak vs the token's own tops ----------

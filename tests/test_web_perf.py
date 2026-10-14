@@ -1041,3 +1041,121 @@ def test_asset_signals_confident_flag_agrees_with_the_python_rule(macd_signal_cl
                 reduction_from_peak=row["fire_reduction_from_peak"],
             ))
             assert row["confident"] is expected, f"{sc['symbol']} {row['fired_at']}"
+
+
+# ---------- rule comparison: v2 (live) vs v3 (shadow), raw = market + alpha ----------
+#
+# Twelve crypto symbols in the entry run, so the class benchmark exists (it needs
+# 10). _metrics enters every symbol at live_close 101; an exit run 8 days later has
+# them all closing at 111.1 — asset_snapshots.close on day D is the close of D−1 —
+# so the 7d benchmark is exactly +10% and alpha is raw minus 10%.
+
+_V3_CASES = [   # (direction, reduction, peak_pct, macd)
+    ("bullish", 0.45, 30.0, -0.5),     # v3: in
+    ("bullish", 0.45, 50.0, -0.5),     # peak exactly at the cap -> in (<=)
+    ("bullish", 0.60, 30.0, -0.5),     # reduction at the cap -> out
+    ("bullish", 0.45, 62.5, -0.5),     # peak above the cap -> out
+    ("bullish", 0.45, None, -0.5),     # no peak context -> out
+    ("bullish", 0.45, 100.0, -0.5),    # record trough: out of v3, in the warning
+    ("bullish", 0.45, 75.0, -2.2),     # v2 (sig/ATR -1.0) but not v3
+    ("bearish", 0.45, 20.0, 0.5),      # bearish shadow leg: in
+    ("bearish", 0.45, 30.0, 0.5),      # bearish, above its cap
+]
+_ENTRY, _EXIT_CLOSE = 101.0, 111.1
+
+
+def _seed_compare(path: str) -> None:
+    from dataclasses import replace
+    conn = db.connect(path)
+    db.init_schema(conn)
+    names = [f"V{i}" for i in range(12)]
+    db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
+    db.insert_snapshots(conn, "r1", {}, [_metrics(n, 0.001) for n in names])
+    db.start_run(conn, "rX", "2026-06-20T00:00:00+00:00", "abc", "h", "{}")   # DAY_A + 8
+    db.insert_snapshots(conn, "rX", {}, [replace(_metrics(n, 0.001), close=_EXIT_CLOSE) for n in names])
+    at = f"{DAY_A}T00:00:00+00:00"
+    for i, (direction, red, peak, macd) in enumerate(_V3_CASES):
+        px = _ENTRY * 1.2 if direction == "bullish" else _ENTRY * 0.9   # raw +20% / -10%
+        _fire(conn, f"V{i}", direction, at, _ENTRY, reduction=red, macd=macd,
+              hist=-0.2 if direction == "bullish" else 0.2, peak_pct=peak, top_n=6,
+              px_7d=px, finalized=True)
+    # V0 fires again the next day: same episode, so episodes < n.
+    _fire(conn, "V0", "bullish", f"{DAY_B}T00:00:00+00:00", _ENTRY, reduction=0.45,
+          peak_pct=30.0, top_n=6, px_7d=_ENTRY * 1.2, finalized=True)
+    conn.close()
+
+
+@pytest.fixture
+def compare_client(tmp_path):
+    path = str(tmp_path / "compare.sqlite3")
+    _seed_compare(path)
+    app.dependency_overrides[get_conn] = _conn_to(path)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_v3_sql_matches_python_predicates(compare_client, tmp_path):
+    """The v3 and record-trough SQL must equal signals.is_v3_confident /
+    is_record_peak row for row — the same guard v2 has against drift."""
+    conn = sqlite3.connect(str(tmp_path / "compare.sqlite3"))
+    conn.row_factory = sqlite3.Row
+    cte, params = perf._base()
+    sql = cte + (f"SELECT symbol, ({perf._COMPARE_RULES['v3']}) AS v3, "
+                 f"({perf._COMPARE_RULES['record']}) AS rec FROM perf "
+                 f"WHERE substr(fired_at, 1, 10) = '{DAY_A}'")
+    from_sql = {r["symbol"]: (bool(r["v3"]), bool(r["rec"])) for r in conn.execute(sql, tuple(params))}
+    conn.close()
+    for i, (direction, red, peak, macd) in enumerate(_V3_CASES):
+        s = Signal(f"V{i}", "histogram_flattening", direction, close=_ENTRY, macd=macd,
+                   hist=-0.2, reduction_from_peak=red, hist_peak_pct=peak)
+        assert from_sql[f"V{i}"] == (signals.is_v3_confident(s), signals.is_record_peak(s)), _V3_CASES[i]
+
+
+def test_confidence_compare_splits_raw_into_market_and_alpha(compare_client):
+    body = compare_client.get("/api/perf/confidence-compare?horizon=7d").json()
+    by = {r["rule"]: r for r in body["rules"]}
+
+    # Bullish: raw +20% = market +10% + alpha +10%.
+    v3 = by["v3"]
+    assert v3["n"] == 3 and v3["episodes"] == 2          # V0's repeat fire is one episode
+    assert v3["ev_pct"] == pytest.approx(20.0)
+    assert v3["market_pct"] == pytest.approx(10.0)
+    assert v3["alpha_pct"] == pytest.approx(10.0)
+    # Bearish: the short made +10% while the class rose 10% — alpha +20%.
+    bear = by["v3_bear"]
+    assert bear["n"] == 1
+    assert (bear["ev_pct"], bear["market_pct"], bear["alpha_pct"]) == pytest.approx((10.0, -10.0, 20.0))
+    for r in body["rules"]:
+        assert r["ev_pct"] == pytest.approx(r["market_pct"] + r["alpha_pct"]), r["rule"]
+
+    assert by["v2"]["n"] == 1 and by["record"]["n"] == 1
+    assert by["all"]["n"] == len(_V3_CASES) + 1
+
+
+def test_confidence_compare_reports_alpha_by_month(compare_client):
+    body = compare_client.get("/api/perf/confidence-compare?horizon=7d").json()
+    v3 = [m for m in body["months"] if m["rule"] == "v3"]
+    assert v3 == [{"rule": "v3", "month": "2026-06", "n": 3, "alpha_pct": pytest.approx(10.0)}]
+
+
+def test_benchmark_needs_ten_symbols_in_the_class(tmp_path):
+    """With too few same-class symbols there is no benchmark: alpha is absent, not
+    computed against a handful of assets."""
+    path = str(tmp_path / "thin.sqlite3")
+    conn = db.connect(path)
+    db.init_schema(conn)
+    db.start_run(conn, "r1", f"{DAY_A}T00:00:00+00:00", "abc", "h", "{}")
+    db.insert_snapshots(conn, "r1", {}, [_metrics(f"T{i}", 0.001) for i in range(5)])
+    # The exit run exists, so a missing benchmark can only be the symbol count.
+    from dataclasses import replace
+    db.start_run(conn, "rX", "2026-06-20T00:00:00+00:00", "abc", "h", "{}")
+    db.insert_snapshots(conn, "rX", {}, [replace(_metrics(f"T{i}", 0.001), close=_EXIT_CLOSE)
+                                         for i in range(5)])
+    _fire(conn, "T0", "bullish", f"{DAY_A}T00:00:00+00:00", _ENTRY, peak_pct=30.0, top_n=6,
+          px_7d=_ENTRY * 1.2, finalized=True)
+    conn.close()
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    v3 = {r["rule"]: r for r in perf.confidence_compare(conn, "7d")["rules"]}["v3"]
+    conn.close()
+    assert v3["n"] == 1 and v3["n_alpha"] == 0 and v3["alpha_pct"] is None

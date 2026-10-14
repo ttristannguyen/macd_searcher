@@ -215,7 +215,9 @@ peak_pct     IS alpha                  n     OOS alpha                 n
 
 The mechanism is the one `_PEAK_PCT_BUCKET_SQL`'s comment already records for
 bearish: a modest excursion that is fading is exhaustion; a record excursion that is
-pausing is momentum that resumes. **But read the bearish table with §6 in hand:** at
+pausing is momentum that resumes. It was later measured directly — record troughs
+are token-specific collapses that keep drifting against their class — see
+[confidence_v3.md](confidence_v3.md) "Why v3 works". **But read the bearish table with §6 in hand:** at
 one number per episode its gradient is no longer significant (IC −0.035
 [−0.126, +0.064]). The bullish side holds up at episode level; the bearish side is a
 hypothesis.
@@ -441,8 +443,9 @@ rule built on v3, and re-test the out-of-sample funding effect once the market t
 
 ## Reproduction
 
-Ad hoc scripts (session scratchpad, not committed): candle + funding fetch via
-`hyperliquid.fetch_candles` / `fundingHistory`; dataset build joining `_base()` to
-indicators at fire-day − 1 and the same-run class benchmark; IC scan with BH-FDR;
-universe counterfactual panel over 00:00 runs. Everything above is reproducible from
-the method section against a 2026-10-14 snapshot.
+`uv run python -m macd_searcher.research` (add `--scan` for the feature scan)
+rebuilds the rule tables and watchlist from a synced snapshot; the method, and why
+each rule of it exists, is in [research_method.md](research_method.md). The universe
+counterfactual panel and the confound splits in §3–§4 were one-off scripts and are
+not in the pipeline. The mechanism behind `peak_pct`, and the build plan, are in
+[confidence_v3.md](confidence_v3.md).

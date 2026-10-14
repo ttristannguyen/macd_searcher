@@ -6,6 +6,7 @@ import {
   ConfidenceScorecard,
   ExcursionTiles,
   HorizonBreakdown,
+  RuleComparison,
   SensitivityGrid,
   StabilityChart,
 } from '../components/Confidence'
@@ -60,6 +61,8 @@ export function Confidence() {
           </div>
         </div>
 
+        <RuleComparison horizon={horizon} />
+
         <ConfidenceScorecard horizon={horizon} />
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -81,7 +84,7 @@ export function Confidence() {
           The rule is measurement-only: it marks alerts, it does not suppress them. Its
           thresholds live in <code className="text-slate-500">signals.py</code> and are
           derived rather than stored, so changing one re-labels all history here — see
-          docs/confidence_v2.md.
+          docs/confidence_v2.md, and docs/confidence_v3.md for the shadow rule.
         </p>
       </div>
     </ClassesContext.Provider>

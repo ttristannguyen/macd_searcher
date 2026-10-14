@@ -26,6 +26,7 @@ from .models import (
     NotifyStatusRow,
     PerfBucket,
     PerfClassStage,
+    PerfConfidenceCompare,
     PerfConfidencePoint,
     PerfConfidenceSensitivity,
     PerfConfidenceSummary,
@@ -268,6 +269,16 @@ def perf_confidence_summary(
         PerfConfidenceSummary(**r)
         for r in perf.confidence_summary(conn, horizon, perf.parse_classes(classes))
     ]
+
+
+@app.get("/api/perf/confidence-compare", response_model=PerfConfidenceCompare)
+def perf_confidence_compare(
+    horizon: Horizon = "7d",
+    classes: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> PerfConfidenceCompare:
+    """v2 (live) vs v3 (shadow), raw EV split into market move + alpha."""
+    return PerfConfidenceCompare(**perf.confidence_compare(conn, horizon, perf.parse_classes(classes)))
 
 
 @app.get("/api/perf/confidence-timeline", response_model=list[PerfConfidencePoint])

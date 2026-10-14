@@ -31,6 +31,7 @@ from .config import AppConfig
 from .signals import (
     Signal,
     is_high_confidence,
+    is_record_peak,
     signal_line_atr_multiple,
     signal_line_pct_of_price,
 )
@@ -83,6 +84,12 @@ def _fmt_stage1_row(s: Signal) -> str:
 
     High-confidence rows (see `is_high_confidence`) are bolded, which is why the
     sender uses HTML parse_mode.
+
+    Bullish rows on a record trough (`is_record_peak`) end in `⚠ record`: the
+    histogram swing just flattening was the deepest in the token's lookback window,
+    usually a token-specific collapse that keeps drifting against its peers — the
+    worst slice in the book (docs/confidence_v3.md). A warning, not a filter: the
+    row is still sent.
     """
     assert s.reduction_from_peak is not None
     pct = s.reduction_from_peak * 100
@@ -95,7 +102,8 @@ def _fmt_stage1_row(s: Signal) -> str:
         sig_parts.append(f"{sig_atr:+.2f}×ATR")
     sig = f"  sig {' / '.join(sig_parts)}" if sig_parts else ""
     rsi = f"  RSI {s.rsi_14:.0f}" if s.rsi_14 is not None else ""
-    row = f"{escape(s.name):<10} ↓{pct:.0f}%{sig}{rsi}"
+    warn = "  ⚠ record" if is_record_peak(s) else ""
+    row = f"{escape(s.name):<10} ↓{pct:.0f}%{sig}{rsi}{warn}"
     return f"  <b>{row}</b>" if is_high_confidence(s) else f"  {row}"
 
 

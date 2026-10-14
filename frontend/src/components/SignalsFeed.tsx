@@ -15,13 +15,18 @@ function keyMetric(s: SignalRow): string {
 
 // Peak size vs this token's OWN prior same-sign tops.
 //
-// This used to paint a modest bearish peak green, on a measurement that a low
-// percentile was the good side. Re-measured through 2026-09 it is only RELATIVELY
-// better: bearish pct<40 runs -0.37% EV (and -4.88% in the recent half) against
-// -3.34% for pct>=40. Better than the alternative is not a reason to trade, so the
-// colour is gone and the number stays as context. The confidence marker moved to a
-// bullish sig/ATR rule instead — see docs/confidence_v2.md.
+// Bearish: no colour. A modest bearish peak used to be painted green; re-measured it
+// is only relatively better (pct<40 still negative EV), so the number stays as
+// context only.
+//
+// Bullish: a RECORD trough (p100 — the deepest selling swing in the token's lookback)
+// is flagged amber. Against a same-class benchmark it is the worst slice in the book
+// (7d alpha -2.4% in-sample, -8% out of sample): usually a token-specific collapse
+// that keeps drifting. A modest trough (p<=50) is the v3 shadow rule's side. See
+// docs/confidence_v3.md. Mirrors signals.RECORD_PEAK_PCT / CONFIDENCE_V3_MAX_PEAK_PCT.
 const PEAK_TRUST_FLOOR = 3
+const RECORD_PEAK_PCT = 100
+const V3_MAX_PEAK_PCT = 50
 
 function PeakCell({ signal: s }: { signal: SignalRow }) {
   const { fire_hist_peak_ratio: ratio, fire_hist_peak_pct: pct, fire_hist_top_n: n } = s
@@ -30,14 +35,18 @@ function PeakCell({ signal: s }: { signal: SignalRow }) {
   }
 
   const thin = n < PEAK_TRUST_FLOOR
-  const colour = thin ? 'text-slate-500' : 'text-slate-300'
-  const verdict = thin
-    ? 'baseline too thin to read'
-    : s.direction === 'bearish'
-      ? pct < 40
-        ? 'modest peak for this token — loses less than a large one, but still negative EV'
-        : 'large peak for this token — the weakest slice measured'
-      : 'bullish: no reliable read from peak context'
+  const record = s.direction === 'bullish' && pct >= RECORD_PEAK_PCT
+  const colour = record ? 'text-amber-400' : thin ? 'text-slate-500' : 'text-slate-300'
+  const verdict =
+    s.direction === 'bearish'
+      ? thin
+        ? 'baseline too thin to read'
+        : 'bearish: context only — no slice here has positive EV'
+      : record
+        ? 'RECORD trough for this token — the worst bullish slice measured; usually a token-specific collapse that keeps drifting'
+        : pct <= V3_MAX_PEAK_PCT
+          ? 'modest trough for this token — the side the v3 shadow rule favours'
+          : 'deeper than usual for this token — below-average outcomes'
 
   return (
     <td
@@ -46,6 +55,7 @@ function PeakCell({ signal: s }: { signal: SignalRow }) {
         s.direction === 'bearish' ? 'bear' : 'bull'
       } tops · n=${n} · ${verdict}`}
     >
+      {record && <span className="mr-1">⚠</span>}
       {ratio.toFixed(1)}×
       <span className="ml-1 text-[10px] text-slate-500">p{Math.round(pct)}</span>
     </td>

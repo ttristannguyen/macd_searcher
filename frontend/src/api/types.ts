@@ -206,6 +206,34 @@ export interface PerfRsiBucket {
 // The confidence cohort: 'confident' = the measured high-expectancy slice,
 // 'rest' = every other scored signal. Derived from existing columns (no stored
 // flag), so it applies retroactively to backfilled history.
+// v2 (live) vs v3's shadow legs, raw EV split into market move + alpha.
+// rule: 'v2' | 'v3' | 'v3_bear' | 'record' | 'all'.
+export interface PerfRuleCompare {
+  rule: string
+  n: number
+  episodes: number
+  win_pct: number
+  ev_pct: number | null
+  market_pct: number | null
+  alpha_pct: number | null
+  alpha_lo: number | null
+  alpha_hi: number | null
+  n_alpha: number
+}
+
+export interface PerfRuleMonth {
+  rule: string
+  month: string
+  n: number
+  alpha_pct: number
+}
+
+export interface PerfConfidenceCompare {
+  horizon: string
+  rules: PerfRuleCompare[]
+  months: PerfRuleMonth[]
+}
+
 export interface PerfConfidenceSummary {
   cohort: string
   horizon: string

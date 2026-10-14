@@ -1,8 +1,8 @@
 """Named cohorts the report tracks, and the pre-registered watchlist.
 
-Each rule is a mask over the research frame. v2's thresholds are imported from
-``signals.py`` so the report can never disagree with the live marker. v1 and the
-v3 candidates are written out here because they are not (or not yet) live.
+Each rule is a mask over the research frame. v2's and v3's thresholds are imported
+from ``signals.py`` so the report can never disagree with the dashboard or the live
+marker. v1's are written out here because it is retired.
 """
 
 from __future__ import annotations
@@ -12,16 +12,17 @@ from typing import Callable
 
 import pandas as pd
 
-from ..signals import CONFIDENCE_MAX_REDUCTION, CONFIDENCE_MAX_SIG_ATR
+from ..signals import (
+    CONFIDENCE_MAX_REDUCTION,
+    CONFIDENCE_MAX_SIG_ATR,
+    CONFIDENCE_V3_BEAR_MAX_PEAK_PCT as V3_BEAR_MAX_PEAK_PCT,
+    CONFIDENCE_V3_MAX_PEAK_PCT as V3_BULL_MAX_PEAK_PCT,
+    CONFIDENCE_V3_MAX_REDUCTION as V3_BULL_MAX_REDUCTION,
+    RECORD_PEAK_PCT,
+)
 
 # v1, retired 2026-09 (see docs/confidence_v2.md for its thresholds' provenance).
 V1_MAX_REDUCTION, V1_MAX_PEAK_PCT, V1_MIN_TOP_N = 0.6, 40, 3
-
-# v3 candidates, from docs/confidence_v3_research.md §7.
-V3_BULL_MAX_PEAK_PCT = 50
-V3_BULL_MAX_REDUCTION = 0.6
-V3_BEAR_MAX_PEAK_PCT = 25
-RECORD_PEAK_PCT = 100   # the current excursion is the deepest in the lookback window
 
 
 def _bull(d: pd.DataFrame) -> pd.Series:

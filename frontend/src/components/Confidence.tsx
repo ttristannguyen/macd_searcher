@@ -23,6 +23,7 @@ import {
   YAxis,
 } from 'recharts'
 import {
+  usePerfConfidenceCompare,
   usePerfConfidenceSensitivity,
   usePerfConfidenceSummary,
   usePerfConfidenceTimeline,
@@ -32,6 +33,7 @@ import type {
   PerfConfidencePoint,
   PerfConfidenceSensitivity,
   PerfConfidenceSummary,
+  PerfRuleCompare,
 } from '../api/types'
 import { fmtPctPts } from '../lib/format'
 import { Badge, Card, StateMsg, tone } from './ui'
@@ -92,6 +94,144 @@ function PairedStat({
         rest: {rest == null ? '—' : `${rest.toFixed(digits)}${suffix}`}
       </div>
     </div>
+  )
+}
+
+// ---------- v2 (live) vs v3 (shadow) — raw EV split into market + alpha ----------
+//
+// The other panels judge a rule on raw EV, which is market move + alpha. Nothing
+// here predicts the market move — v1 was retired and v2 adopted on market direction
+// (docs/confidence_v3_research.md) — so this panel puts alpha, the part a rule's
+// choice of asset controls, next to the raw number. v3 is shadow-only until the
+// research watchlist confirms it (docs/confidence_v3.md).
+
+const RULE_LABELS: Record<string, { name: string; note: string }> = {
+  v2: { name: 'v2 · live', note: 'bullish, sig/ATR < −0.5, reduction < 0.6 — bolded in Telegram' },
+  v3: { name: 'v3 · shadow', note: 'bullish, peak ≤ 50th pct of own swings, reduction < 0.6' },
+  v3_bear: { name: 'v3 bearish · shadow', note: 'bearish, peak ≤ 25th pct — tracked only' },
+  record: { name: 'record trough', note: 'bullish on the deepest swing in the window — the warning' },
+  all: { name: 'everything', note: 'every scored signal' },
+}
+
+function alphaCell(r: PerfRuleCompare) {
+  if (r.alpha_pct == null) return <span className="text-slate-500">—</span>
+  const sure = r.alpha_lo != null && r.alpha_hi != null && (r.alpha_lo > 0 || r.alpha_hi < 0)
+  return (
+    <span className={sure ? tone(r.alpha_pct) : 'text-slate-300'}>
+      {fmtPctPts(r.alpha_pct, 2, true)}
+      {r.alpha_lo != null && r.alpha_hi != null && (
+        <span className="ml-1 text-xs text-slate-500">
+          [{r.alpha_lo.toFixed(2)}, {r.alpha_hi.toFixed(2)}]
+        </span>
+      )}
+    </span>
+  )
+}
+
+export function RuleComparison({ horizon }: { horizon: Horizon }) {
+  const { data, isLoading, isError } = usePerfConfidenceCompare(horizon)
+  const rules = data?.rules ?? []
+  const months = [...new Set((data?.months ?? []).map((m) => m.month))].sort()
+  const monthly = (rule: string, month: string) =>
+    data?.months.find((m) => m.rule === rule && m.month === month)
+
+  return (
+    <Card title={`Rules compared — raw EV = market + alpha (${horizon})`}>
+      <StateMsg loading={isLoading} error={isError} empty={rules.length === 0}>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm tabular-nums">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                <th className="py-1 pr-3 font-medium">rule</th>
+                {/* n and win hide on phones so alpha — the column that matters — stays on screen */}
+                <th className="hidden py-1 pr-3 text-right font-medium sm:table-cell" title="Scored signals">n</th>
+                <th
+                  className="py-1 pr-3 text-right font-medium"
+                  title="Repeat fires on consecutive days grouped — the effective sample size"
+                >
+                  episodes
+                </th>
+                <th className="hidden py-1 pr-3 text-right font-medium sm:table-cell">win</th>
+                <th className="py-1 pr-3 text-right font-medium" title="Mean direction-normalized return">
+                  raw EV
+                </th>
+                <th
+                  className="py-1 pr-3 text-right font-medium"
+                  title="What a random same-class asset, bought at the same instant, gave this side of the trade"
+                >
+                  = market
+                </th>
+                <th
+                  className="py-1 text-right font-medium"
+                  title="What the rule's choice of asset added. 95% interval: one number per episode, whole weeks resampled. Coloured only when the interval excludes zero."
+                >
+                  + alpha [95%]
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rules.map((r) => (
+                <tr key={r.rule} className="border-t border-slate-800/60" title={RULE_LABELS[r.rule]?.note}>
+                  <td className="py-1.5 pr-3 text-slate-300">{RULE_LABELS[r.rule]?.name ?? r.rule}</td>
+                  <td className="hidden py-1.5 pr-3 text-right text-slate-400 sm:table-cell">{r.n}</td>
+                  <td className="py-1.5 pr-3 text-right text-slate-400">{r.episodes}</td>
+                  <td className={`hidden py-1.5 pr-3 text-right sm:table-cell ${tone(r.win_pct, 50)}`}>{fmtPctPts(r.win_pct)}</td>
+                  <td className={`py-1.5 pr-3 text-right ${tone(r.ev_pct)}`}>{fmtPctPts(r.ev_pct, 2, true)}</td>
+                  <td className="py-1.5 pr-3 text-right text-slate-400">{fmtPctPts(r.market_pct, 2, true)}</td>
+                  <td className="py-1.5 text-right">{alphaCell(r)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {months.length > 0 && (
+          <div className="mt-4 overflow-x-auto">
+            <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">Alpha by month</div>
+            <table className="text-sm tabular-nums">
+              <thead>
+                <tr className="text-xs text-slate-500">
+                  <th className="py-1 pr-4 text-left font-medium" />
+                  {months.map((m) => (
+                    <th key={m} className="px-2 py-1 text-right font-medium">{m}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {['v2', 'v3', 'record'].map((rule) => (
+                  <tr key={rule}>
+                    <td className="py-1 pr-4 text-slate-400">{RULE_LABELS[rule].name}</td>
+                    {months.map((m) => {
+                      const cell = monthly(rule, m)
+                      return (
+                        <td
+                          key={m}
+                          className={`px-2 py-1 text-right ${cell && cell.n >= THIN_COHORT ? tone(cell.alpha_pct) : 'text-slate-600'}`}
+                          title={cell ? `n=${cell.n}` : 'no signals'}
+                        >
+                          {cell ? fmtPctPts(cell.alpha_pct, 1, true) : '—'}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <p className="mt-3 text-xs text-slate-500">
+          Raw EV mixes two things: how the market moved, which no rule here predicts, and
+          alpha — how the chosen assets did against a random same-class asset bought at the
+          same instant. Judge a rule on alpha. v3 is a shadow: it is measured here but does
+          not bold Telegram rows until it holds up out of sample. Benchmark exits come from
+          the scan snapshots, which miss assets that later fall out of the liquidity filter;
+          that understates bullish alpha by roughly 0.2pp. The research report
+          (<code className="text-slate-400">python -m macd_searcher.research</code>) is the
+          authoritative number. Months with fewer than {THIN_COHORT} signals are greyed.
+        </p>
+      </StateMsg>
+    </Card>
   )
 }
 

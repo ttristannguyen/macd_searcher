@@ -410,3 +410,20 @@ async def test_send_signals_missing_credentials_prints_warning_and_text():
             cfg=cfg,
         )
     assert "TEST" in buf.getvalue()
+
+
+@pytest.mark.parametrize("direction,peak_pct,warned", [
+    ("bullish", 100.0, True),    # record trough: the warning
+    ("bullish", 87.5, False),    # deep, but not the deepest
+    ("bullish", None, False),    # no peak context
+    ("bearish", 100.0, False),   # the warning is bullish-only — measured there, not here
+])
+def test_format_message_flags_record_trough(direction, peak_pct, warned):
+    """Bullish rows on the deepest swing in the token's lookback end in '⚠ record'
+    — still sent, just marked (docs/confidence_v3.md)."""
+    s = _mk_signal("REC", "histogram_flattening", direction,
+                   close=100.0, macd=-1.0 if direction == "bullish" else 1.0,
+                   hist=-0.2 if direction == "bullish" else 0.2,
+                   reduction_from_peak=0.4, hist_peak_pct=peak_pct, hist_top_n=6)
+    row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "REC" in ln)
+    assert ("⚠ record" in row) is warned

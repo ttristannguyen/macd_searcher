@@ -236,6 +236,49 @@ async def fetch_candles(
     return await _fetch_one_candles(client, coin, cfg, start_ms, end_ms)
 
 
+# fundingHistory returns at most this many rows per call; a full page means more remain.
+_FUNDING_PAGE = 500
+
+
+async def fetch_funding_history(
+    client: httpx.AsyncClient,
+    coin: str,
+    cfg: AppConfig,
+    start_ms: int,
+    pause_s: float = 1.0,
+) -> pd.DataFrame:
+    """Hourly funding for one coin from ``start_ms`` to now: ``ts``, ``funding``
+    (the per-hour rate a LONG pays; negative means longs receive) and ``premium``.
+
+    Pages forward until a short page comes back. The pause between pages is not
+    politeness for its own sake: fetching history for the whole universe at the
+    scanner's concurrency trips the API's rate limit within a minute. Used by the
+    research pipeline only — the scanner does not read funding.
+    """
+    rows: list[dict] = []
+    start = start_ms
+    while True:
+        page = await _post_info(client, {"type": "fundingHistory", "coin": coin, "startTime": start}, cfg)
+        if not isinstance(page, list):
+            raise HyperliquidError(f"fundingHistory for {coin} returned {type(page).__name__}")
+        rows.extend(page)
+        if len(page) < _FUNDING_PAGE:
+            break
+        last = max(int(r["time"]) for r in page)
+        if last <= start:
+            break
+        start = last + 1
+        await asyncio.sleep(pause_s)
+
+    if not rows:
+        return pd.DataFrame(columns=["ts", "funding", "premium"])
+    df = pd.DataFrame(rows)
+    df["ts"] = pd.to_datetime(df["time"].astype("int64"), unit="ms", utc=True)
+    df["funding"] = df["fundingRate"].astype(float)
+    df["premium"] = df["premium"].astype(float)
+    return df[["ts", "funding", "premium"]].drop_duplicates("ts").sort_values("ts").reset_index(drop=True)
+
+
 async def fetch_all_candles(
     client: httpx.AsyncClient,
     assets: list[AssetMeta],

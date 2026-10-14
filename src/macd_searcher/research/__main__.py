@@ -31,7 +31,7 @@ MIN_EPISODES = 30   # below this a watchlist verdict is "pending", not a result
 
 # Columns that are outcomes, ids or raw inputs — never features. carry_7d is a
 # FORWARD quantity (funding paid during the hold); scanning it would be look-ahead.
-_NOT_FEATURES = {"fire_close", "fire_macd", "fire_hist", "atr", "oos", "episode_start"}
+_NOT_FEATURES = {"fire_close", "fire_macd", "fire_hist", "fire_hist_peak", "atr", "oos", "episode_start"}
 _OUTCOME_PREFIXES = ("r_", "market_", "alpha_", "bench_", "px_", "ret_", "carry_")
 
 
@@ -157,12 +157,16 @@ def main(argv: list[str] | None = None) -> int:
 
     conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
     symbols = [r[0] for r in conn.execute("SELECT DISTINCT symbol FROM asset_snapshots ORDER BY 1")]
+    root = cache.root_for(args.db)
     if not args.offline:
-        failed = asyncio.run(cache.refresh(symbols, load_config(args.config)))
+        failed = asyncio.run(cache.refresh(root, symbols, load_config(args.config)))
         if failed:
             log.warning("%d cache entries failed this run and will retry next run", len(failed))
-    candles, funding = cache.load("candles", symbols), cache.load("funding", symbols)
-    log.info("cache: candles %d, funding %d of %d symbols", len(candles), len(funding), len(symbols))
+    candles, funding = cache.load(root, "candles", symbols), cache.load(root, "funding", symbols)
+    log.info("cache %s: candles %d, funding %d of %d symbols", root, len(candles), len(funding), len(symbols))
+    if not candles:
+        log.warning("NO CANDLES CACHED — alpha will use snapshot exits, which are survivorship-"
+                    "biased against bullish signals. Run without --offline to fill the cache.")
 
     df = dataset.build(conn, candles, funding, gap_days=args.gap_days, oos_from=args.oos_from)
     latest = conn.execute("SELECT MAX(started_at) FROM runs").fetchone()[0]
@@ -174,7 +178,8 @@ def main(argv: list[str] | None = None) -> int:
         f"in {scored['episode'].nunique()} episodes (gap ≤ {args.gap_days}d)",
         f"- out of sample from {args.oos_from}: {int(scored['oos'].sum())} rows, "
         f"{scored[scored['oos']]['episode'].nunique()} episodes",
-        f"- caches: candles {len(candles)}, funding {len(funding)} of {len(symbols)} symbols", "",
+        f"- caches: candles {len(candles)}, funding {len(funding)} of {len(symbols)} symbols — "
+        f"benchmark exits from {'candles' if candles else '**snapshots only (survivorship-biased)**'}", "",
     ]
     lines += rules_section(df, h) + [""] + watchlist_section(df, h) + [""] + funding_section(df, h)
     if args.scan:

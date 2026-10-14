@@ -177,3 +177,15 @@ def test_report_v2_rule_matches_the_live_marker(direction, sig_atr, red):
     frame = pd.DataFrame({"direction": [direction], "atr": [atr], "sig_atr": [(macd - hist) / atr],
                           "red": [red]})
     assert bool(RULES["v2 (live)"](frame).iloc[0]) == is_high_confidence(s)
+
+
+# ---------------------------------------------------------------- cache
+
+def test_cache_is_anchored_to_the_database_not_the_working_directory(tmp_path, monkeypatch):
+    """A cwd-relative cache silently found nothing when run from elsewhere, and the
+    report quietly fell back to the survivorship-biased benchmark."""
+    from macd_searcher.research import cache
+    db = tmp_path / "state" / "prod.sqlite3"
+    monkeypatch.chdir(tmp_path.parent)
+    assert cache.root_for(db) == (tmp_path / "state" / "research_cache").resolve()
+    assert cache.root_for(str(db)) == cache.root_for(db)

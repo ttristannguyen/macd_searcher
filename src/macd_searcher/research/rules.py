@@ -58,6 +58,11 @@ RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
     # trading_strategy.md 3G and 3H, tracked so the watchlist can test them.
     "BTC downtrend (bullish crypto)": lambda d: _bull_crypto(d) & (_col(d, "btc_signal_line") < 0),
     "ATR expanding (bullish crypto)": lambda d: _bull_crypto(d) & (_col(d, "atr_change_30") > 1.10),
+    # Episode structure (2026-10-15 dataset pass, docs/research_log.md).
+    "bearish repeat fires": lambda d: _bear(d) & ~d["episode_start"].astype(bool),
+    "bullish first fires": lambda d: _bull(d) & d["episode_start"].astype(bool),
+    "bullish first fire at 00:00": lambda d: _bull(d) & d["episode_start"].astype(bool)
+        & (d["fired_at"].dt.hour == 0),
     "all bearish": _bear,
     "everything": lambda d: d["direction"].notna(),
 }
@@ -73,6 +78,10 @@ class Check:
     question: str
     expect_sign: int          # +1: the measure should be positive; -1: negative
     on_confirm: str
+    # The day the hypothesis was written down. A check is scored ONLY on fires from
+    # this date on: anything earlier was seen when the hypothesis was formed, and
+    # re-confirming on it is circular.
+    registered: str
     # Which outcome column ("alpha", "r" for raw, "market"). With `versus`, the
     # measure is the DIFFERENCE between this rule and the versus rule's other rows -
     # how timing questions are asked, since timing is invisible to alpha.
@@ -82,19 +91,25 @@ class Check:
 
 WATCHLIST: tuple[Check, ...] = (
     Check("v3 bullish", "Does the v3 bullish leg keep positive alpha out of sample?",
-          +1, "promote v3 bullish from shadow to the live marker"),
+          +1, "promote v3 bullish from shadow to the live marker", registered="2026-10-14"),
     Check("v3 bearish (shadow)", "Does the bearish low-peak leg hold at episode level?",
-          +1, "add the bearish leg to v3"),
+          +1, "add the bearish leg to v3", registered="2026-10-14"),
     Check("record-peak warning", "Do record-peak bullish signals keep underperforming?",
-          -1, "keep the warning; consider making it a gate"),
+          -1, "keep the warning; consider making it a gate", registered="2026-10-14"),
     Check("v2 (live)", "Has v2 developed any selection edge?",
-          +1, "re-examine before retiring v2"),
+          +1, "re-examine before retiring v2", registered="2026-10-14"),
     # Added 2026-10-15 from the trading_strategy.md audit.
     Check("v2 (live)", "Is v2's TIMING real - do its fires catch bigger class moves than other bullish signals?",
-          +1, "keep v2's conditions as a market-level entry trigger", metric="market", versus="all bullish"),
+          +1, "keep v2's conditions as a market-level entry trigger", metric="market", versus="all bullish", registered="2026-10-15"),
     Check("BTC downtrend (bullish crypto)", "Do bullish crypto fires in a BTC downtrend beat the rest, raw? "
           "(only 2 such stretches as of 2026-10-15)", +1, "admit the 3G regime filter",
-          metric="r", versus="bullish crypto"),
+          metric="r", versus="bullish crypto", registered="2026-10-15"),
     Check("ATR expanding (bullish crypto)", "Does 3H's ATR-expansion filter add selection beyond its timing?",
-          +1, "keep 3H as a selection filter, not just a timing one"),
+          +1, "keep 3H as a selection filter, not just a timing one", registered="2026-10-15"),
+    # Added 2026-10-15 from the dataset pass (docs/research_log.md).
+    Check("bearish repeat fires", "Are bearish re-fires worse shorts than first fires? (in-sample paired: -0.85)",
+          -1, "act only on the first fire of a bearish episode", metric="alpha", versus="all bearish", registered="2026-10-15"),
+    Check("bullish first fire at 00:00", "Do bullish first fires at 00:00 UTC keep underperforming intraday "
+          "first fires? (in-sample -1.64 vs +0.29; no mechanism yet)", -1,
+          "find the mechanism before acting on it", metric="alpha", versus="bullish first fires", registered="2026-10-15"),
 )

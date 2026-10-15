@@ -209,3 +209,30 @@ def test_candle_based_rules_are_empty_not_errors_without_candles():
     frame = pd.DataFrame({"direction": ["bullish"], "asset_class": ["crypto"]})
     assert not RULES["BTC downtrend (bullish crypto)"](frame).any()
     assert not RULES["ATR expanding (bullish crypto)"](frame).any()
+
+
+
+# ---------------------------------------------------------------- watchlist verdicts
+
+@pytest.mark.parametrize("sign,lo,hi,expected", [
+    (+1, 0.5, 2.0, "confirmed"),
+    (+1, -2.0, -0.5, "contradicted"),
+    (+1, -0.5, 2.0, "undecided (CI spans 0)"),
+    (-1, -2.0, -0.5, "confirmed"),
+    (-1, 0.5, 2.0, "contradicted"),
+    (-1, -0.6, 3.7, "undecided (CI spans 0)"),   # the case that used to read "contradicted"
+])
+def test_verdict_needs_the_whole_interval_on_one_side(sign, lo, hi, expected):
+    from macd_searcher.research.__main__ import verdict
+    assert verdict(sign, lo, hi, n=100) == expected
+
+
+def test_verdict_waits_for_enough_episodes():
+    from macd_searcher.research.__main__ import MIN_EPISODES, verdict
+    assert verdict(+1, 1.0, 2.0, n=MIN_EPISODES - 1).startswith("pending")
+
+
+def test_every_watchlist_check_has_a_registration_date():
+    from macd_searcher.research.rules import WATCHLIST
+    for c in WATCHLIST:
+        assert pd.Timestamp(c.registered) <= pd.Timestamp.now(), c.rule

@@ -154,6 +154,12 @@ the full sample — `peak_pct` −0.134 [−0.200, −0.056], `oi_to_vol` +0.123
 −0.118 [−0.194, −0.047] — while `sig_atr` stays at −0.025 [−0.120, +0.060]. The
 OOS-only episode subset (n=90) is too small to confirm any of them on its own.
 
+**Revised 2026-10-15 ([research_log.md](research_log.md)):** with the
+*out-of-sample* half also measured at episode level, `oi_to_vol` and
+`atr_ratio_14_50` **flip sign**. They do not replicate. `peak_pct`'s out-of-sample IC
+shrinks to −0.05 [−0.11, +0.03]: same sign, no longer significant. The in-sample
+results above stand. The replication claims above them do not.
+
 **Generic factors, not signal skill.** Run on every universe asset at every 00:00 run
 (15,464 asset-days with a 7d alpha), the same features predict alpha with the same
 sign. Among bullish signals they are 1.5–3x stronger — and significantly so for

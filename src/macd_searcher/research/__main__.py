@@ -75,34 +75,47 @@ def rules_section(df: pd.DataFrame, h: int) -> list[str]:
     return lines
 
 
+def verdict(expect_sign: int, lo: float, hi: float, n: int) -> str:
+    """Confirmed only if the whole interval sits on the expected side; contradicted
+    only if the whole interval sits on the other side. Anything else is undecided."""
+    if n < MIN_EPISODES:
+        return f"pending (needs {MIN_EPISODES} episodes)"
+    if np.isnan(lo):
+        return "undecided (no interval)"
+    if min(expect_sign * lo, expect_sign * hi) > 0:
+        return "confirmed"
+    if max(expect_sign * lo, expect_sign * hi) < 0:
+        return "contradicted"
+    return "undecided (CI spans 0)"
+
+
 def watchlist_section(df: pd.DataFrame, h: int) -> list[str]:
-    oos = df[df["oos"] & df[f"alpha_{h}d"].notna()]
     lines = ["## Watchlist (pre-registered — test these before searching for anything new)", "",
-             "| rule | question | measure | out-of-sample episodes | value (ep, week CI) | verdict |",
-             "|---|---|---|---|---|---|"]
+             "Each check is scored only on fires from the day it was registered: earlier data was "
+             "seen when the hypothesis was formed.", "",
+             "| rule | question | measure | since | episodes | value (ep, week CI) | verdict |",
+             "|---|---|---|---|---|---|---|"]
     for c in WATCHLIST:
         col = f"{c.metric}_{h}d"
-        mask = RULES[c.rule](oos)
-        g = oos[mask]
+        fresh = df[(df["fired_at"] >= pd.Timestamp(c.registered, tz="UTC")) & df[f"alpha_{h}d"].notna()]
+        mask = RULES[c.rule](fresh)
+        g = fresh[mask]
         if c.versus is None:
             measure = c.metric
             m, lo, hi, n = _episode_ci(g, col) if len(g) else (np.nan, np.nan, np.nan, 0)
         else:
             # Timing: this rule against the versus rule's OTHER rows, weeks resampled per group.
             measure = f"{c.metric}: rule − rest of {c.versus}"
-            rest = oos[RULES[c.versus](oos) & ~mask]
+            rest = fresh[RULES[c.versus](fresh) & ~mask]
             ea, eb = per_episode(g, col), per_episode(rest, col)
             m, lo, hi = contrast_ci(ea[col], ea["week"], eb[col], eb["week"])
             n = min(len(ea), len(eb))
-        if n < MIN_EPISODES:
-            verdict = f"pending (needs {MIN_EPISODES} episodes)"
-        elif not np.isnan(lo) and c.expect_sign * lo > 0 and c.expect_sign * hi > 0:
-            verdict = f"**confirmed** → {c.on_confirm}"
-        elif not np.isnan(lo) and c.expect_sign * hi < 0:
-            verdict = "**contradicted**"
-        else:
-            verdict = "undecided (CI spans 0)"
-        lines.append(f"| {c.rule} | {c.question} | {measure} | {n} | {_fmt(m, lo, hi)} | {verdict} |")
+        v = verdict(c.expect_sign, lo, hi, n)
+        if v == "confirmed":
+            v = f"**confirmed** → {c.on_confirm}"
+        elif v == "contradicted":
+            v = "**contradicted**"
+        lines.append(f"| {c.rule} | {c.question} | {measure} | {c.registered} | {n} | {_fmt(m, lo, hi)} | {v} |")
     return lines
 
 

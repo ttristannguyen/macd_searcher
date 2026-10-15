@@ -2,9 +2,10 @@
 
 The conventions for any analysis of signal outcomes, and the pipeline that
 implements them. Every rule below exists because breaking it produced a wrong
-conclusion at least once; the "why" is the mistake it prevents. Findings live in
-their own docs (currently [confidence_v3_research.md](confidence_v3_research.md));
-this doc is only the method.
+conclusion at least once; the "why" is the mistake it prevents. Each pass is logged
+in [research_log.md](research_log.md); topic deep-dives live in their own docs
+(currently [confidence_v3_research.md](confidence_v3_research.md)). This doc is only
+the method.
 
 ## Running it
 
@@ -28,13 +29,32 @@ alpha, the pre-registered watchlist, funding carry, and optionally a feature sca
 
 1. Sync the database, run the report.
 2. **Read the watchlist first.** Those hypotheses were written down before this data
-   existed; they are the only results that are genuinely out of sample.
+   existed; they are the only results that are genuinely out of sample. Each check is
+   scored only on fires from its `registered` date. A hypothesis formed while looking
+   at a window cannot be confirmed by that same window.
 3. Update the findings doc with what moved. Cite the snapshot date — magnitudes
    shift with every sync; signs and orderings should not.
-4. Before searching for anything new, write the new hypothesis into
-   `rules.WATCHLIST` so the *next* pass tests it cleanly.
+4. Write every new hypothesis into `rules.WATCHLIST` with today's `registered`
+   date, so the *next* pass tests it on data nobody has seen. Log the pass in
+   [research_log.md](research_log.md).
 5. If the live rule is retuned, move `DEFAULT_OOS_FROM` to the day after its new fit
    window.
+
+## Know the dataset (as of 2026-10-15)
+
+Structural facts that change how any result should be read. Re-check them when they
+look stale.
+
+- **Signals are common.** ~39% of the day's universe fires at least once. 30.6k raw
+  alerts collapse to 7.9k after per-day dedup and **~2.4k episodes**. The episode is
+  the unit of evidence.
+- **One market cycle.** June crash, Aug–Sep rally, falling October. Anything that
+  depends on market direction has about one turn behind it.
+- **Commodity, fx and index have no benchmark** (fewer than 10 same-run symbols each),
+  so ~6% of scored rows carry no alpha.
+- **The 00:00 run reads a near-flat forming candle,** which mechanically shrinks the
+  histogram. About 65% of 00:00 first fires would not fire on closed bars. Split by
+  hour when a result looks odd.
 
 ## The rules
 

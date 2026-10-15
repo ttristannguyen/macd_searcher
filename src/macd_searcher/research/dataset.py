@@ -13,6 +13,7 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
+from ..indicators import macd
 from ..stats import episodes
 from ..web.perf import _base
 
@@ -165,6 +166,7 @@ def indicators(candles: pd.DataFrame) -> pd.DataFrame:
 
     put("atr_pct", atr14 / c * 100)
     put("atr_ratio_14_50", atr14 / _wilder(tr, 50))
+    put("atr_change_30", atr14 / atr14.shift(30))   # trading_strategy.md 3H's "ATR expanded" ratio
     for n in (20, 50, 100, 200):
         put(f"dist_sma{n}_atr", (c - c.rolling(n, min_periods=n).mean()) / atr14)
     sma50 = c.rolling(50).mean()
@@ -229,6 +231,10 @@ def market_context(candles: dict[str, pd.DataFrame], classes: dict[str, str]) ->
     out = pd.DataFrame(index=closes.index)
     if "BTC" in candles:
         btc = indicators(candles["BTC"])
+        bc = candles["BTC"].sort_values("ts")
+        # The regime switch in trading_strategy.md 3G: BTC's own signal line vs zero.
+        out["btc_signal_line"] = pd.Series(macd(bc["close"])["signal"].to_numpy(),
+                                           index=bc["ts"].dt.strftime("%Y-%m-%d"))
         out["btc_roc_7"] = btc["roc_7"]
         out["btc_roc_30"] = btc["roc_30"]
         out["btc_dist_sma50_atr"] = btc["dist_sma50_atr"]

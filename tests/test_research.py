@@ -189,3 +189,23 @@ def test_cache_is_anchored_to_the_database_not_the_working_directory(tmp_path, m
     monkeypatch.chdir(tmp_path.parent)
     assert cache.root_for(db) == (tmp_path / "state" / "research_cache").resolve()
     assert cache.root_for(str(db)) == cache.root_for(db)
+
+
+# ---------------------------------------------------------------- timing contrasts
+
+def test_contrast_ci_is_the_difference_of_means_with_independent_blocks():
+    from macd_searcher.research.inference import contrast_ci
+    m, lo, hi = contrast_ci([3.0] * 12, [i % 4 for i in range(12)], [1.0] * 12, [f"w{i % 5}" for i in range(12)])
+    assert (m, lo, hi) == pytest.approx((2.0, 2.0, 2.0))
+
+
+def test_contrast_ci_refuses_an_interval_when_a_group_spans_too_few_blocks():
+    from macd_searcher.research.inference import contrast_ci
+    m, lo, hi = contrast_ci([1.0, 2.0], ["w1", "w1"], [0.0] * 6, list("abcdef"))
+    assert m == 1.5 and np.isnan(lo) and np.isnan(hi)
+
+
+def test_candle_based_rules_are_empty_not_errors_without_candles():
+    frame = pd.DataFrame({"direction": ["bullish"], "asset_class": ["crypto"]})
+    assert not RULES["BTC downtrend (bullish crypto)"](frame).any()
+    assert not RULES["ATR expanding (bullish crypto)"](frame).any()

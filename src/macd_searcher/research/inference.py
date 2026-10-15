@@ -56,3 +56,34 @@ def bh_qvalues(p) -> np.ndarray:
     out = np.empty_like(q)
     out[order] = q
     return out
+
+
+def contrast_ci(a, a_blocks, b, b_blocks, n_boot: int = 2000, seed: int = 0) -> tuple[float, float, float]:
+    """(mean(a) - mean(b), lo, hi), resampling each group's blocks independently.
+
+    For TIMING questions, where the two groups are different stretches of time
+    (signals fired in a BTC downtrend vs the rest), so a paired, same-week
+    comparison is impossible. Interval is NaN unless both groups span 3+ blocks.
+    """
+    rng = np.random.default_rng(seed)
+
+    def boot(values, blocks):
+        v, blk = np.asarray(values, dtype=float), np.asarray(blocks)
+        keep = ~np.isnan(v)
+        v, blk = v[keep], blk[keep]
+        if len(v) == 0:
+            return np.nan, None
+        keys, inv = np.unique(blk, return_inverse=True)
+        if len(keys) < 3:
+            return float(v.mean()), None
+        sums, counts = np.bincount(inv, weights=v), np.bincount(inv)
+        idx = rng.integers(0, len(keys), size=(n_boot, len(keys)))
+        return float(v.mean()), sums[idx].sum(axis=1) / counts[idx].sum(axis=1)
+
+    ma, ba = boot(a, a_blocks)
+    mb, bb = boot(b, b_blocks)
+    if ba is None or bb is None:
+        return ma - mb, np.nan, np.nan
+    tail = (1 - LEVEL) / 2 * 100
+    lo, hi = np.percentile(ba - bb, [tail, 100 - tail])
+    return ma - mb, float(lo), float(hi)

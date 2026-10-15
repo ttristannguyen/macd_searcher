@@ -19,7 +19,7 @@ from scipy.stats import norm
 
 from ..config import load_config
 from . import cache, dataset
-from .inference import bh_qvalues, block_ci, per_episode, spearman_ic
+from .inference import bh_qvalues, block_ci, contrast_ci, per_episode, spearman_ic
 from .rules import RULES, WATCHLIST
 
 log = logging.getLogger("macd_searcher.research")
@@ -76,14 +76,24 @@ def rules_section(df: pd.DataFrame, h: int) -> list[str]:
 
 
 def watchlist_section(df: pd.DataFrame, h: int) -> list[str]:
-    a = f"alpha_{h}d"
-    oos = df[df["oos"] & df[a].notna()]
+    oos = df[df["oos"] & df[f"alpha_{h}d"].notna()]
     lines = ["## Watchlist (pre-registered — test these before searching for anything new)", "",
-             "| rule | question | out-of-sample episodes | alpha (ep, week CI) | verdict |",
-             "|---|---|---|---|---|"]
+             "| rule | question | measure | out-of-sample episodes | value (ep, week CI) | verdict |",
+             "|---|---|---|---|---|---|"]
     for c in WATCHLIST:
-        g = oos[RULES[c.rule](oos)]
-        m, lo, hi, n = _episode_ci(g, a) if len(g) else (np.nan, np.nan, np.nan, 0)
+        col = f"{c.metric}_{h}d"
+        mask = RULES[c.rule](oos)
+        g = oos[mask]
+        if c.versus is None:
+            measure = c.metric
+            m, lo, hi, n = _episode_ci(g, col) if len(g) else (np.nan, np.nan, np.nan, 0)
+        else:
+            # Timing: this rule against the versus rule's OTHER rows, weeks resampled per group.
+            measure = f"{c.metric}: rule − rest of {c.versus}"
+            rest = oos[RULES[c.versus](oos) & ~mask]
+            ea, eb = per_episode(g, col), per_episode(rest, col)
+            m, lo, hi = contrast_ci(ea[col], ea["week"], eb[col], eb["week"])
+            n = min(len(ea), len(eb))
         if n < MIN_EPISODES:
             verdict = f"pending (needs {MIN_EPISODES} episodes)"
         elif not np.isnan(lo) and c.expect_sign * lo > 0 and c.expect_sign * hi > 0:
@@ -92,7 +102,7 @@ def watchlist_section(df: pd.DataFrame, h: int) -> list[str]:
             verdict = "**contradicted**"
         else:
             verdict = "undecided (CI spans 0)"
-        lines.append(f"| {c.rule} | {c.question} | {n} | {_fmt(m, lo, hi)} | {verdict} |")
+        lines.append(f"| {c.rule} | {c.question} | {measure} | {n} | {_fmt(m, lo, hi)} | {verdict} |")
     return lines
 
 

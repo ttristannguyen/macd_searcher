@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+import numpy as np
 import pandas as pd
 
 from ..signals import (
@@ -33,6 +34,16 @@ def _bear(d: pd.DataFrame) -> pd.Series:
     return d["direction"] == "bearish"
 
 
+def _col(d: pd.DataFrame, name: str) -> pd.Series:
+    """A candle-derived column, or all-NaN when the report ran without candles -
+    so those rules come out empty instead of crashing the report."""
+    return d[name] if name in d else pd.Series(np.nan, index=d.index)
+
+
+def _bull_crypto(d: pd.DataFrame) -> pd.Series:
+    return _bull(d) & (d["asset_class"] == "crypto")
+
+
 RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
     "v1 (retired)": lambda d: _bear(d) & (d.red < V1_MAX_REDUCTION)
         & (d.peak_pct < V1_MAX_PEAK_PCT) & (d.top_n >= V1_MIN_TOP_N),
@@ -43,6 +54,10 @@ RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
     "v3 bearish (shadow)": lambda d: _bear(d) & (d.peak_pct <= V3_BEAR_MAX_PEAK_PCT),
     "record-peak warning": lambda d: _bull(d) & (d.peak_pct >= RECORD_PEAK_PCT),
     "all bullish": _bull,
+    "bullish crypto": _bull_crypto,
+    # trading_strategy.md 3G and 3H, tracked so the watchlist can test them.
+    "BTC downtrend (bullish crypto)": lambda d: _bull_crypto(d) & (_col(d, "btc_signal_line") < 0),
+    "ATR expanding (bullish crypto)": lambda d: _bull_crypto(d) & (_col(d, "atr_change_30") > 1.10),
     "all bearish": _bear,
     "everything": lambda d: d["direction"].notna(),
 }
@@ -56,8 +71,13 @@ class Check:
 
     rule: str
     question: str
-    expect_sign: int          # +1: alpha should be positive; -1: negative
+    expect_sign: int          # +1: the measure should be positive; -1: negative
     on_confirm: str
+    # Which outcome column ("alpha", "r" for raw, "market"). With `versus`, the
+    # measure is the DIFFERENCE between this rule and the versus rule's other rows -
+    # how timing questions are asked, since timing is invisible to alpha.
+    metric: str = "alpha"
+    versus: str | None = None
 
 
 WATCHLIST: tuple[Check, ...] = (
@@ -69,4 +89,12 @@ WATCHLIST: tuple[Check, ...] = (
           -1, "keep the warning; consider making it a gate"),
     Check("v2 (live)", "Has v2 developed any selection edge?",
           +1, "re-examine before retiring v2"),
+    # Added 2026-10-15 from the trading_strategy.md audit.
+    Check("v2 (live)", "Is v2's TIMING real - do its fires catch bigger class moves than other bullish signals?",
+          +1, "keep v2's conditions as a market-level entry trigger", metric="market", versus="all bullish"),
+    Check("BTC downtrend (bullish crypto)", "Do bullish crypto fires in a BTC downtrend beat the rest, raw? "
+          "(only 2 such stretches as of 2026-10-15)", +1, "admit the 3G regime filter",
+          metric="r", versus="bullish crypto"),
+    Check("ATR expanding (bullish crypto)", "Does 3H's ATR-expansion filter add selection beyond its timing?",
+          +1, "keep 3H as a selection filter, not just a timing one"),
 )

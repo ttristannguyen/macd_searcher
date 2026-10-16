@@ -75,17 +75,23 @@ def rules_section(df: pd.DataFrame, h: int) -> list[str]:
     return lines
 
 
-def verdict(expect_sign: int, lo: float, hi: float, n: int) -> str:
-    """Confirmed only if the whole interval sits on the expected side; contradicted
-    only if the whole interval sits on the other side. Anything else is undecided."""
+def verdict(expect_sign: int, lo: float, hi: float, n: int, role: str = "discovery") -> str:
+    """Contradicted only if the whole interval sits on the wrong side.
+
+    A discovery check is confirmed only with the whole interval on the expected side.
+    A monitor (already confirmed elsewhere) only has to avoid contradiction: once it has
+    enough episodes and isn't contradicted, it is "holding" and can be acted on.
+    """
     if n < MIN_EPISODES:
         return f"pending (needs {MIN_EPISODES} episodes)"
     if np.isnan(lo):
         return "undecided (no interval)"
-    if min(expect_sign * lo, expect_sign * hi) > 0:
-        return "confirmed"
     if max(expect_sign * lo, expect_sign * hi) < 0:
         return "contradicted"
+    if role == "monitor":
+        return "holding"
+    if min(expect_sign * lo, expect_sign * hi) > 0:
+        return "confirmed"
     return "undecided (CI spans 0)"
 
 
@@ -93,8 +99,8 @@ def watchlist_section(df: pd.DataFrame, h: int) -> list[str]:
     lines = ["## Watchlist (pre-registered — test these before searching for anything new)", "",
              "Each check is scored only on fires from the day it was registered: earlier data was "
              "seen when the hypothesis was formed.", "",
-             "| rule | question | measure | since | episodes | value (ep, week CI) | verdict |",
-             "|---|---|---|---|---|---|---|"]
+             "| rule | role | question | measure | since | episodes | value (ep, week CI) | verdict |",
+             "|---|---|---|---|---|---|---|---|"]
     for c in WATCHLIST:
         col = f"{c.metric}_{h}d"
         fresh = df[(df["fired_at"] >= pd.Timestamp(c.registered, tz="UTC")) & df[f"alpha_{h}d"].notna()]
@@ -110,12 +116,13 @@ def watchlist_section(df: pd.DataFrame, h: int) -> list[str]:
             ea, eb = per_episode(g, col), per_episode(rest, col)
             m, lo, hi = contrast_ci(ea[col], ea["week"], eb[col], eb["week"])
             n = min(len(ea), len(eb))
-        v = verdict(c.expect_sign, lo, hi, n)
-        if v == "confirmed":
-            v = f"**confirmed** → {c.on_confirm}"
+        v = verdict(c.expect_sign, lo, hi, n, c.role)
+        if v in ("confirmed", "holding"):
+            v = f"**{v}** → {c.on_confirm}"
         elif v == "contradicted":
             v = "**contradicted**"
-        lines.append(f"| {c.rule} | {c.question} | {measure} | {c.registered} | {n} | {_fmt(m, lo, hi)} | {v} |")
+        lines.append(f"| {c.rule} | {c.role} | {c.question} | {measure} | {c.registered} | {n} | "
+                     f"{_fmt(m, lo, hi)} | {v} |")
     return lines
 
 

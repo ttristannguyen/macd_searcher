@@ -236,3 +236,19 @@ def test_every_watchlist_check_has_a_registration_date():
     from macd_searcher.research.rules import WATCHLIST
     for c in WATCHLIST:
         assert pd.Timestamp(c.registered) <= pd.Timestamp.now(), c.rule
+
+
+
+@pytest.mark.parametrize("lo,hi,expected", [
+    (0.5, 2.0, "holding"),
+    (-0.5, 2.0, "holding"),          # a monitor only has to avoid contradiction
+    (-2.0, -0.5, "contradicted"),
+])
+def test_monitor_acts_unless_contradicted(lo, hi, expected):
+    from macd_searcher.research.__main__ import verdict
+    assert verdict(+1, lo, hi, n=100, role="monitor") == expected
+
+
+def test_monitor_still_waits_for_enough_episodes():
+    from macd_searcher.research.__main__ import MIN_EPISODES, verdict
+    assert verdict(+1, 1.0, 2.0, n=MIN_EPISODES - 1, role="monitor").startswith("pending")

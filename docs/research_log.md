@@ -8,6 +8,29 @@ own docs ([confidence_v3_research.md](confidence_v3_research.md),
 
 ---
 
+## 2026-10-16 — historical rebuild
+
+The closed-candle detector rebuilt over 2023 → 2026-06-08 crypto history (2022 had no
+coin above the volume floor), against hypotheses frozen beforehand in
+[historical_rebuild.md](historical_rebuild.md), which has the full results.
+Calibration on the live period passed. 10,372 episodes, about 4× the live dataset.
+
+- **Confirmed in every year with data:** v3 bullish alpha +0.58% [+0.04, +1.15];
+  `peak_pct` IC −0.06; bearish repeat fires worse than first fires, −1.01%.
+- **Not reproduced:** the record-trough penalty (+0.01% across history, against −3% to
+  −4% live). It was this cycle's effect, not a general one.
+- **No timing hypothesis confirmed:** v2 timing, and the BTC-downtrend filter (21 regime
+  stretches, inconsistent by year).
+- Watchlist roles updated per the frozen mapping. v3 bullish and bearish repeat fires
+  are now **monitors** (act at ≥ 30 live episodes unless contradicted); the rest stay
+  discovery tests.
+
+Also measured (2026-10-15, not pre-registered): forming candle vs closed candle on live
+data. The forming candle enters a median 20h earlier and captures +0.92% (bullish) /
++0.65% (bearish) before the close-based detector would fire. Keep it.
+
+---
+
 ## 2026-10-15 — dataset pass
 
 Snapshot synced 2026-10-15 14:00 (latest run 00:00). 7d outcomes for fires through

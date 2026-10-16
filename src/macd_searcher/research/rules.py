@@ -87,14 +87,20 @@ class Check:
     # how timing questions are asked, since timing is invisible to alpha.
     metric: str = "alpha"
     versus: str | None = None
+    # "discovery": the live data must confirm it (whole interval on the expected side).
+    # "monitor": already confirmed elsewhere (docs/historical_rebuild.md), so live data
+    # only has to not contradict it — it acts once it has enough episodes.
+    role: str = "discovery"
 
 
 WATCHLIST: tuple[Check, ...] = (
-    Check("v3 bullish", "Does the v3 bullish leg keep positive alpha out of sample?",
-          +1, "promote v3 bullish from shadow to the live marker", registered="2026-10-14"),
+    Check("v3 bullish", "Does the v3 bullish leg keep positive alpha out of sample? "
+          "(history 2023-26: +0.58, confirmed)",
+          +1, "promote v3 bullish from shadow to the live marker", registered="2026-10-14", role="monitor"),
     Check("v3 bearish (shadow)", "Does the bearish low-peak leg hold at episode level?",
           +1, "add the bearish leg to v3", registered="2026-10-14"),
-    Check("record-peak warning", "Do record-peak bullish signals keep underperforming?",
+    Check("record-peak warning", "Do record-peak bullish signals keep underperforming? "
+          "(history 2023-26: +0.01, NOT reproduced)",
           -1, "keep the warning; consider making it a gate", registered="2026-10-14"),
     Check("v2 (live)", "Has v2 developed any selection edge?",
           +1, "re-examine before retiring v2", registered="2026-10-14"),
@@ -107,8 +113,10 @@ WATCHLIST: tuple[Check, ...] = (
     Check("ATR expanding (bullish crypto)", "Does 3H's ATR-expansion filter add selection beyond its timing?",
           +1, "keep 3H as a selection filter, not just a timing one", registered="2026-10-15"),
     # Added 2026-10-15 from the dataset pass (docs/research_log.md).
-    Check("bearish repeat fires", "Are bearish re-fires worse shorts than first fires? (in-sample paired: -0.85)",
-          -1, "act only on the first fire of a bearish episode", metric="alpha", versus="all bearish", registered="2026-10-15"),
+    Check("bearish repeat fires", "Are bearish re-fires worse shorts than first fires? "
+          "(history 2023-26, paired: -1.01, confirmed)",
+          -1, "act only on the first fire of a bearish episode", metric="alpha", versus="all bearish",
+          registered="2026-10-15", role="monitor"),
     Check("bullish first fire at 00:00", "Do bullish first fires at 00:00 UTC keep underperforming intraday "
           "first fires? (in-sample -1.64 vs +0.29; no mechanism yet)", -1,
           "find the mechanism before acting on it", metric="alpha", versus="bullish first fires", registered="2026-10-15"),

@@ -133,3 +133,77 @@ is registered as a fresh live check and confirmed only on live data.
 ## Results
 
 *(Appended after the run. Nothing above this line changes.)*
+
+Run 2026-10-16 with `scripts/historical_rebuild.py` (48s, cached in
+`state/research_cache/history_rebuild.pkl`).
+
+### Data-construction notes, found before any outcome was read
+
+- **Survivorship: none for coins that ever listed.** All 234 core perps returned
+  history, including all 56 flagged delisted. Hyperliquid keeps delisted coins in its
+  asset list.
+- **2022 is empty, and 2023 is thin.** Candles go back to 2021, but under the frozen
+  $300k notional floor no coin is eligible in 2022 (Hyperliquid's own market was too
+  small). Only a median 16 coins per day are eligible in 2023 (81% of days have a
+  benchmark), against 66–95 from 2024. The effective window is **2023 → 2026-06-08**.
+  The rules were not relaxed: "3 of 5 years" now in practice means 3 of the 4 years
+  with data.
+- Confirmatory sample: 23,125 fires in 10,372 episodes, about 4× the live dataset.
+
+### Calibration — passed
+
+| live period, rebuilt | rebuilt | snapshot reconstruction |
+|---|---|---|
+| v3 bullish | +0.13 [−0.98, +1.29] | +0.44 |
+| record trough | −3.82 [−6.47, −0.79] | −3.07 |
+| all bullish | −0.68 [−1.49, +0.09] | −0.69 |
+| all bearish | −1.13 [−1.79, −0.52] | −1.04 |
+
+Same sign and similar size on every line, so the rebuild measures what the live data
+measured.
+
+### Confirmatory — 2022-01-01 → 2026-06-08, 7d, episode-level, week-block 95% CI
+
+| # | hypothesis | result | by year (2023 / 24 / 25 / 26) | verdict |
+|---|---|---|---|---|
+| H1 | v3 bullish alpha > 0 | **+0.58 [+0.04, +1.15]**, 1,441 ep | +0.59 / +0.80 / +0.44 / +0.62 | **CONFIRMED** |
+| H2 | record trough alpha < 0 | +0.01 [−0.87, +0.94], 728 ep | +1.11 / −0.71 / +1.24 / +1.55 | undecided |
+| H3 | IC(`peak_pct`, alpha) < 0 | **−0.06 [−0.09, −0.02]**, 4,748 ep | −0.05 / −0.05 / −0.05 / −0.09 | **CONFIRMED** |
+| H4 | v2 alpha > 0 | +0.08 [−0.42, +0.60] | −0.72 / +0.46 / −0.01 / +0.08 | undecided (no edge, as expected) |
+| H5 | v2 timing (market, v2 − rest) > 0 | +1.73 [−1.48, +4.91] | −0.57 / +2.60 / +2.42 / +1.92 | undecided |
+| H6 | BTC-downtrend raw, in − out > 0 | +2.10 [−2.08, +6.28]; 21 stretches (admissible) | −8.00 / +2.63 / +6.61 / −1.67 | undecided |
+| H7 | ATR expansion alpha > 0 | −0.33 [−0.89, +0.26] | +0.87 / −0.44 / −0.11 / −1.17 | undecided (no selection, as expected) |
+| H8 | bearish low-peak short alpha > 0 | +0.55 [−0.11, +1.20] | +1.28 / +0.03 / +1.03 / +0.08 | undecided |
+| H9 | bearish repeat − first < 0 | **−1.01 [−1.29, −0.73]**, 3,148 ep | −1.31 / −1.18 / −0.85 / −0.95 | **CONFIRMED** |
+
+### What it means
+
+- **v3's selection edge is real but small.** +0.58% a week against the asset's own
+  universe, positive in every year with data. That is about two-thirds of the live
+  estimate (+0.88%), the usual shrinkage of an estimate made on the data it was found
+  in. The historical number is the less biased one. `peak_pct` matters (H3) in every
+  year, at a modest IC of −0.06.
+- **The record-trough warning does not generalise.** It was strongly negative in the
+  2026 live period (and again in the rebuilt live period, −3.82%), but across
+  2023–2026 it is +0.01%, positive in three of four years. Its live strength was
+  specific to this cycle. Under the frozen mapping it stays a discovery test and is
+  **not** a gate candidate. The Telegram/dashboard warning, and the strong language
+  around it in `signals.py` and `confidence_v3.md`, should be revisited.
+- **Bearish repeat fires really are worse shorts** (H9): −1.01% every year. A bearish
+  setup that keeps re-firing without the price falling is showing strength.
+- **No timing hypothesis is confirmed.** v2's timing (H5) is positive in the three most
+  recent years but the interval spans zero. The BTC-downtrend filter (H6) had 21
+  regime stretches to prove itself and was inconsistent: −8.0 in 2023, +6.6 in 2025.
+  The timing layer of `trading_strategy.md` still has no cross-regime evidence.
+- **v2 has no selection edge, and ATR expansion adds no selection**, in history as live.
+- Three of nine confirmed, against about 0.45 expected by chance. All three are
+  consistent in every year with data, which chance rarely produces.
+
+### Live watchlist, per the frozen mapping
+
+- **Become monitors** (act at ≥ 30 live episodes unless contradicted): v3 bullish (H1)
+  and bearish repeat fires (H9). The v2-selection check keeps its discovery form,
+  since it is watching for an edge v2 has never shown.
+- **Stay discovery tests:** record trough (H2), v2 timing (H5), BTC downtrend (H6), ATR
+  expansion (H7), bearish low peak (H8), and the 00:00 first fire (not testable here).
+- Nothing was contradicted, so nothing is dropped.

@@ -31,9 +31,7 @@ from .config import AppConfig
 from .signals import (
     Signal,
     is_high_confidence,
-    is_record_peak,
     signal_line_atr_multiple,
-    signal_line_pct_of_price,
 )
 
 
@@ -72,38 +70,29 @@ def _fmt_stage1_row(s: Signal) -> str:
     """One signal line. Deliberately sparse — the raw hist value, the peak it fell
     from, and the price were all dropped as noise you can look up in the dashboard.
     What's left is what drives the read: how far it has flattened, where the trend
-    sits (`sig`, the MACD signal line — negative means the trend is below
-    equilibrium), and RSI as context.
+    sits (`sig`), how big this swing is for the token (`pk`), and RSI as context.
 
-    `sig` is given under both normalizations, `% of price / ×ATR`, because they
-    answer different questions. The percent is the legible one ("3% of price below
-    equilibrium"); the ATR multiple is the one that means the same thing on BTC and
-    on gold, and it is the axis the dashboard buckets into octiles — so -0.74×ATR
-    can be read straight off the published bucket ranges. Either half is omitted on
-    its own if undefined, rather than dropping the pair.
+    * `sig` — the MACD signal line in ATR units (negative = trend below equilibrium).
+      ATR, not % of price, because it means the same thing on BTC and on gold; it is
+      also the axis the dashboard buckets into octiles. The %-of-price reading was
+      dropped from the row (2026-10-16); it is still on the dashboard.
+    * `pk` — where this excursion's peak ranks among the token's own completed swings
+      of the same sign in the lookback (0 = smallest, 100 = deepest). Low is the side
+      the v3 shadow rule favours, confirmed across 2023-2026 history and strongest at
+      25 or below (docs/historical_rebuild.md). Shown as a plain number, not a marker,
+      until the live watchlist confirms it.
 
     High-confidence rows (see `is_high_confidence`) are bolded, which is why the
-    sender uses HTML parse_mode.
-
-    Bullish rows on a record trough (`is_record_peak`) end in `⚠ record`: the
-    histogram swing just flattening was the deepest in the token's lookback window,
-    usually a token-specific collapse that keeps drifting against its peers — the
-    worst slice in the book (docs/confidence_v3.md). A warning, not a filter: the
-    row is still sent.
+    sender uses HTML parse_mode. There is deliberately no record-trough warning: it
+    was shipped on 2026 live data and did not replicate in history.
     """
     assert s.reduction_from_peak is not None
     pct = s.reduction_from_peak * 100
-    sig_parts = []
-    sig_pct = signal_line_pct_of_price(s)
-    if sig_pct is not None:
-        sig_parts.append(f"{sig_pct:+.1f}%")
     sig_atr = signal_line_atr_multiple(s)
-    if sig_atr is not None:
-        sig_parts.append(f"{sig_atr:+.2f}×ATR")
-    sig = f"  sig {' / '.join(sig_parts)}" if sig_parts else ""
+    sig = f"  sig {sig_atr:+.2f}×ATR" if sig_atr is not None else ""
+    peak = f"  pk {s.hist_peak_pct:.0f}" if s.hist_peak_pct is not None else ""
     rsi = f"  RSI {s.rsi_14:.0f}" if s.rsi_14 is not None else ""
-    warn = "  ⚠ record" if is_record_peak(s) else ""
-    row = f"{escape(s.name):<10} ↓{pct:.0f}%{sig}{rsi}{warn}"
+    row = f"{escape(s.name):<10} ↓{pct:.0f}%{sig}{peak}{rsi}"
     return f"  <b>{row}</b>" if is_high_confidence(s) else f"  {row}"
 
 

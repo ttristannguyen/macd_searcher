@@ -109,7 +109,7 @@ const RULE_LABELS: Record<string, { name: string; note: string }> = {
   v2: { name: 'v2 · live', note: 'bullish, sig/ATR < −0.5, reduction < 0.6 — bolded in Telegram' },
   v3: { name: 'v3 · shadow', note: 'bullish, peak ≤ 50th pct of own swings, reduction < 0.6' },
   v3_bear: { name: 'v3 bearish · shadow', note: 'bearish, peak ≤ 25th pct — tracked only' },
-  record: { name: 'record trough', note: 'bullish on the deepest swing in the window — the warning' },
+  record: { name: 'record trough', note: 'bullish on the deepest swing in the window — tracked; its 2026 penalty did not replicate in history' },
   all: { name: 'everything', note: 'every scored signal' },
 }
 

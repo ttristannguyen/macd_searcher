@@ -14,11 +14,6 @@ type Dir = 'asc' | 'desc'
 /** Returns are fractions on the wire (0.10 = +10%); show them signed as percent. */
 const ret = (v: number | null) => fmtPctPts(v == null ? null : v * 100, 1, true)
 
-// A bullish fire on the deepest selling swing in the token's lookback window — the
-// worst bullish slice measured. Mirrors signals.is_record_peak; see docs/confidence_v3.md.
-const isRecord = (r: AssetSignalRow) =>
-  r.direction === 'bullish' && r.fire_hist_peak_pct != null && r.fire_hist_peak_pct >= 100
-
 function daysSince(iso: string): number {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
 }
@@ -157,11 +152,8 @@ export function AssetSignalsTable({ symbol, horizon }: { symbol: string; horizon
                   <td className="py-1.5 pr-2 text-right tabular-nums text-slate-400">
                     {r.fire_hist_peak_ratio == null ? '—' : `${r.fire_hist_peak_ratio.toFixed(1)}×`}
                   </td>
-                  <td
-                    className={`py-1.5 pr-2 text-right tabular-nums ${isRecord(r) ? 'text-amber-400' : 'text-slate-400'}`}
-                    title={isRecord(r) ? 'Record trough for this token — the worst bullish slice measured (docs/confidence_v3.md)' : undefined}
-                  >
-                    {r.fire_hist_peak_pct == null ? '—' : `${isRecord(r) ? '⚠ ' : ''}p${Math.round(r.fire_hist_peak_pct)}`}
+                  <td className="py-1.5 pr-2 text-right tabular-nums text-slate-400">
+                    {r.fire_hist_peak_pct == null ? '—' : `p${Math.round(r.fire_hist_peak_pct)}`}
                   </td>
                   <td className="py-1.5 pr-2 text-right tabular-nums text-slate-600">{r.fire_hist_top_n ?? '—'}</td>
                   <td className="py-1.5 pr-2 text-right tabular-nums text-slate-300">

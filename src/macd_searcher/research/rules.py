@@ -53,6 +53,8 @@ RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
         & (d.red < V3_BULL_MAX_REDUCTION),
     "v3 bearish (shadow)": lambda d: _bear(d) & (d.peak_pct <= V3_BEAR_MAX_PEAK_PCT),
     "record-peak warning": lambda d: _bull(d) & (d.peak_pct >= RECORD_PEAK_PCT),
+    # Historical rebuild: the peak_pct effect sits in the lowest quarter (+1.51% 2023-26).
+    "bullish peak_pct <= 25": lambda d: _bull(d) & (d.peak_pct <= 25),
     "all bullish": _bull,
     "bullish crypto": _bull_crypto,
     # trading_strategy.md 3G and 3H, tracked so the watchlist can test them.
@@ -120,4 +122,9 @@ WATCHLIST: tuple[Check, ...] = (
     Check("bullish first fire at 00:00", "Do bullish first fires at 00:00 UTC keep underperforming intraday "
           "first fires? (in-sample -1.64 vs +0.29; no mechanism yet)", -1,
           "find the mechanism before acting on it", metric="alpha", versus="bullish first fires", registered="2026-10-15"),
+    # Added 2026-10-16 from the historical rebuild: a threshold history suggested, which
+    # history itself may not confirm — so it is a live discovery test.
+    Check("bullish peak_pct <= 25", "Do bullish fires in the lowest peak_pct quarter beat their class? "
+          "(history 2023-26: +1.51%; v3's <= 50 includes a ~0 band)", +1,
+          "tighten v3's peak cut to 25", registered="2026-10-16"),
 )

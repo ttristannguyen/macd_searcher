@@ -25,7 +25,6 @@ from macd_searcher.notify import (
 from macd_searcher.signals import (
     Signal,
     signal_line_atr_multiple,
-    signal_line_pct_of_price,
 )
 
 
@@ -215,25 +214,6 @@ def test_format_message_escapes_symbol_names():
     assert "A<B&C" not in text
 
 
-def test_signal_line_pct_of_price_derivation():
-    """signal = macd - hist, as a % of close. Guards the identity the row prints."""
-    s = _mk_signal("BTC", "histogram_flattening", "bullish",
-                   close=100.0, macd=-7.2, hist=-0.2, hist_peak=-2.0,
-                   reduction_from_peak=0.4)
-    assert signal_line_pct_of_price(s) == pytest.approx(-7.0)
-    # Same raw signal at half the price reads twice as far from equilibrium.
-    s2 = _mk_signal("BTC", "histogram_flattening", "bullish",
-                    close=50.0, macd=-7.2, hist=-0.2, hist_peak=-2.0,
-                    reduction_from_peak=0.4)
-    assert signal_line_pct_of_price(s2) == pytest.approx(-14.0)
-
-
-def test_signal_line_pct_of_price_none_on_bad_close():
-    s = _mk_signal("BTC", "histogram_flattening", "bullish",
-                   close=0.0, macd=-7.2, hist=-0.2, reduction_from_peak=0.4)
-    assert signal_line_pct_of_price(s) is None
-
-
 def test_signal_line_atr_multiple_derivation():
     """Same `macd - hist` signal line, divided by ATR instead of price."""
     s = _mk_signal("BTC", "histogram_flattening", "bullish",
@@ -241,11 +221,9 @@ def test_signal_line_atr_multiple_derivation():
                    hist_peak=-2.0, reduction_from_peak=0.4)
     assert signal_line_atr_multiple(s) == pytest.approx(-1.75)
     # Price is irrelevant to this axis — that is the whole point of it. The same
-    # trend on a token priced 20x lower reads identically here, while
-    # signal_line_pct_of_price would read 20x further from equilibrium.
+    # trend on a token priced 20x lower reads identically.
     s2 = replace(s, close=5.0)
     assert signal_line_atr_multiple(s2) == pytest.approx(-1.75)
-    assert signal_line_pct_of_price(s2) != pytest.approx(signal_line_pct_of_price(s))
 
 
 def test_signal_line_atr_multiple_none_when_atr_unusable():
@@ -257,71 +235,46 @@ def test_signal_line_atr_multiple_none_when_atr_unusable():
         _mk_signal("BTC", "histogram_flattening", "bullish", atr=0.0, **base)) is None
 
 
-def test_format_message_includes_signal_line_pct():
-    """The row carries `sig` — where the trend sits relative to price."""
-    signals = [
-        _mk_signal("ETH", "histogram_flattening", "bullish",
-                   close=100.0, macd=-7.2, hist=-0.2, hist_peak=-2.0,
-                   reduction_from_peak=0.4, rsi_14=38.0),
-    ]
-    text = format_message(signals, scanned_count=1, cfg=AppConfig())
-    row = next(ln for ln in text.split("\n") if "ETH" in ln)
-    assert "sig -7.0%" in row
-    assert "↓40%" in row and "RSI 38" in row
-
-
-def test_format_message_signal_line_pct_signed_both_ways():
-    """A bearish fire above equilibrium reads positive, so the sign carries the regime."""
-    s = _mk_signal("SOL", "histogram_flattening", "bearish",
-                   close=100.0, macd=3.2, hist=0.2, hist_peak=1.0,
-                   reduction_from_peak=0.5)
-    row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "SOL" in ln)
-    assert "sig +3.0%" in row
-
-
-def test_format_message_shows_both_normalizations():
-    """`sig` carries % of price AND the ATR multiple, joined by ' / '.
-
-    The ATR half is the axis perf.macd_signal_buckets buckets into octiles, so the
-    number in the alert is meant to be readable straight off those ranges.
-    """
+def test_format_message_shows_signal_line_in_atr_only():
+    """`sig` is the ATR multiple alone; the %-of-price reading left the row."""
     s = _mk_signal("ETH", "histogram_flattening", "bullish",
                    close=100.0, macd=-7.2, hist=-0.2, atr=4.0, hist_peak=-2.0,
                    reduction_from_peak=0.4, rsi_14=38.0)
     row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "ETH" in ln)
-    assert "sig -7.0% / -1.75\u00d7ATR" in row
-    assert "↓40%" in row and "RSI 38" in row
-
-
-def test_format_message_keeps_pct_when_atr_missing():
-    """Either half stands alone rather than dropping the pair — `atr` is a new field,
-    so anything constructed without it must still render its price reading."""
-    s = _mk_signal("ETH", "histogram_flattening", "bullish",
-                   close=100.0, macd=-7.2, hist=-0.2, hist_peak=-2.0,
-                   reduction_from_peak=0.4)
-    row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "ETH" in ln)
-    assert "sig -7.0%" in row
-    assert "ATR" not in row
-
-
-def test_format_message_keeps_atr_when_price_normalization_undefined():
-    """The mirror case: a non-positive close kills the percent, not the ATR half."""
-    s = _mk_signal("BAD", "histogram_flattening", "bullish",
-                   close=0.0, macd=-7.2, hist=-0.2, atr=4.0, hist_peak=-2.0,
-                   reduction_from_peak=0.4)
-    row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "BAD" in ln)
     assert "sig -1.75\u00d7ATR" in row
-    assert "%" not in row.split("sig")[1]
+    assert "↓40%" in row and "RSI 38" in row
+    assert "%" not in row.split("sig")[1]      # no % of price after `sig`
 
 
-def test_format_message_omits_signal_line_pct_when_undefined():
-    """A non-positive close can't be normalized; the field is dropped, not shown as nan."""
+def test_format_message_signal_line_signed_both_ways():
+    """A bearish fire above equilibrium reads positive, so the sign carries the regime."""
+    s = _mk_signal("SOL", "histogram_flattening", "bearish",
+                   close=100.0, macd=3.2, hist=0.2, atr=2.0, hist_peak=1.0,
+                   reduction_from_peak=0.5)
+    row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "SOL" in ln)
+    assert "sig +1.50\u00d7ATR" in row
+
+
+def test_format_message_omits_sig_without_atr():
+    """No ATR to normalize by: the field is dropped, not shown as nan."""
     s = _mk_signal("BAD", "histogram_flattening", "bullish",
-                   close=0.0, macd=-1.0, hist=-0.2, hist_peak=-2.0,
+                   close=100.0, macd=-1.0, hist=-0.2, hist_peak=-2.0,
                    reduction_from_peak=0.4)
     row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "BAD" in ln)
     assert "sig" not in row
     assert "↓40%" in row
+
+
+@pytest.mark.parametrize("peak_pct,shown", [(18.4, "pk 18"), (100.0, "pk 100"), (None, None)])
+def test_format_message_shows_peak_percentile_as_a_plain_number(peak_pct, shown):
+    """`pk` is context: a number on every row that has it, never a marker."""
+    s = _mk_signal("PK", "histogram_flattening", "bullish", close=100.0, macd=-1.0, hist=-0.2,
+                   atr=2.0, reduction_from_peak=0.4, hist_peak_pct=peak_pct, hist_top_n=6)
+    row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "PK" in ln)
+    if shown:
+        assert shown in row
+    else:
+        assert "pk" not in row
 
 
 # ---------- chunking ----------
@@ -412,18 +365,10 @@ async def test_send_signals_missing_credentials_prints_warning_and_text():
     assert "TEST" in buf.getvalue()
 
 
-@pytest.mark.parametrize("direction,peak_pct,warned", [
-    ("bullish", 100.0, True),    # record trough: the warning
-    ("bullish", 87.5, False),    # deep, but not the deepest
-    ("bullish", None, False),    # no peak context
-    ("bearish", 100.0, False),   # the warning is bullish-only — measured there, not here
-])
-def test_format_message_flags_record_trough(direction, peak_pct, warned):
-    """Bullish rows on the deepest swing in the token's lookback end in '⚠ record'
-    — still sent, just marked (docs/confidence_v3.md)."""
-    s = _mk_signal("REC", "histogram_flattening", direction,
-                   close=100.0, macd=-1.0 if direction == "bullish" else 1.0,
-                   hist=-0.2 if direction == "bullish" else 0.2,
-                   reduction_from_peak=0.4, hist_peak_pct=peak_pct, hist_top_n=6)
+def test_format_message_has_no_record_trough_warning():
+    """The record-trough warning was removed after it failed to replicate in history
+    (docs/historical_rebuild.md, H2). A record trough reads `pk 100`, nothing more."""
+    s = _mk_signal("REC", "histogram_flattening", "bullish", close=100.0, macd=-1.0, hist=-0.2,
+                   atr=2.0, reduction_from_peak=0.4, hist_peak_pct=100.0, hist_top_n=6)
     row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "REC" in ln)
-    assert ("⚠ record" in row) is warned
+    assert "\u26a0" not in row and "record" not in row

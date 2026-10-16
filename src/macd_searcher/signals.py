@@ -53,31 +53,16 @@ class Signal:
     hist_top_n: int = 0
 
 
-def signal_line_pct_of_price(s: Signal) -> float | None:
-    """MACD signal line at fire as a percent of price.
-
-    `hist = macd - signal` by construction, so the signal line is recovered from the
-    two values already on the Signal — same derivation the dashboard uses in SQL
-    (`perf._MACD_SIGNAL_PCT_EXPR`). Reads as how far the trend sits from equilibrium
-    in the token's own price terms; None when close is non-positive.
-
-    Note this is the *price*-normalized view, which is partly an asset-class proxy
-    (MACD scales with volatility too). The dashboard shows it beside an
-    ATR-normalized version for that reason — see docs/macd_signal_pct_analysis.md.
-    """
-    if s.close <= 0:
-        return None
-    return (s.macd - s.hist) / s.close * 100
-
-
 def signal_line_atr_multiple(s: Signal) -> float | None:
     """MACD signal line at fire in units of ATR — roughly "bars of trend drift per
     bar of typical range".
 
-    The companion to `signal_line_pct_of_price`, and the one that survives
+    `hist = macd - signal` by construction, so the signal line is recovered from the
+    two values already on the Signal. ATR rather than price because it survives
     cross-class comparison: dividing by price leaves the volatility term in, so
-    those buckets partly re-read asset class (median |signal/price| is 0.17% for fx
-    against 4.08% for crypto — 24x — versus ~1.4x once ATR-normalized).
+    a %-of-price reading partly re-reads asset class (median |signal/price| is 0.17%
+    for fx against 4.08% for crypto — 24x — versus ~1.4x once ATR-normalized). The
+    %-of-price view lives on the dashboard only (`perf._MACD_SIGNAL_PCT_EXPR`).
 
     This is the exact quantity the dashboard buckets into octiles
     (`perf.macd_signal_buckets`), so a number here can be read straight against
@@ -155,10 +140,12 @@ def is_high_confidence(s: Signal) -> bool:
 # These are shown on the Confidence tab beside v2 and do NOT bold Telegram rows until
 # the research watchlist confirms them out of sample (docs/confidence_v3.md, Phase 4).
 #
-# WHY peak_pct, in one line: a record histogram trough is usually a token-specific
-# collapse (median -10% vs its class over the prior 14 days), and those keep drifting
-# — the flattening is deceleration, not exhaustion. A modest trough is the token's
-# normal rhythm and mean-reverts against its peers.
+# WHY peak_pct: a modest trough — small by the token's own standards — is the token's
+# normal rhythm and mean-reverts against its peers. The historical rebuild
+# (docs/historical_rebuild.md, 2023 -> 2026-06) confirmed v3 at +0.58% 7d alpha in
+# every year, with the effect concentrated in the lowest quarter (peak_pct <= 25:
+# +1.51%). The opposite end did NOT replicate: record troughs were -3% to -4% in the
+# 2026 live cycle but +0.01% across history, so they carry no warning.
 CONFIDENCE_V3_MAX_PEAK_PCT = 50       # no deeper than the token's median swing
 CONFIDENCE_V3_MAX_REDUCTION = 0.6     # same late-entry cap as v2
 CONFIDENCE_V3_BEAR_MAX_PEAK_PCT = 25  # bearish leg: tracked only, fails episode-level inference
@@ -175,8 +162,11 @@ def is_v3_confident(s: Signal) -> bool:
 
 
 def is_record_peak(s: Signal) -> bool:
-    """A bullish fire on the deepest selling swing in the token's lookback window —
-    the worst slice in the book (7d alpha -2.4% in-sample, -8% out of sample)."""
+    """A bullish fire on the deepest selling swing in the token's lookback window.
+
+    Tracked as a cohort on the Confidence tab and the research watchlist, not shown
+    as a warning: its strong underperformance in the 2026 live cycle did not
+    replicate across 2023-2026 history (docs/historical_rebuild.md, H2)."""
     return s.direction == "bullish" and s.hist_peak_pct is not None and s.hist_peak_pct >= RECORD_PEAK_PCT
 
 

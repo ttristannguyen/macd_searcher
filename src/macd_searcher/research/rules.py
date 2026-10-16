@@ -65,6 +65,9 @@ RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
     "bullish first fires": lambda d: _bull(d) & d["episode_start"].astype(bool),
     "bullish first fire at 00:00": lambda d: _bull(d) & d["episode_start"].astype(bool)
         & (d["fired_at"].dt.hour == 0),
+    # A strong uptrend (positive excursion in the top half of the asset's own) whose
+    # momentum has cooled: a pullback in a leader, tested as a LONG (2026-10-16 pass).
+    "bearish pullback (peak_pct >= 50)": lambda d: _bear(d) & (d.peak_pct >= 50),
     "all bearish": _bear,
     "everything": lambda d: d["direction"].notna(),
 }
@@ -127,4 +130,8 @@ WATCHLIST: tuple[Check, ...] = (
     Check("bullish peak_pct <= 25", "Do bullish fires in the lowest peak_pct quarter beat their class? "
           "(history 2023-26: +1.51%; v3's <= 50 includes a ~0 band)", +1,
           "tighten v3's peak cut to 25", registered="2026-10-16"),
+    # Alpha on bearish rows is short-side, so a good LONG shows up as a negative value.
+    Check("bearish pullback (peak_pct >= 50)", "Are bearish fires after a strong uptrend good LONGS? "
+          "(history 2023-26: long-side +1.39%, every year; seen on all periods at once, so not yet out of sample)",
+          -1, "add a long-side 'pullback in a leader' marker", registered="2026-10-16"),
 )

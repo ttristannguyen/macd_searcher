@@ -102,16 +102,17 @@ def watchlist_section(df: pd.DataFrame, h: int) -> list[str]:
              "| rule | role | question | measure | since | episodes | value (ep, week CI) | verdict |",
              "|---|---|---|---|---|---|---|---|"]
     for c in WATCHLIST:
-        col = f"{c.metric}_{h}d"
-        fresh = df[(df["fired_at"] >= pd.Timestamp(c.registered, tz="UTC")) & df[f"alpha_{h}d"].notna()]
+        hh = c.horizon or h
+        col = f"{c.metric}_{hh}d"
+        fresh = df[(df["fired_at"] >= pd.Timestamp(c.registered, tz="UTC")) & df[f"alpha_{hh}d"].notna()]
         mask = RULES[c.rule](fresh)
         g = fresh[mask]
         if c.versus is None:
-            measure = c.metric
+            measure = f"{c.metric} {hh}d"
             m, lo, hi, n = _episode_ci(g, col) if len(g) else (np.nan, np.nan, np.nan, 0)
         else:
             # Timing: this rule against the versus rule's OTHER rows, weeks resampled per group.
-            measure = f"{c.metric}: rule − rest of {c.versus}"
+            measure = f"{c.metric} {hh}d: rule − rest of {c.versus}"
             rest = fresh[RULES[c.versus](fresh) & ~mask]
             ea, eb = per_episode(g, col), per_episode(rest, col)
             m, lo, hi = contrast_ci(ea[col], ea["week"], eb[col], eb["week"])

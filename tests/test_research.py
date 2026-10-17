@@ -252,3 +252,19 @@ def test_monitor_acts_unless_contradicted(lo, hi, expected):
 def test_monitor_still_waits_for_enough_episodes():
     from macd_searcher.research.__main__ import MIN_EPISODES, verdict
     assert verdict(+1, 1.0, 2.0, n=MIN_EPISODES - 1, role="monitor").startswith("pending")
+
+
+
+def test_a_check_can_pin_its_own_holding_period(monkeypatch):
+    """A holding-period hypothesis is scored at its own horizon, whatever --horizon is."""
+    from macd_searcher.research import __main__ as report
+    from macd_searcher.research.rules import Check
+    days = pd.date_range("2026-11-01", periods=40, freq="D", tz="UTC")
+    df = pd.DataFrame({"fired_at": days, "episode": [f"e{i}" for i in range(40)],
+                       "week": days.strftime("%G-W%V"), "month": days.strftime("%Y-%m"), "oos": True,
+                       "direction": "bullish", "alpha_7d": -1.0, "alpha_14d": 2.0})
+    monkeypatch.setattr(report, "RULES", {"bull": lambda d: d["direction"] == "bullish"})
+    monkeypatch.setattr(report, "WATCHLIST",
+                        (Check("bull", "q", +1, "act", registered="2026-11-01", horizon=14),))
+    row = report.watchlist_section(df, h=7)[-1]
+    assert "alpha 14d" in row and "+2.00" in row and "confirmed" in row

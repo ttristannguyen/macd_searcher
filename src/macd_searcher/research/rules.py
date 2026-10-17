@@ -96,6 +96,9 @@ class Check:
     # "monitor": already confirmed elsewhere (docs/historical_rebuild.md), so live data
     # only has to not contradict it — it acts once it has enough episodes.
     role: str = "discovery"
+    # Days held. None = the report's --horizon (7 by default). Set it when the
+    # hypothesis itself is about a holding period. Live outcomes stop at 14d.
+    horizon: int | None = None
 
 
 WATCHLIST: tuple[Check, ...] = (
@@ -134,4 +137,11 @@ WATCHLIST: tuple[Check, ...] = (
     Check("bearish pullback (peak_pct >= 50)", "Are bearish fires after a strong uptrend good LONGS? "
           "(history 2023-26: long-side +1.39%, every year; seen on all periods at once, so not yet out of sample)",
           -1, "add a long-side 'pullback in a leader' marker", registered="2026-10-16"),
+    # Added 2026-10-18: holding periods from the peak_pct band pass (exploratory).
+    Check("bullish peak_pct <= 25", "Does the low-peak bullish edge hold at 14d? "
+          "(history 2023-26: +1.92% at 14d, +2.04% at 30d, vs +1.51% at 7d)", +1,
+          "hold low-peak bullish longs ~14d rather than 7d", registered="2026-10-18", horizon=14),
+    Check("v3 bearish (shadow)", "Is the bearish low-peak short good at 14d? "
+          "(history 2023-26: +1.04% at 14d, every year; 7d was undecided)", +1,
+          "consider a 14d hold for bearish low-peak shorts", registered="2026-10-18", horizon=14),
 )

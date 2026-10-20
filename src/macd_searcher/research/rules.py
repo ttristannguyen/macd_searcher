@@ -44,11 +44,42 @@ def _bull_crypto(d: pd.DataFrame) -> pd.Series:
     return _bull(d) & (d["asset_class"] == "crypto")
 
 
+# S&P 500 / Nasdaq-100 members among the xyz equity perps (clear cases only, as of
+# 2026-10; ARM, SNDK, TSM and DKNG left out as uncertain). Hand-kept: extend it as
+# the DEX lists more index names.
+US_INDEX_EQUITIES = frozenset({
+    "AAPL", "AMAT", "AMD", "AMZN", "ASML", "AVGO", "BX", "COIN", "COST", "CRWD", "DELL", "GOOGL",
+    "HOOD", "IBM", "INTC", "LLY", "META", "MRNA", "MRVL", "MSFT", "MSTR", "MU", "NFLX", "NOW",
+    "NVDA", "ORCL", "PLTR", "QCOM", "TSLA", "WDC",
+})
+
+
+def _us_index_equity(d: pd.DataFrame) -> pd.Series:
+    return (d["asset_class"] == "equity") & d["symbol"].str.split(":").str[-1].isin(US_INDEX_EQUITIES)
+
+
+def _crypto_pullback(d: pd.DataFrame) -> pd.Series:
+    return _bear(d) & (d["asset_class"] == "crypto") & (d.peak_pct >= 50)
+
+
+def _v2(d: pd.DataFrame) -> pd.Series:
+    return _bull(d) & (d.atr > 0) & (d.sig_atr < CONFIDENCE_MAX_SIG_ATR) & (d.red < CONFIDENCE_MAX_REDUCTION)
+
+
+def _v2_odd_day(d: pd.DataFrame) -> pd.Series:
+    """v2 fires on a day v2 fired on at most 5 symbols: no market-wide cluster, so the
+    pick is a selection, not the whole market. Counted over the rows given (the frame is
+    one row per symbol per day; the watchlist passes only rows that have an alpha)."""
+    v2 = _v2(d)
+    return v2 & (v2.groupby(d["day"]).transform("sum") <= 5)
+
+
 RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
     "v1 (retired)": lambda d: _bear(d) & (d.red < V1_MAX_REDUCTION)
         & (d.peak_pct < V1_MAX_PEAK_PCT) & (d.top_n >= V1_MIN_TOP_N),
-    "v2 (live)": lambda d: _bull(d) & (d.atr > 0) & (d.sig_atr < CONFIDENCE_MAX_SIG_ATR)
-        & (d.red < CONFIDENCE_MAX_REDUCTION),
+    "v2 (live)": _v2,
+    # 2026-10-18 pass: v2 on days without a cluster of v2 fires (market bottoms).
+    "v2 on an odd day (<= 5 v2 fires)": _v2_odd_day,
     "v3 bullish": lambda d: _bull(d) & (d.peak_pct <= V3_BULL_MAX_PEAK_PCT)
         & (d.red < V3_BULL_MAX_REDUCTION),
     "v3 bearish (shadow)": lambda d: _bear(d) & (d.peak_pct <= V3_BEAR_MAX_PEAK_PCT),
@@ -68,6 +99,15 @@ RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
     # A strong uptrend (positive excursion in the top half of the asset's own) whose
     # momentum has cooled: a pullback in a leader, tested as a LONG (2026-10-16 pass).
     "bearish pullback (peak_pct >= 50)": lambda d: _bear(d) & (d.peak_pct >= 50),
+    # 2026-10-18 pass: the signal line (the Telegram row's `sig`) as the trend-strength
+    # gauge instead of, and on top of, peak_pct. Cut 0.5 fixed on 2023-25 history.
+    "bearish high sig (sig_atr >= 0.5)": lambda d: _bear(d) & (d.atr > 0) & (d.sig_atr >= 0.5),
+    "bearish pullback + high sig": lambda d: _bear(d) & (d.peak_pct >= 50) & (d.atr > 0) & (d.sig_atr >= 0.5),
+    # 2026-10-19 pass: the same trades on strong assets instead of alts.
+    "crypto pullback": _crypto_pullback,
+    "crypto pullback above SMA200": lambda d: _crypto_pullback(d) & (_col(d, "dist_sma200_atr") > 0),
+    "v3 bullish, S&P 500 / Nasdaq-100": lambda d: _bull(d) & _us_index_equity(d)
+        & (d.peak_pct <= V3_BULL_MAX_PEAK_PCT) & (d.red < V3_BULL_MAX_REDUCTION),
     "all bearish": _bear,
     "everything": lambda d: d["direction"].notna(),
 }
@@ -137,6 +177,18 @@ WATCHLIST: tuple[Check, ...] = (
     Check("bearish pullback (peak_pct >= 50)", "Are bearish fires after a strong uptrend good LONGS? "
           "(history 2023-26: long-side +1.39%, every year; seen on all periods at once, so not yet out of sample)",
           -1, "add a long-side 'pullback in a leader' marker", registered="2026-10-16"),
+    # Added 2026-10-18 (docs/research_log.md). Bearish alpha is short-side: good LONGS read negative.
+    Check("bearish high sig (sig_atr >= 0.5)", "Do bearish fires with the signal line >= 0.5 ATR keep "
+          "trending up - good LONGS? (history: long-side +1.45 2023-25, +2.25 on the 2026H1 holdout; "
+          "about half is generic momentum)", -1, "flag high-sig bearish fires as long candidates",
+          registered="2026-10-18"),
+    Check("bearish pullback + high sig", "Does sig >= 0.5 ATR add to the bearish pullback, as a long? "
+          "(history, sig >= 0.5 minus < 0.5 within peak_pct >= 50: +0.80 / +2.59 / +0.26, every CI spans 0)",
+          -1, "require both peak_pct and sig for the long-side marker", versus="bearish pullback (peak_pct >= 50)",
+          registered="2026-10-18"),
+    Check("v2 on an odd day (<= 5 v2 fires)", "Does v2 pick better assets when it is not part of a "
+          "market-wide cluster? (history crypto: +0.67 [-0.35, +1.78]; live in-sample: -0.77, both span 0)",
+          +1, "use v2 as a selection signal outside cluster days", registered="2026-10-18"),
     # Added 2026-10-18: holding periods from the peak_pct band pass (exploratory).
     Check("bullish peak_pct <= 25", "Does the low-peak bullish edge hold at 14d? "
           "(history 2023-26: +1.92% at 14d, +2.04% at 30d, vs +1.51% at 7d)", +1,
@@ -144,4 +196,12 @@ WATCHLIST: tuple[Check, ...] = (
     Check("v3 bearish (shadow)", "Is the bearish low-peak short good at 14d? "
           "(history 2023-26: +1.04% at 14d, every year; 7d was undecided)", +1,
           "consider a 14d hold for bearish low-peak shorts", registered="2026-10-18", horizon=14),
+    # Added 2026-10-19: the same trades on strong assets instead of alts (docs/research_log.md).
+    Check("crypto pullback above SMA200", "Is the crypto pullback a better LONG when the coin is above its "
+          "200-day average? (history 2023-26: long alpha +1.66 vs +0.38 below; fire beats holding the "
+          "same coin by +2.70)", -1, "require price above SMA200 for the long-side marker",
+          versus="crypto pullback", registered="2026-10-19"),
+    Check("v3 bullish, S&P 500 / Nasdaq-100", "Does v3 bullish pick winners among index equities? "
+          "(live in-sample: +3.41 alpha, +4.28 over holding the same stock, 44 ep, one window; "
+          "other equities -1.98)", +1, "trade v3 on index equities", registered="2026-10-19"),
 )

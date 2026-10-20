@@ -41,7 +41,7 @@ mechanism, rather than a coincidence:
 1. **The penalty concentrates where the drop was idiosyncratic.** Split by how far the
    asset fell relative to its class before the fire, record troughs return −5.28% when
    the fall was token-specific and −0.45% when the asset merely fell with its class
-   (a market-wide sell-off, which reverts with the market).
+   (a market-wide sell-off, which reverts with the market).`
 2. **They break down further.** 34% of record-trough episodes trade below their prior
    30-day low within a week, against 26% for the lowest band.
 3. **It is a drift, not an overshoot.** Record-trough alpha goes −1.0 → −1.5 → −4.0%
@@ -139,6 +139,11 @@ first and the confident marker is shadow-run.
 **Watchlist baseline, first pass (snapshot 2026-10-14):** v3 bullish undecided
 (45 OOS episodes, +0.91% [−2.06, +3.05]); bearish shadow undecided; record warning
 pending at 22 episodes (−5.52% so far); v2 pending at 11.
+
+**Pass 2026-10-18 (snapshot through 2026-10-17 12:00):** every check is scored only
+from its registration date now, and none has an outcome yet (first ~2026-10-22).
+For orientation only, since 2026-09-19: v3 bullish +0.41% [−2.38, +3.04] (48 ep),
+record warning −4.84% [−6.66, −3.38] (24 ep).
 
 ### Phase 4 — Promotion (gated — do not start before the criteria hold)
 - [ ] Criteria: the watchlist's v3 bullish check reads **confirmed** (≥ 30

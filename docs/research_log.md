@@ -8,6 +8,219 @@ own docs ([confidence_v3_research.md](confidence_v3_research.md),
 
 ---
 
+## 2026-10-19 — strong assets instead of alts
+
+Question: do the trades work better on assets that trend up (crypto majors, index
+equities)? Picking BTC/ETH/BNB/HYPE *because* they did well is hindsight, so the
+counterfactual here is **holding the same asset on random days of the same window**
+("fire − hold"), next to alpha. The rule version uses only what was known at the time:
+price above its 200-day average at the prior close. First fire per episode, 7d long.
+
+**Crypto history (2023 → 2026-10-08, closed candle):**
+
+| | trades | raw | hold same asset | fire − hold | alpha |
+|---|---|---|---|---|---|
+| BTC/ETH/BNB/HYPE, pullback long | 147 | +0.41 | +1.05 | −0.64 [−2.22, +0.96] | +1.14 |
+| BTC/ETH/BNB/HYPE, v3 bullish | 52 | +1.88 | +1.16 | +0.72 [−2.78, +4.28] | +3.31 |
+| coin above SMA200, pullback long | 1,733 | +2.49 | −0.22 | **+2.70 [+0.27, +5.47]** | +1.66 |
+| coin above SMA200, pullback pk ≥ 75 | 1,176 | +3.65 | −0.03 | **+3.68 [+0.68, +6.64]** | +2.19 |
+| coin above SMA200, all bullish | 1,987 | −1.88 | −0.27 | −1.61 [−4.35, +0.93] | −0.44 |
+| alts below SMA200, pullback long | 1,769 | −1.47 | −0.91 | −0.56 [−2.76, +1.59] | +0.38 |
+
+- **On the named majors, the signals don't beat holding them.** Their alpha against
+  the alt universe is just majors beating alts, which holding them gets too.
+- **The pullback long belongs to coins in an uptrend.** Above SMA200 it beats holding
+  the same coin by +2.7 to +3.7. Below SMA200 it is ≈ 0. This is the "leader" in
+  "pullback in a leader".
+- **Bullish fires on uptrend coins don't work** (−1.61 vs hold). A plausible reading,
+  not tested: a sell-off deep enough to fire bullish on an uptrend coin means the
+  trend is breaking.
+
+**Equities (production log, Jun–Oct 2026, alpha vs the equity class mean):**
+
+| | trades | raw | hold same stock | fire − hold | alpha |
+|---|---|---|---|---|---|
+| S&P 500 / Nasdaq-100 names, v3 bullish | 44 | +4.81 [+0.20, +9.59] | +0.54 | +4.28 [−0.16, +8.78] | +3.41 (73% win) |
+| S&P 500 / Nasdaq-100 names, pullback long | 133 | +0.24 | +0.52 | −0.28 | +1.06 |
+| other equities, v3 bullish | 100 | −1.41 | −0.76 | −0.64 | −1.98 |
+
+The index-name v3 result matches §3A of trading_strategy.md (tech wins, Korea/China/
+IPOs lose), but it is 44 trades in one window. There is no equity history to check it
+on (candles start 2025-11). The crypto pullback works on equities only weakly.
+
+### Registered this pass
+
+- Crypto pullback above SMA200 vs the rest of the crypto pullback, as a long.
+- v3 bullish on S&P 500 / Nasdaq-100 names: alpha > 0.
+
+---
+
+## 2026-10-18 — periodic pass
+
+Snapshot synced 2026-10-18 00:20 (latest run 2026-10-17 12:00 UTC): 7,979 deduped
+signals, 7,150 with a 7d alpha in 2,183 episodes. The report ran with `--scan`.
+
+**Watchlist: nothing to score yet.** All checks show 0 episodes since their
+registration (2026-10-14 → 16). The first 7d outcomes close around 2026-10-21/22, so
+there are no verdicts this pass.
+
+**What moved.** These windows have all been seen before, so they are for orientation only:
+- v3 bullish: alpha +0.81 [−0.25, +1.90] (382 ep). Since 2026-09-19: +0.41 [−2.38,
+  +3.04] (48 ep), down from +0.91 at 45 ep on 2026-10-14.
+- Record-peak warning since 2026-09-19: −4.84 [−6.66, −3.38] (24 ep). Still strongly
+  negative live, while history 2023–26 is +0.01. The Telegram warning was dropped on
+  the history result (`e938cc3`). Its pending check decides on fresh data.
+- Bearish pullback (`peak_pct` ≥ 50): short-side −1.37 [−2.31, −0.36] (740 ep), i.e.
+  long-side +1.37, matching history. Not new evidence, because it was registered on this data.
+- Feature scan: nothing new replicates. `vol_ratio_1_20` passes FDR in-sample and flips
+  after 2026-09-19. No bearish feature reaches q ≤ 0.25.
+
+### The signal line on bearish fires (the Telegram `sig`)
+
+User observation: bearish fires with a high signal line keep trending up. Tested on
+the historical rebuild as a long, 7d alpha, episode-level, week-block intervals. The
+cut (`sig_atr` ≥ 0.5, where the effect starts) was fixed on 2023–25 *before* the
+other windows were printed.
+
+| | 2023–25 (cut set here) | 2026H1 | live period, rebuilt |
+|---|---|---|---|
+| bearish, sig ≥ 0.5, long alpha | +1.45 [+0.41, +2.51], 1,041 ep | **+2.25 [+0.86, +4.47]**, 164 ep | +1.74 [−0.03, +4.76], 295 ep |
+| bearish, sig < 0.5 | +0.23 | +0.48 | +0.84 |
+| non-firing coins, positive hist, sig ≥ 0.5 | +0.79 | +1.53 | −0.31 |
+| fire − non-firing | +0.66 [−0.78, +2.04] | +0.72 [−2.72, +3.79] | +2.06 [−0.22, +5.16] |
+| within peak ≥ 50: sig ≥ 0.5 − sig < 0.5 | +0.80 [−0.55, +2.33] | +2.59 [−0.44, +5.50] | +0.26 [−2.71, +4.91] |
+| peak < 50 but sig ≥ 0.5 | +0.06 | +0.06 | −2.10 |
+
+- **The direction holds out of sample.** High-sig bearish fires make good longs.
+- **About half of it is generic momentum.** Coins with a high signal line outperform
+  whether or not the detector fires, so the fire adds roughly +0.7, which is not
+  significant in any window on its own.
+- **`sig` mostly repeats `peak_pct`** (correlation +0.48). Without a big excursion
+  (peak < 50) a high `sig` is worth nothing. On top of one it adds +0.3 to +2.6, every
+  interval spanning zero. Both together is the strongest cell: +1.70 / +3.51 / +2.51.
+- *Mechanism:* the signal line is a slow average of MACD, so a high value means a
+  sustained uptrend. Strong trends persist (momentum), and the fire marks momentum
+  cooling. It is the same pullback-in-a-leader effect as the 2026-10-16 entry, read
+  off a different gauge.
+- *Caveat:* 2026H1 had already been seen for the `peak_pct` pullback, and the two
+  gauges overlap, so that holdout is only partly clean.
+
+### v2 on odd days (no market-wide cluster)
+
+Crypto history, by the share of the universe firing v2 that day: odd days (< 5%)
+alpha +0.67 [−0.35, +1.78] (353 ep), positive every year (+0.97 / +1.14 / +0.78 /
++0.27), against −0.11 on cluster days (≥ 10%). Live, all classes: odd days (≤ 5 fires)
+−0.77 [−2.53, +0.56] (87 ep). v2's raw return sits on cluster days (live +5.45, all
+of it market). Cluster days can't produce alpha: when v2 fires on 20–30% of the
+universe, its picks *are* the benchmark. Big clusters (≥ 20%) bounced, raw +2.98
+[+0.68, +5.10], and mid-sized ones (10–20%) kept falling (−2.53).
+
+### `peak_pct` bands at 7 / 14 / 30 days
+
+Exploratory, not pre-registered. Historical rebuild 2023-03-02 → 2026-06-08, alpha
+(bearish = short side), episode-level. Intervals use week blocks at 7/14d and month blocks
+at 30d, because 30-day windows overlap across about four weeks. Years = years with alpha > 0.
+
+| `peak_pct` | bullish 7d | bullish 14d | bullish 30d | bearish 7d | bearish 14d | bearish 30d |
+|---|---|---|---|---|---|---|
+| 0–25 | **+1.51** [+0.77, +2.29] 4/4 | **+1.92** [+0.80, +3.00] 3/4 | **+2.04** [+0.66, +3.82] 4/4 | +0.55 [−0.11, +1.20] 4/4 | **+1.04** [+0.29, +1.75] 4/4 | **+1.54** [+0.33, +2.60] 4/4 |
+| 25–50 | +0.11 | −0.12 | −0.08 | −0.62 | −0.54 | −0.02 |
+| 50–75 | −0.24 | −0.70 | −1.57 [−3.37, +0.04] 0/4 | −0.57 | −0.54 | +0.34 |
+| 75–<100 | −0.07 | −0.85 | −1.41 | **−1.96** [−3.07, −0.80] | **−1.99** [−3.84, −0.36] | −2.09 |
+| 100 | +0.01 | +0.27 | +1.11 | **−1.94** [−3.92, −0.20] | −1.16 | −0.87 |
+
+Episodes: bullish 913 / 1,250 / 1,219 / 694 / 729; bearish 1,347 / 1,826 / 1,289 / 661 / 520.
+
+- **The low band's edge grows with the hold.** Bullish 0–25 goes +1.51 → +1.92 → +2.04,
+  and the bearish short goes +0.55 (spans 0) → +1.04 → +1.54, positive every year at
+  each horizon. The bearish leg of v3 is undecided at 7d only because 7d is too short.
+- **The bullish bands above 50 drift negative with time** (50–75 is −1.57 at 30d,
+  negative in all four years). The v3 cut at 50 keeps them out. The 25–50 band is about 0
+  at every horizon, which supports the existing check that tightens v3's cut to 25.
+- **Bearish 75–100 is the long-side pullback** from the 2026-10-16 entry, seen again at
+  every horizon.
+- *Mechanism (hypothesis):* `peak_pct` ranks the excursion against the asset's own
+  history, so it works as a relative-strength gauge. A shallow dip (bullish, low band)
+  is a pause in an asset that is not weak, and a shallow rally (bearish, low band) is
+  a bounce in one that is not strong. Relative strength persists for weeks
+  (cross-sectional momentum), so the gap accumulates instead of decaying the way a
+  short-term bounce would.
+- *Caveats:* the 14d windows overlap, so week-block intervals are somewhat optimistic.
+  Per-trade noise also grows with the hold. Live outcomes stop at 14d, so the 30d
+  numbers can't be checked live.
+
+### Registered this pass
+
+- Bearish high sig (`sig_atr` ≥ 0.5) as a long: short-side alpha < 0.
+- Bearish pullback + high sig vs the rest of the pullback: < 0 (does `sig` add?).
+- v2 on an odd day (≤ 5 v2 fires): alpha > 0.
+- Bullish `peak_pct` ≤ 25 at **14d**: alpha > 0. Watchlist checks can now set their
+  own holding period (`Check.horizon`, `81223f0`).
+- v3 bearish (`peak_pct` ≤ 25) at **14d**: short-side alpha > 0.
+
+---
+
+## 2026-10-16 — Bollinger bands, and bearish fires as longs
+
+Discovery on the historical rebuild (2023 → 2026-10-08, closed candle, crypto). All
+three periods (2023–25, 2026H1, the rebuilt live period) were looked at together, so
+**nothing here is out of sample**. 7d alpha, episode-level, week-block 95% intervals.
+Scripts were scratch, not committed.
+
+**Bollinger bands add nothing the signals don't already have.**
+- *At entry.* Bullish fires essentially never sit below the lower band (%B at the
+  prior close: median 0.32, min 0.01). A close below the band means the histogram is
+  still growing, so the detector cannot fire. "Lower band + MACD flattening" doesn't
+  happen on the same bar. %B, squeeze (width vs own 120d) and width change have no
+  consistent IC. Band width as a % of price predicts alpha (2023–25 IC −0.10), but it
+  is the known low-volatility factor: random assets show it too (−0.07), and it fades
+  after 2025. "Closed below the band in the last 5 days" was +0.06 in 2023–25 and
+  reversed later.
+- *As exits* (v3 and all bullish first fires against a 7d hold, paired): a
+  middle-band exit lifts the win rate from ~45% to ~65% and the alpha by 0.0. It banks
+  small wins and holds losers to the 14d cap, and random entries get the same win-rate
+  jump. The upper-band exit and a resting limit at the middle band add nothing. The
+  lower-band −2% stop changes alpha by +0.24 / +0.29 / −0.15 across the periods (v3),
+  about what it does to random entries (+0.13 / +0.06 / −0.08). It helps in falling
+  markets and costs a little in rallies: tail control, as §3C already concluded.
+
+**Found: bearish fires after a strong uptrend are good longs.** A bearish fire with
+`peak_pct` ≥ 50 (the positive excursion is in the top half of the asset's own),
+held long:
+
+| | long 7d alpha | episodes | non-firing assets, same MACD state | fire − non-fire |
+|---|---|---|---|---|
+| 2023–25 | +1.16 [+0.54, +1.74] | 2,442 | +0.25 | +0.90 [+0.16, +1.67] |
+| 2026H1 | +1.43 [+0.18, +2.61] | 490 | −0.34 | +1.77 [+0.18, +3.34] |
+| live period, rebuilt | +2.34 [+1.26, +3.67] | 552 | −0.48 | +2.82 [+1.52, +4.23] |
+| production log, crypto | +1.78 [+0.80, +3.09] | 495 | — | — |
+| v3 bullish, same 2023–26 | +0.53 [+0.02, +1.06] | 1,591 | | |
+
+Positive every year (+0.87 / +1.41 / +0.98 / +1.94). It survives dropping the top 10
+symbols (+0.85) and 1% winsorising (+1.17). It is right-skewed: only 46% of
+episodes beat their universe. Low-peak bearish fires are the opposite (long alpha
+≈ −0.7), which is H8's direction.
+
+*Mechanism.* Peak percentile measures how strong a trend is against the asset's own
+history. Strong trends persist across assets: momentum. Among non-firing assets in a
+strong uptrend, the edge rises as momentum cools. Histogram still rising: −0.04%.
+Falling but under the detector's thresholds: +0.27%. Fired: +0.80% (row-level). So the
+detector's job here is spotting a *pullback in a leader*, as opposed to chasing one
+still extending. That is something the detector knows, not a generic factor. It is the
+same effect as H3 and H9 seen from the long side: bearish setups that don't fall are
+showing strength.
+
+*For trading:* alpha needs hedging to be kept. Over these trades' 2025 windows the alt
+universe fell ~4% and BTC ~1%, so both a long-only and a BTC-hedged version lost money
+(−3.2%, −2.1%) despite +0.98% alpha. v3 behaves the same (2025: raw −2.7%, BTC-hedged
+−2.4%, alpha +0.44%). Only a hedge against the alt basket itself keeps the alpha.
+
+### Registered this pass
+
+- Bearish pullback (`peak_pct` ≥ 50) as a long: short-side alpha < 0.
+
+---
+
 ## 2026-10-16 — historical rebuild
 
 The closed-candle detector rebuilt over 2023 → 2026-06-08 crypto history (2022 had no

@@ -84,12 +84,14 @@ export interface SymbolCountRow {
 
 // ---------- recent fires by strategy leg (/api/signals/strategies) ----------
 
-export type StrategyRule = 'v3_bullish' | 'bull_low_peak' | 'bear_pullback' | 'bear_low_peak'
+export type StrategyRule = 'v2_bullish' | 'v3_bullish' | 'bull_low_peak' | 'bear_pullback' | 'bear_low_peak'
 
 // A symbol's LATEST qualifying fire in the window; repeats are summarised.
 export interface StrategySignalRow extends SignalRow {
   first_fired_at: string
   fires: number
+  // Signal line in ATR units (v2's axis); null when the snapshot has no ATR.
+  sig_atr: number | null
 }
 
 export interface StrategySection {

@@ -12,6 +12,8 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from ..signals import (
+    CONFIDENCE_MAX_REDUCTION,
+    CONFIDENCE_MAX_SIG_ATR,
     CONFIDENCE_V3_BEAR_MAX_PEAK_PCT,
     CONFIDENCE_V3_MAX_PEAK_PCT,
     CONFIDENCE_V3_MAX_REDUCTION,
@@ -86,15 +88,21 @@ def recent_signals(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
 
 # ---------- recent fires by strategy leg ----------
 #
-# The v3 marker plus the legs of docs/profit_strategies.md B3, as live watch lists.
-# v3 and the bearish low-peak leg take their thresholds from signals.py, so they
-# can't drift from the Confidence tab. The two good-fire cuts were found on the
-# 2023-26 history (exploratory), so they live here rather than in signals.py.
+# The v2 and v3 markers plus the legs of docs/profit_strategies.md B3, as live watch
+# lists. v2, v3 and the bearish low-peak leg take their thresholds from signals.py,
+# so they can't drift from the Confidence tab. The two good-fire cuts were found on
+# the 2023-26 history (exploratory), so they live here rather than in signals.py.
 GOOD_BULL_MAX_PEAK_PCT = 25  # bullish, lowest peak_pct quarter: where v3's edge sits
 PULLBACK_MIN_PEAK_PCT = 50   # bearish after a strong move: a pullback in a leader, taken LONG
 
+# The signal line in ATR units, as signals.signal_line_atr_multiple computes it
+# (hist = macd - signal); ATR comes from the run's snapshot. NULL without an ATR.
+_SIG_ATR = "CASE WHEN a.atr > 0 THEN (s.fire_macd - s.fire_hist) / a.atr END"
+
 # Order is the order the sections render in. Keys mirror models.StrategyRule.
 STRATEGY_RULES: dict[str, str] = {
+    "v2_bullish": (f"s.direction = 'bullish' AND {_SIG_ATR} < {CONFIDENCE_MAX_SIG_ATR} "
+                   f"AND s.fire_reduction_from_peak < {CONFIDENCE_MAX_REDUCTION}"),
     "v3_bullish": (f"s.direction = 'bullish' AND s.fire_hist_peak_pct <= {CONFIDENCE_V3_MAX_PEAK_PCT} "
                    f"AND s.fire_reduction_from_peak < {CONFIDENCE_V3_MAX_REDUCTION}"),
     "bull_low_peak": f"s.direction = 'bullish' AND s.fire_hist_peak_pct <= {GOOD_BULL_MAX_PEAK_PCT}",
@@ -119,6 +127,7 @@ def recent_by_strategy(conn: sqlite3.Connection, days: int = 7) -> list[dict]:
             "  SELECT s.fired_at, s.symbol, a.asset_class, s.stage, s.direction, "
             "  s.fire_close, s.fire_macd, s.fire_reduction_from_peak, s.fire_rsi_14, "
             "  s.fire_hist_peak_ratio, s.fire_hist_peak_pct, s.fire_hist_top_n, "
+            f" {_SIG_ATR} AS sig_atr, "
             "  MIN(s.fired_at) OVER (PARTITION BY s.symbol) AS first_fired_at, "
             "  COUNT(*) OVER (PARTITION BY s.symbol) AS fires, "
             "  ROW_NUMBER() OVER (PARTITION BY s.symbol ORDER BY s.fired_at DESC) AS latest "

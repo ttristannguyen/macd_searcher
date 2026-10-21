@@ -75,7 +75,7 @@ class SignalRow(BaseModel):
 
 
 # Keys of queries.STRATEGY_RULES, in render order.
-StrategyRule = Literal["v3_bullish", "bull_low_peak", "bear_pullback", "bear_low_peak"]
+StrategyRule = Literal["v2_bullish", "v3_bullish", "bull_low_peak", "bear_pullback", "bear_low_peak"]
 
 
 class StrategySignalRow(SignalRow):
@@ -83,6 +83,8 @@ class StrategySignalRow(SignalRow):
     # setup every run, so the repeats are summarised here rather than listed.
     first_fired_at: str
     fires: int
+    # The signal line in ATR units — v2's axis. NULL when the snapshot has no ATR.
+    sig_atr: Optional[float] = None
 
 
 class StrategySection(BaseModel):

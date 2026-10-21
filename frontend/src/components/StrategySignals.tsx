@@ -44,6 +44,7 @@ export function StrategyTable({
                   <th className="py-2 pr-3 font-medium">Symbol</th>
                   <th className="py-2 pr-3 font-medium">Class</th>
                   <th className="py-2 pr-3 font-medium">Peak</th>
+                  <th className="py-2 pr-3 font-medium">Sig</th>
                   <th className="py-2 pr-3 font-medium">Reduction</th>
                   <th className="py-2 pr-3 font-medium">RSI</th>
                   <th className="py-2 pr-3 font-medium">Fires</th>
@@ -60,6 +61,9 @@ export function StrategyTable({
                       {s.asset_class && <Badge color={ASSET_CLASS_COLOR[s.asset_class] ?? 'slate'}>{s.asset_class}</Badge>}
                     </td>
                     <PeakCell signal={s} />
+                    <td className="py-1.5 pr-3 tabular-nums text-slate-300" title="MACD signal line in ATR units">
+                      {s.sig_atr != null ? s.sig_atr.toFixed(2) : '—'}
+                    </td>
                     <td className="py-1.5 pr-3 tabular-nums text-slate-300">↓{fmtPct(s.fire_reduction_from_peak, 0)}</td>
                     <td className="py-1.5 pr-3 tabular-nums text-slate-300">{s.fire_rsi_14 != null ? Math.round(s.fire_rsi_14) : '—'}</td>
                     <td className="py-1.5 pr-3 tabular-nums text-slate-300">{s.fires}</td>
@@ -76,8 +80,8 @@ export function StrategyTable({
   )
 }
 
-// peak_pct is the axis every one of these rules cuts on, so it leads; the ratio to
-// the token's typical top is context. Every row here has a pct (the rule needs it).
+// peak_pct is the axis most of these rules cut on, so it leads; the ratio to the
+// token's typical top is context. Only v2 rows can lack a pct (v2 doesn't use it).
 function PeakCell({ signal: s }: { signal: StrategySignalRow }) {
   const { fire_hist_peak_ratio: ratio, fire_hist_peak_pct: pct, fire_hist_top_n: n } = s
   return (

@@ -7,6 +7,7 @@ stays green without FastAPI. Uses a seeded temp DB via dependency override.
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -125,7 +126,9 @@ def test_top_symbols(client):
 
 def _seed_strategies(path: str) -> None:
     """Fires landing in each strategy leg, a same-symbol repeat, a late-entry
-    bullish fire v3 excludes, and one fire older than the default window."""
+    bullish fire v3 excludes, and one fire older than the default window.
+
+    Only FFF gets a snapshot, so only FFF has the ATR that v2 needs."""
     now = datetime.now(timezone.utc)
     conn = sqlite3.connect(path)
     db.init_schema(conn)
@@ -143,7 +146,9 @@ def _seed_strategies(path: str) -> None:
     fire("old", 10 * 24, [sig("OLD", "bullish", 10)])
     fire("r1", 8, [sig("AAA", "bullish", 10), sig("BBB", "bullish", 40), sig("CCC", "bearish", 80)])
     fire("r2", 4, [sig("AAA", "bullish", 12), sig("DDD", "bearish", 20),
-                   sig("EEE", "bullish", 40, reduction=0.7)])
+                   sig("EEE", "bullish", 40, reduction=0.7), sig("FFF", "bullish", 80)])
+    # FFF's signal line: (macd -1.0 - hist -0.2) / atr 1.0 = -0.8 ATR, past v2's -0.5.
+    db.insert_snapshots(conn, "r2", {}, [replace(_metrics("FFF", 0.01), atr=1.0)])
     conn.close()
 
 
@@ -163,6 +168,7 @@ def _symbols_by_rule(client: TestClient, days: int = 7) -> dict[str, list[str]]:
 
 def test_strategy_signals_split_by_rule(strategy_client):
     assert _symbols_by_rule(strategy_client) == {
+        "v2_bullish": ["FFF"],
         "v3_bullish": ["AAA", "BBB"],      # EEE's 0.7 reduction is past v3's late-entry cap
         "bull_low_peak": ["AAA"],
         "bear_pullback": ["CCC"],
@@ -171,8 +177,8 @@ def test_strategy_signals_split_by_rule(strategy_client):
 
 
 def test_strategy_signals_collapse_repeats_to_latest(strategy_client):
-    sections = strategy_client.get("/api/signals/strategies").json()
-    aaa = next(r for r in sections[0]["rows"] if r["symbol"] == "AAA")
+    sections = {s["rule"]: s["rows"] for s in strategy_client.get("/api/signals/strategies").json()}
+    aaa = next(r for r in sections["v3_bullish"] if r["symbol"] == "AAA")
     assert aaa["fires"] == 2
     assert aaa["fire_hist_peak_pct"] == 12  # the latest fire's state, not the first's
     assert aaa["first_fired_at"] < aaa["fired_at"]

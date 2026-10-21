@@ -16,6 +16,13 @@ const LOOKBACKS: { value: Lookback; label: string }[] = [
 // docs/profit_strategies.md (2026-10-19). Thresholds are applied server-side
 // (web/queries.STRATEGY_RULES); the numbers here are description only.
 const LEGS: Record<StrategyRule, { title: string; side: Side; blurb: string }> = {
+  v2_bullish: {
+    title: 'v2 bullish',
+    side: 'long',
+    blurb:
+      'Bullish, signal line ≥ 0.5 ATR below zero and reduction < 60% — the live marker bolded in Telegram. ' +
+      'Its edge was market move, not selection: −0.56% alpha (2026-10-14).',
+  },
   v3_bullish: {
     title: 'v3 bullish',
     side: 'long',
@@ -69,6 +76,8 @@ export function Strategies() {
         </div>
         <Segmented options={LOOKBACKS} value={lookback} onChange={setLookback} />
       </div>
+
+      <Group title="v2 bullish">{table('v2_bullish')}</Group>
 
       <Group title="v3 bullish">{table('v3_bullish')}</Group>
 

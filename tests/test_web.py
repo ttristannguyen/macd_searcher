@@ -7,7 +7,7 @@ stays green without FastAPI. Uses a seeded temp DB via dependency override.
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -121,6 +121,66 @@ def test_top_symbols(client):
     rows = client.get("/api/stats/top-symbols?limit=10").json()
     fires = {r["symbol"]: r["fires"] for r in rows}
     assert fires == {"xyz:TSLA": 1}  # BTC S3 row excluded
+
+
+def _seed_strategies(path: str) -> None:
+    """Fires landing in each strategy leg, a same-symbol repeat, a late-entry
+    bullish fire v3 excludes, and one fire older than the default window."""
+    now = datetime.now(timezone.utc)
+    conn = sqlite3.connect(path)
+    db.init_schema(conn)
+
+    def fire(run_id: str, hours_ago: float, signals: list[Signal]) -> None:
+        when = (now - timedelta(hours=hours_ago)).isoformat()
+        db.start_run(conn, run_id, when, "abc123", "hash", "{}")
+        db.insert_signals(conn, run_id, signals, when)
+
+    def sig(name: str, direction: str, peak_pct: float, reduction: float = 0.3) -> Signal:
+        return Signal(name, "histogram_flattening", direction, close=1.0, macd=-1.0, hist=-0.2,
+                      hist_peak=-0.5, reduction_from_peak=reduction,
+                      hist_peak_ratio=1.0, hist_peak_pct=peak_pct, hist_top_n=5)
+
+    fire("old", 10 * 24, [sig("OLD", "bullish", 10)])
+    fire("r1", 8, [sig("AAA", "bullish", 10), sig("BBB", "bullish", 40), sig("CCC", "bearish", 80)])
+    fire("r2", 4, [sig("AAA", "bullish", 12), sig("DDD", "bearish", 20),
+                   sig("EEE", "bullish", 40, reduction=0.7)])
+    conn.close()
+
+
+@pytest.fixture
+def strategy_client(tmp_path):
+    path = str(tmp_path / "strategies.sqlite3")
+    _seed_strategies(path)
+    app.dependency_overrides[get_conn] = _conn_to(path)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def _symbols_by_rule(client: TestClient, days: int = 7) -> dict[str, list[str]]:
+    sections = client.get(f"/api/signals/strategies?days={days}").json()
+    return {s["rule"]: [r["symbol"] for r in s["rows"]] for s in sections}
+
+
+def test_strategy_signals_split_by_rule(strategy_client):
+    assert _symbols_by_rule(strategy_client) == {
+        "v3_bullish": ["AAA", "BBB"],      # EEE's 0.7 reduction is past v3's late-entry cap
+        "bull_low_peak": ["AAA"],
+        "bear_pullback": ["CCC"],
+        "bear_low_peak": ["DDD"],
+    }
+
+
+def test_strategy_signals_collapse_repeats_to_latest(strategy_client):
+    sections = strategy_client.get("/api/signals/strategies").json()
+    aaa = next(r for r in sections[0]["rows"] if r["symbol"] == "AAA")
+    assert aaa["fires"] == 2
+    assert aaa["fire_hist_peak_pct"] == 12  # the latest fire's state, not the first's
+    assert aaa["first_fired_at"] < aaa["fired_at"]
+
+
+def test_strategy_signals_window(strategy_client):
+    assert "OLD" in _symbols_by_rule(strategy_client, days=14)["v3_bullish"]
+    assert strategy_client.get("/api/signals/strategies?days=0").status_code == 422
 
 
 def test_missing_db_returns_503(monkeypatch, tmp_path):

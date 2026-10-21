@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import perf, queries
@@ -45,6 +45,7 @@ from .models import (
     RunRow,
     SignalRow,
     StageDirectionRow,
+    StrategySection,
     SymbolCountRow,
     TableCounts,
 )
@@ -121,6 +122,14 @@ def notify_status(conn: sqlite3.Connection = Depends(get_conn)) -> list[NotifySt
 @app.get("/api/signals/recent", response_model=list[SignalRow])
 def recent_signals(limit: int = 50, conn: sqlite3.Connection = Depends(get_conn)) -> list[SignalRow]:
     return [SignalRow(**r) for r in queries.recent_signals(conn, limit)]
+
+
+@app.get("/api/signals/strategies", response_model=list[StrategySection])
+def strategy_signals(
+    days: int = Query(7, ge=1, le=30),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[StrategySection]:
+    return [StrategySection(**s) for s in queries.recent_by_strategy(conn, days)]
 
 
 @app.get("/api/stats/by-stage-direction", response_model=list[StageDirectionRow])

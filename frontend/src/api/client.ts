@@ -29,6 +29,7 @@ import type {
   RunRow,
   SignalRow,
   StageDirectionRow,
+  StrategySection,
   SymbolCountRow,
 } from './types'
 
@@ -75,6 +76,13 @@ export const useRecentSignals = (limit = 50) =>
   useQuery({
     queryKey: ['recent-signals', limit],
     queryFn: () => fetchJson<SignalRow[]>(`/api/signals/recent?limit=${limit}`),
+    refetchInterval: STATS_REFRESH,
+  })
+
+export const useStrategySignals = (days = 7) =>
+  useQuery({
+    queryKey: ['strategy-signals', days],
+    queryFn: () => fetchJson<StrategySection[]>(`/api/signals/strategies?days=${days}`),
     refetchInterval: STATS_REFRESH,
   })
 

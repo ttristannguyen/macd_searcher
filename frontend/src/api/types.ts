@@ -82,6 +82,21 @@ export interface SymbolCountRow {
   fires: number
 }
 
+// ---------- recent fires by strategy leg (/api/signals/strategies) ----------
+
+export type StrategyRule = 'v3_bullish' | 'bull_low_peak' | 'bear_pullback' | 'bear_low_peak'
+
+// A symbol's LATEST qualifying fire in the window; repeats are summarised.
+export interface StrategySignalRow extends SignalRow {
+  first_fired_at: string
+  fires: number
+}
+
+export interface StrategySection {
+  rule: StrategyRule
+  rows: StrategySignalRow[]
+}
+
 
 // ---------- performance / outcomes (/api/perf/*) ----------
 

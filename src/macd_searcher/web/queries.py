@@ -9,6 +9,13 @@ queries filter to stage = 'histogram_flattening' (Stage 3 was removed).
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timedelta, timezone
+
+from ..signals import (
+    CONFIDENCE_V3_BEAR_MAX_PEAK_PCT,
+    CONFIDENCE_V3_MAX_PEAK_PCT,
+    CONFIDENCE_V3_MAX_REDUCTION,
+)
 
 
 def _rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:
@@ -75,6 +82,54 @@ def recent_signals(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
         "ORDER BY s.fired_at DESC LIMIT ?",
         (limit,),
     )
+
+
+# ---------- recent fires by strategy leg ----------
+#
+# The v3 marker plus the legs of docs/profit_strategies.md B3, as live watch lists.
+# v3 and the bearish low-peak leg take their thresholds from signals.py, so they
+# can't drift from the Confidence tab. The two good-fire cuts were found on the
+# 2023-26 history (exploratory), so they live here rather than in signals.py.
+GOOD_BULL_MAX_PEAK_PCT = 25  # bullish, lowest peak_pct quarter: where v3's edge sits
+PULLBACK_MIN_PEAK_PCT = 50   # bearish after a strong move: a pullback in a leader, taken LONG
+
+# Order is the order the sections render in. Keys mirror models.StrategyRule.
+STRATEGY_RULES: dict[str, str] = {
+    "v3_bullish": (f"s.direction = 'bullish' AND s.fire_hist_peak_pct <= {CONFIDENCE_V3_MAX_PEAK_PCT} "
+                   f"AND s.fire_reduction_from_peak < {CONFIDENCE_V3_MAX_REDUCTION}"),
+    "bull_low_peak": f"s.direction = 'bullish' AND s.fire_hist_peak_pct <= {GOOD_BULL_MAX_PEAK_PCT}",
+    "bear_pullback": f"s.direction = 'bearish' AND s.fire_hist_peak_pct >= {PULLBACK_MIN_PEAK_PCT}",
+    "bear_low_peak": f"s.direction = 'bearish' AND s.fire_hist_peak_pct <= {CONFIDENCE_V3_BEAR_MAX_PEAK_PCT}",
+}
+
+
+def recent_by_strategy(conn: sqlite3.Connection, days: int = 7) -> list[dict]:
+    """Each strategy leg's fires over the last `days`, one row per symbol.
+
+    The scanner re-fires a setup on every run while it holds, so raw rows repeat a
+    symbol many times a day. A watch list wants the symbol once: its latest fire,
+    with the window's first fire and fire count beside it.
+    """
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    sections = []
+    for rule, condition in STRATEGY_RULES.items():
+        rows = _rows(
+            conn,
+            "SELECT * FROM ("
+            "  SELECT s.fired_at, s.symbol, a.asset_class, s.stage, s.direction, "
+            "  s.fire_close, s.fire_macd, s.fire_reduction_from_peak, s.fire_rsi_14, "
+            "  s.fire_hist_peak_ratio, s.fire_hist_peak_pct, s.fire_hist_top_n, "
+            "  MIN(s.fired_at) OVER (PARTITION BY s.symbol) AS first_fired_at, "
+            "  COUNT(*) OVER (PARTITION BY s.symbol) AS fires, "
+            "  ROW_NUMBER() OVER (PARTITION BY s.symbol ORDER BY s.fired_at DESC) AS latest "
+            "  FROM signals s "
+            "  LEFT JOIN asset_snapshots a ON a.run_id = s.run_id AND a.symbol = s.symbol "
+            f" WHERE s.stage = 'histogram_flattening' AND s.fired_at >= ? AND {condition}"
+            ") WHERE latest = 1 ORDER BY fired_at DESC",
+            (since,),
+        )
+        sections.append({"rule": rule, "rows": rows})
+    return sections
 
 
 def by_stage_direction(conn: sqlite3.Connection) -> list[dict]:

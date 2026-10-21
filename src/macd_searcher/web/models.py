@@ -74,6 +74,22 @@ class SignalRow(BaseModel):
     fire_hist_top_n: Optional[int] = None
 
 
+# Keys of queries.STRATEGY_RULES, in render order.
+StrategyRule = Literal["v3_bullish", "bull_low_peak", "bear_pullback", "bear_low_peak"]
+
+
+class StrategySignalRow(SignalRow):
+    # The symbol's LATEST qualifying fire in the window. The scanner re-fires a held
+    # setup every run, so the repeats are summarised here rather than listed.
+    first_fired_at: str
+    fires: int
+
+
+class StrategySection(BaseModel):
+    rule: StrategyRule
+    rows: list[StrategySignalRow]
+
+
 class StageDirectionRow(BaseModel):
     stage: str
     direction: str

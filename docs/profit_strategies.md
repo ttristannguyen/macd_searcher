@@ -68,7 +68,8 @@ All net of 0.10% per side and funding. 2023-03-02 → 2026-10-15. The Sharpe int
 | C2 | buy after ≥ 20% of the universe fires bullish (BTC, 7d) | timing | −2.8% | 0.06 | −48% | +25 / +14 / −13 / −27 | **high that it's bad** |
 
 *Good fires* = bullish `peak_pct ≤ 25`, plus bearish `peak_pct ≥ 50` held long (the
-pullback). *Bad fires* = bearish `peak_pct ≤ 25`, plus bullish `50 < peak_pct < 100`.
+pullback). *Bad fires* = bearish `peak_pct ≤ 25`, plus bullish `50 < peak_pct < 100`,
+both held **short**: a bullish fire in that band is a false dawn, so it is shorted.
 
 ## How the backtest works
 
@@ -99,19 +100,22 @@ pullback). *Bad fires* = bearish `peak_pct ≤ 25`, plus bullish `50 < peak_pct 
 ## 1. What there is to trade
 
 The per-trade evidence for each edge, from the research docs, 7d alpha by episode
-unless noted:
+unless noted. **Alpha is signed in the direction of the trade**: positive means the
+trade beat the equal-weight universe, whether it is a long or a short. The research
+docs sign bullish fires as longs and bearish fires as shorts, so a fire traded the
+other way has its sign flipped here.
 
-| edge | per-trade evidence | status | mechanism (as currently understood) |
-|---|---|---|---|
-| v3 bullish (`peak_pct ≤ 50`, `red < 0.6`) | +0.58 [+0.04, +1.15], every year 2023–26 | **pre-registered, confirmed** | shallow dip in a coin that isn't weak mean-reverts against peers |
-| bullish `peak_pct ≤ 25` | +1.51 (7d), +1.92 (14d), +2.04 (30d) | found on history (exploratory) | same, stronger; the edge grows with the hold |
-| bearish pullback (`peak_pct ≥ 50`), as a **long** | +1.16 / +1.43 / +2.34 across three periods | seen on all periods at once | a pullback in a leader; trend persistence |
-| bearish high sig (`sig_atr ≥ 0.5`), long | +1.45 (2023–25), +2.25 (2026H1) | about half is generic momentum | the same thing on a different gauge |
-| bearish `peak_pct ≤ 25`, as a **short** | +0.55 (7d, spans 0), +1.04 (14d) | exploratory | a feeble rally in a weak coin |
-| bullish `50 < peak_pct < 100` | −0.70 / −0.85 at 14d, −1.57 / −1.41 at 30d | exploratory | deep, often coin-specific selling keeps drifting |
-| bearish repeat fires vs first fires | −1.01 [−1.29, −0.73] | confirmed (H9) | a setup that keeps re-firing without falling is showing strength |
-| record trough (`peak_pct = 100`) | −3.8 live, **+0.01 history** | not general | — |
-| any market timing (v2, BTC trend, clusters) | none confirmed (H5, H6) | — | — |
+| edge | trade | per-trade evidence | status | mechanism (as currently understood) |
+|---|---|---|---|---|
+| v3 bullish (`peak_pct ≤ 50`, `red < 0.6`) | long | +0.58 [+0.04, +1.15], every year 2023–26 | **pre-registered, confirmed** | shallow dip in a coin that isn't weak mean-reverts against peers |
+| bullish `peak_pct ≤ 25` | long | +1.51 (7d), +1.92 (14d), +2.04 (30d) | found on history (exploratory) | same, stronger; the edge grows with the hold |
+| bearish pullback (`peak_pct ≥ 50`) | **long** | +1.16 / +1.43 / +2.34 across three periods | seen on all periods at once | a pullback in a leader; trend persistence |
+| bearish high sig (`sig_atr ≥ 0.5`) | **long** | +1.45 (2023–25), +2.25 (2026H1) | about half is generic momentum | the same thing on a different gauge |
+| bearish `peak_pct ≤ 25` | **short** | +0.55 (7d, spans 0), +1.04 (14d) | exploratory | a feeble rally in a weak coin |
+| bullish `50 < peak_pct < 100` | **short** | 50–75: +0.70 (14d), +1.57 (30d); 75–<100: +0.85 (14d), +1.41 (30d); about 0 at 7d | exploratory | deep, often coin-specific selling keeps drifting |
+| bearish repeat fires vs first fires | short (filter) | repeat fires are worse shorts by 1.01 [0.73, 1.29] | confirmed (H9) | a setup that keeps re-firing without falling is showing strength |
+| record trough (`peak_pct = 100`) | — (warning on longs) | −3.8 live, **+0.01 history** | not general | — |
+| any market timing (v2, BTC trend, clusters) | — | none confirmed (H5, H6) | — | — |
 
 What these have in common: `peak_pct` ranks today's MACD excursion against *the coin's
 own* last ~200 bars. Long the coins whose moves are mild by their own standards, short

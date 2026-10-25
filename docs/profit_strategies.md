@@ -43,8 +43,9 @@ otherwise. Read them as upper bounds.
    CAGR **+67%**, max drawdown −36%, positive every year. It stacks two in-sample picks.
    With the 100- or 200-day average it is 1.24–1.25.
 6. **Several ideas don't work here:** market timing from signal clusters (buying
-   capitulation), plain momentum, a plain "pullback in a leader" sort, and long-only
-   with a trend switch.
+   capitulation), plain momentum, a plain "pullback in a leader" sort, long-only
+   with a trend switch, and closing good fires that haven't crossed within *k* days
+   (C6a: it gives up edge that hasn't been paid yet).
 
 ## The menu
 
@@ -108,7 +109,7 @@ unless noted:
 | bearish pullback (`peak_pct ≥ 50`), as a **long** | +1.16 / +1.43 / +2.34 across three periods | seen on all periods at once | a pullback in a leader; trend persistence |
 | bearish high sig (`sig_atr ≥ 0.5`), long | +1.45 (2023–25), +2.25 (2026H1) | about half is generic momentum | the same thing on a different gauge |
 | bearish `peak_pct ≤ 25`, as a **short** | +0.55 (7d, spans 0), +1.04 (14d) | exploratory | a feeble rally in a weak coin |
-| bullish `50 < peak_pct < 100` | −0.70 / −0.85 at 14d, −1.57 / −1.41 at 30d | exploratory | deep, often coin-specific selling keeps drifting |
+| bullish `50 < peak_pct < 100` | −0.70 / −0.85 at 14d, −1.57 / −1.41 at 30d | exploratory | deep selling keeps drifting; a property of the MACD state, since non-firing coins in it drift as much (2026-10-25) |
 | bearish repeat fires vs first fires | −1.01 [−1.29, −0.73] | confirmed (H9) | a setup that keeps re-firing without falling is showing strength |
 | record trough (`peak_pct = 100`) | −3.8 live, **+0.01 history** | not general | — |
 | any market timing (v2, BTC trend, clusters) | none confirmed (H5, H6) | — | — |
@@ -231,6 +232,11 @@ detector carries something these simple sorts don't. **The likeliest reason (a
 hypothesis):** `peak_pct` scores each move against the coin's *own* history, while a
 return ranking compares a volatile coin's normal swing with a quiet coin's unusual
 one. An "own-history-normalised momentum" sort without the MACD would test this.
+*Tested 2026-10-25 ([research_log.md](research_log.md)):* it isn't this. Own-history
+30d momentum is a *reversal* factor here (IC −0.045). On three of B3's four legs, the
+fire beats non-firing coins in the same MACD state by about ±1.1% at 7d, every year.
+The deep-bullish short leg is the exception: non-firing coins in that state drift down
+just as much.
 
 **The hedge decides whether the edge exists.** B2 with different shorts:
 
@@ -359,7 +365,87 @@ neighbouring holds are noise.
 
 **C6. Signal-specific exits.** Already tested and rejected in
 [trading_strategy.md](trading_strategy.md): Bollinger exits, failed-cross exits, stops.
-None adds alpha. Stops are tail control. Nothing here changes that.
+None adds alpha. Stops are tail control. The failed-cross exit is re-tested below on
+the good fires, over 3.6 years and as a portfolio. It still doesn't help.
+
+### C6a. Failed-cross exit on the good fires (tested 2026-10-23)
+
+**The rule.** A bullish fire is a negative histogram shrinking toward zero. If MACD
+hasn't crossed its signal line (histogram ≥ 0 on a daily close) within *k* bars of
+entry, the bounce hasn't come, so close at that close. The decision uses only closes up
+to bar *k*, so there is no look-ahead. It was tested on v3 bullish and bullish
+`peak_pct ≤ 25`, first fire per episode, on fires from 2023-03-02 to 2026-10-08.
+
+**Per trade, it costs alpha.** The table shows exit-rule alpha minus hold alpha, at
+episode level with week-block 95% intervals. The share of trades the rule closes is in
+brackets.
+
+| book | hold alpha | k = 2 | k = 3 | k = 5 | k = 7 |
+|---|---|---|---|---|---|
+| v3 bullish, 7d | +0.44 | −0.24 [−0.59, +0.08] (70%) | **−0.25 [−0.48, −0.03]** (55%) | −0.07 (40%) | −0.04 (31%) |
+| v3 bullish, 14d | +0.65 | −0.33 | −0.32 | −0.06 | −0.05 |
+| `peak_pct ≤ 25`, 7d | +1.31 | **−0.53 [−0.97, −0.14]** (48%) | **−0.31 [−0.61, −0.06]** (36%) | −0.10 (26%) | −0.03 (19%) |
+| `peak_pct ≤ 25`, 14d | +1.71 | −0.57 | −0.29 | −0.13 | +0.05 |
+
+Every cell is ≤ 0 except one +0.05. The cost is largest at small *k* and fades as *k*
+grows, because a late exit leaves less of the window to forfeit. By year (k = 3,
+2023 / 24 / 25 / 26) it is negative in 4 of 4 years for v3 at 7d and in 3 of 4 for
+`peak_pct ≤ 25` at both holds.
+
+**Why: "not crossed yet" doesn't mean the trade failed.** The table shows what the
+trades did *after* bar 3, split by whether they had crossed:
+
+| fires (hold) | uncrossed at bar 3 | their alpha over bars 1–3 | alpha after bar 3: uncrossed | alpha after bar 3: crossed |
+|---|---|---|---|---|
+| v3 bullish (7d) | 55% | −1.97 | +0.40 [−0.01, +0.83] | +0.05 |
+| `peak_pct ≤ 25` (7d) | 36% | −2.07 | **+0.87 [+0.13, +1.67]** | +0.31 |
+| bullish `50 < peak_pct < 100` (14d) | 59% | −1.80 | **−1.08 [−1.72, −0.43]** | −0.15 |
+| *counterfactual:* every eligible coin with histogram < 0, fire or not (7d) | 78% | −0.94 | −0.10 [−0.25, +0.03] | +0.11 |
+
+An uncrossed trade has lost about 2% against its peers by bar 3. The exit sells it
+there. On the good fires, those trades then earn as much alpha as the crossed ones, or
+more. The `peak_pct` edge is about *which coin*: a dip that is mild by the coin's own
+standards. It plays out over weeks, and §1 shows it growing from 7d to 30d. A cross
+within 3 days is a short-horizon price event that needs a bounce in those exact days,
+and that timing is mostly noise around the slower drift. So the exit takes the early
+loss and gives up the edge that hasn't been paid yet.
+
+The counterfactual confirms that the cross carries little information of its own.
+Across the whole universe, "no cross by bar 3" is worth about −0.2 (−0.10 vs +0.11),
+and the fire's selection outweighs it. The sign flips only where the fire has no
+selection edge. On the bad bullish fires (`50 < peak_pct < 100`), uncrossed trades
+keep drifting down, and the same exit *improves* a long by **+0.58 [+0.24, +0.91]** at
+14d. The rule is the same and the sign is opposite. What decides it is whether there
+is any edge left to give up.
+
+**As a portfolio it changes nothing measurable.** Universe-hedged, net, built as in
+§3 (Sharpe):
+
+| book | no exit | k = 2 | k = 3 | k = 4 | k = 5 | k = 7 |
+|---|---|---|---|---|---|---|
+| v3 bullish, 7d | 0.00 | −0.30 | 0.05 | 0.12 | 0.04 | — |
+| v3 bullish, 14d | 0.07 | 0.01 | 0.13 | 0.17 | −0.17 | −0.04 |
+| `peak_pct ≤ 25`, 7d | **1.00** [0.22, 1.80] | 0.78 | 0.88 | 0.96 | 1.04 | — |
+| `peak_pct ≤ 25`, 14d | **0.85** [0.03, 1.60] | 0.78 | 0.92 | 0.90 | 0.89 | 0.97 |
+
+The Sharpe moves by ±0.2 with no trend in *k*, well inside the ±0.5 standard error.
+The portfolio is hurt less than the single trade because, with fewer than 10 names,
+each position is a fixed 10%. An exit sends that capital to cash instead of spreading
+it over the other names, so return and risk shrink together and the Sharpe hardly
+moves. CAGR does fall: `peak_pct ≤ 25` at 7d goes from +14.8% to +10.6% at k = 2.
+What the exit buys is 15–50% fewer open names (`peak_pct ≤ 25`, 14d: 9.3 → 6.4–8.5 on
+average). That is only worth something when capital or an exposure cap binds, and in
+these books it doesn't.
+
+**Verdict:** don't add it to the long legs. This is the same answer as
+[trading_strategy.md](trading_strategy.md) §3C, which tested v2 over 4 months. Now it
+holds over 3.6 years, on the edges that do work, and at portfolio level. **Hypothesis,
+not tested out of sample:** the failed cross may sharpen B3's *short* leg. Among
+bullish `50 < peak_pct < 100` fires, the ones still uncrossed at bar 3 carry the
+downward drift (−1.08 vs −0.15 for crossed ones). Shorting only those, entered at the
+bar-3 close, would use less capital for about the same alpha. This was found on this
+history, so it was registered on the watchlist on 2026-10-23. It is scored only on
+fires from that date, from the bar-3 close to 14d.
 
 **C7. Short-term reversal with maker orders.** 3-day reversal has a gross Sharpe of
 1.13, but it trades 126% of the book a day. With resting limit orders at Hyperliquid's
@@ -411,9 +497,11 @@ timing from signal clusters doesn't work.
    knows.
 4. **Size at 1x neutral (2x gross) until live data confirms**, and never by Kelly from
    these numbers.
-5. **Test the mechanism directly:** own-history-normalised momentum without the MACD
-   (§3). If it matches B3, the strategy can be simpler. If it doesn't, the detector is
-   doing real work.
+5. ~~**Test the mechanism directly:** own-history-normalised momentum without the MACD
+   (§3).~~ Done 2026-10-25: it doesn't match B3, and the detector does real work on three
+   legs. A book on the MACD state alone (long strong rallies, short deep dips, no
+   detector) makes Sharpe 0.49 with a −52% drawdown
+   ([research_log.md](research_log.md)).
 
 ## Reproduction
 

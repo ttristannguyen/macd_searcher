@@ -291,6 +291,60 @@ def attach_funding(sig: pd.DataFrame, funding: dict[str, pd.DataFrame]) -> pd.Da
     return sig.assign(**cols)
 
 
+# ---------------------------------------------------------------- after the fire
+
+# Some hypotheses act a few bars AFTER the fire ("short it if MACD still hasn't crossed
+# by bar 3"). Their outcome has to be measured from that later entry: scored from the
+# fire, the rule would be conditioning on its own first bars, which is look-ahead.
+# Bar 3 is the third daily close at or after the fire, the close of fire day + 2. That
+# matches the closed-candle history test (docs/profit_strategies.md C6a).
+LATE_BAR = 3
+
+
+def crossed_by_bar3(sig: pd.DataFrame, hist: dict[str, pd.Series]) -> pd.Series:
+    """1.0 if the MACD histogram crossed zero (MACD through its signal line) on any of
+    the first ``LATE_BAR`` daily closes at or after the fire, 0.0 if it didn't, and NaN
+    until all those bars have closed. ``hist`` maps symbol -> closed-bar histogram
+    indexed by 'YYYY-MM-DD'.
+
+    A FORWARD quantity: use it only to choose a late entry, never as a fire-time feature.
+    """
+    combined = pd.concat(hist, names=["symbol", "day"])
+    bars = np.column_stack([
+        combined.reindex(pd.MultiIndex.from_arrays([sig["symbol"], _shift_day(sig["day"], i)])).to_numpy()
+        for i in range(LATE_BAR)])
+    bullish = (sig["direction"] == "bullish").to_numpy()[:, None]
+    crossed = np.where(bullish, bars >= 0, bars <= 0).any(axis=1)
+    return pd.Series(np.where(np.isnan(bars).any(axis=1), np.nan, crossed), index=sig.index)
+
+
+def attach_late_entry(sig: pd.DataFrame, snaps: pd.DataFrame, candles: dict[str, pd.DataFrame],
+                      horizons=HORIZONS) -> pd.DataFrame:
+    """``alpha_from_bar3_Nd``: the alpha of entering at the close of bar 3 instead of at
+    the fire, exiting on the same bar as ``px_Nd``. The benchmark is the same-run,
+    same-class mean over those same bars, so a random late entry also scores zero."""
+    close_of = daily_closes(snaps, candles)
+
+    def forward(symbols: pd.Series, days: pd.Series, n: int) -> np.ndarray:
+        at = lambda k: close_of.reindex(pd.MultiIndex.from_arrays([symbols, _shift_day(days, k)])).to_numpy()  # noqa: E731
+        return at(n) / at(LATE_BAR - 1) - 1
+
+    sign = np.where(sig["direction"] == "bullish", 1.0, -1.0)
+    out = {}
+    for n in (h for h in horizons if h > LATE_BAR):
+        b = snaps[["run_id", "asset_class"]].assign(bench=forward(snaps["symbol"], snaps["day"], n))
+        grouped = b.groupby(["run_id", "asset_class"])["bench"]
+        bench = grouped.mean().where(grouped.count() >= MIN_BENCH_SYMBOLS).rename("bench").reset_index()
+        aligned = sig[["run_id", "asset_class"]].merge(bench, on=["run_id", "asset_class"], how="left")
+        out[f"alpha_from_bar3_{n}d"] = sign * (forward(sig["symbol"], sig["day"], n) - aligned["bench"].to_numpy()) * 100
+    return sig.assign(**out)
+
+
+def _closed_bar_hist(candles: pd.DataFrame) -> pd.Series:
+    df = candles.sort_values("ts")
+    return pd.Series(macd(df["close"])["hist"].to_numpy(), index=df["ts"].dt.strftime("%Y-%m-%d"))
+
+
 # ---------------------------------------------------------------- assembly
 
 def build(conn: sqlite3.Connection, candles: dict | None = None, funding: dict | None = None,
@@ -307,6 +361,8 @@ def build(conn: sqlite3.Connection, candles: dict | None = None, funding: dict |
         classes = snaps.groupby("symbol")["asset_class"].first().to_dict()
         df = attach_indicators(df, candles)
         df = df.join(_at_previous_day(df, market_context(candles, classes)))
+        df = attach_late_entry(df, snaps, candles)
+        df["crossed_by_bar3"] = crossed_by_bar3(df, {s: _closed_bar_hist(c) for s, c in candles.items()})
     if funding:
         df = attach_funding(df, funding)
     df["oos"] = df["fired_at"] >= pd.Timestamp(oos_from, tz="UTC") if oos_from else False

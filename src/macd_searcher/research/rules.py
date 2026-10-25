@@ -62,6 +62,10 @@ def _crypto_pullback(d: pd.DataFrame) -> pd.Series:
     return _bear(d) & (d["asset_class"] == "crypto") & (d.peak_pct >= 50)
 
 
+def _bull_deep(d: pd.DataFrame) -> pd.Series:
+    return _bull(d) & (d.peak_pct > 50) & (d.peak_pct < 100)
+
+
 def _v2(d: pd.DataFrame) -> pd.Series:
     return _bull(d) & (d.atr > 0) & (d.sig_atr < CONFIDENCE_MAX_SIG_ATR) & (d.red < CONFIDENCE_MAX_REDUCTION)
 
@@ -108,8 +112,24 @@ RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
     "crypto pullback above SMA200": lambda d: _crypto_pullback(d) & (_col(d, "dist_sma200_atr") > 0),
     "v3 bullish, S&P 500 / Nasdaq-100": lambda d: _bull(d) & _us_index_equity(d)
         & (d.peak_pct <= V3_BULL_MAX_PEAK_PCT) & (d.red < V3_BULL_MAX_REDUCTION),
+    # B3's short leg in docs/profit_strategies.md: deep, often coin-specific selling.
+    "bullish 50 < peak_pct < 100": _bull_deep,
+    # 2026-10-24 pass: early recovery (above SMA50, still below SMA200), where that short failed.
+    "bullish 50 < peak_pct < 100, early recovery": lambda d: _bull_deep(d)
+        & (_col(d, "dist_sma50_atr") > 0) & (_col(d, "dist_sma200_atr") <= 0),
+    # 2026-10-25 pass: crowded longs going into the dip (baseline funding is ~11% APR).
+    "bullish, 7d funding >= 15% APR": lambda d: _bull(d) & (_col(d, "fund_7d_apr") >= 15),
     "all bearish": _bear,
     "everything": lambda d: d["direction"].notna(),
+}
+
+# Rules that also use what happened AFTER the fire. Scored from the fire, they would
+# condition on their own first bars (an uncrossed fire has by construction fallen), so
+# they are kept out of RULES and the cohort table. A check may use one only with the
+# matching late-entry metric (dataset.attach_late_entry).
+AFTER_FIRE_RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
+    # 2026-10-23 (profit_strategies.md C6a): the uncrossed deep fires carry the drift.
+    "bullish 50 < peak_pct < 100, uncrossed at bar 3": lambda d: _bull_deep(d) & (_col(d, "crossed_by_bar3") == 0),
 }
 
 
@@ -204,4 +224,23 @@ WATCHLIST: tuple[Check, ...] = (
     Check("v3 bullish, S&P 500 / Nasdaq-100", "Does v3 bullish pick winners among index equities? "
           "(live in-sample: +3.41 alpha, +4.28 over holding the same stock, 44 ep, one window; "
           "other equities -1.98)", +1, "trade v3 on index equities", registered="2026-10-19"),
+    # Added 2026-10-23 (docs/profit_strategies.md C6a). Long-side alpha, so a good SHORT
+    # reads negative. Entered at the bar-3 close, never scored from the fire.
+    Check("bullish 50 < peak_pct < 100, uncrossed at bar 3", "Are deep bullish fires still uncrossed at "
+          "bar 3 good SHORTS from there? (history 2023-26, first fires, bar 3 -> 14d: -1.08 [-1.72, -0.43]; "
+          "crossed ones -0.15)", -1, "short B3's deep-bullish leg only once uncrossed at bar 3",
+          registered="2026-10-23", metric="alpha_from_bar3", horizon=14),
+    # Added 2026-10-24 (docs/research_log.md). Long-side alpha: a worse SHORT reads positive.
+    Check("bullish 50 < peak_pct < 100, early recovery", "Is the deep-bullish short worse on coins above "
+          "SMA50 but below SMA200? (history 2023-26, 14d long-side vs rest of the leg: +2.83 [-0.76, +6.03], "
+          "220 ep; post hoc from a 2x2 cut, no mechanism)", +1,
+          "find the mechanism, then drop early-recovery coins from B3's short leg",
+          versus="bullish 50 < peak_pct < 100", registered="2026-10-24", horizon=14),
+    # Added 2026-10-25 (docs/research_log.md): confidence_v3_research.md section 8's
+    # out-of-sample funding effect, now with a fixed cut. Non-firing coins show no such effect.
+    Check("bullish, 7d funding >= 15% APR", "Do bullish fires on coins whose longs paid >= 15% APR over the "
+          "prior week underperform the rest of bullish fires? (live, rule - rest: Jun-Sep -1.60 [-3.89, +0.27], "
+          "156 ep; Sep 19 - Oct 7 -6.37 [-9.82, -2.69], 49 ep; Oct 8-17 -4.96, 14 ep; all one falling market "
+          "from September)", -1, "skip or short bullish fires with crowded funding",
+          versus="all bullish", registered="2026-10-25"),
 )

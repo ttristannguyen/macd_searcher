@@ -103,7 +103,9 @@ flipped sign out of sample.
 use a forward-window column as a feature: `bars_to_zero_cross`,
 `max_favorable_move_pct`, `max_adverse_move_pct`, `outcome_updated_at`, `carry_7d`.
 *Why:* "never crossed zero" looked like a +6.7% predictor until restricted to
-"crossed by day 3", when the effect reversed.
+"crossed by day 3", when the effect reversed. A rule that legitimately waits for
+post-fire bars ("still uncrossed at bar 3") goes in `rules.AFTER_FIRE_RULES` and is
+scored only from that later entry (`alpha_from_bar3_Nd`), never from the fire.
 
 **8. Check absolute thresholds against volatility.** Median daily ATR in this
 universe is ~6% of price; a ">10% move in 14 days" is 1.6 daily ATRs. *Why:* half of

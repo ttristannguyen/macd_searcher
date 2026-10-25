@@ -8,6 +8,241 @@ own docs ([confidence_v3_research.md](confidence_v3_research.md),
 
 ---
 
+## 2026-10-25 — periodic pass: the fire vs the state it fires in
+
+Snapshot synced 2026-10-25 (latest run 04:00 UTC): 8,578 deduped signals, 7,474 with a
+7d alpha in 2,304 episodes. The report ran with `--scan`.
+
+**Watchlist: still nothing to score.** All 20 checks are pending. The most fresh
+episodes any check has is 25 (ATR expanding). 7d outcomes reach fires through
+2026-10-17, and the 14d checks have none yet.
+
+**What moved.** These windows were seen before, so they are for orientation only:
+- The live bullish `peak_pct` IC has turned the wrong way since 2026-09-19: +0.10
+  [−0.01, +0.24] (220 ep), against −0.05 on 2026-10-15. Over the same window the
+  deep-bullish leg is +0.52 long-side (161 ep), so the short lost. That is one falling
+  month. History is unaffected (below).
+- Bullish 00:00 first fires: −1.48 [−2.50, −0.60] overall. The 7 episodes since
+  registration read +3.38.
+- Bearish: no feature reaches q ≤ 0.25, as before.
+
+### What the fire adds over the MACD state (history)
+
+Question (profit_strategies.md §6.5): is B3 an own-history momentum sort that the
+detector happens to sit on, or does the fire itself add something? To answer it I built a
+panel of every eligible coin-day, 95,928 rows from 2023-03 to 2026-10-24. The history
+CSVs were extended with the live candle cache. Each row records the MACD state the
+detector sees (excursion sign, `peak_pct` against the coin's own history), whether it
+fired or not. It reproduces the rebuild exactly: 26,569 fires, identical `peak_pct` and
+alpha. The table uses long-side excess vs the eligible-universe mean, first fire per
+episode, and week-block intervals. "Not fired" means same side and band, with no
+same-side fire in the last 5 days. Everything here is in-sample.
+
+| leg (trade) | fires 7d (ep) | same state, not fired | fire − state, 7d | fire − state, 14d | years right side (7d) |
+|---|---|---|---|---|---|
+| bullish `peak_pct ≤ 25` (long) | +1.31 (1,012) | +0.21 | **+1.10 [+0.33, +1.89]** | **+1.62 [+0.55, +2.73]** | 4/4 |
+| bearish `peak_pct ≥ 50` (long) | +1.03 (3,455) | −0.08 | **+1.12 [+0.44, +1.80]** | +0.33 [−0.57, +1.27] | 4/4 |
+| bearish `peak_pct ≤ 25` (short) | −0.95 (1,557) | +0.04 | **−0.99 [−1.65, −0.32]** | **−1.18 [−1.99, −0.33]** | 4/4 |
+| bullish `50 < peak_pct < 100` (short) | −0.40 (2,179) | −0.42 | +0.02 [−0.60, +0.68] | −0.35 [−1.20, +0.57] | 2/4 |
+
+- **On three of B3's four legs, the fire adds about ±1.1% at 7d**, on the right side
+  every year. Matching the non-fires on own-history 10d and 30d return quintiles as well
+  leaves it unchanged: +1.19 / +1.05 / −1.11 at 7d, every interval clear of zero.
+- **Own-history price momentum is not B3.** Take the percentile of a coin's 30d return
+  among its own last 200 values. Across all coins it has IC −0.045 [−0.062, −0.030]
+  with 14d excess. That is short-term *reversal*, the opposite sign to the pullback leg.
+  A price sort can't stand in for the detector, which answers §6.5.
+- **The deep-bullish short leg is the state, not the fire.** Coins in a deep negative
+  excursion underperform whether or not the detector fires (−0.42 vs −0.40).
+- **Across the universe, mild excursions revert and extreme ones continue.** All coin-days
+  at 14d, each state against the rest (state mean by year 2023 / 24 / 25 / 26):
+  - Mild dip (hist < 0, `peak_pct ≤ 25`): +0.46 [+0.02, +0.90] (−0.48 / −0.30 / +0.57 / +0.84).
+  - Mild rally (hist > 0, ≤ 25): −0.50 [−0.93, −0.09], negative every year.
+  - Strong rally (hist > 0, 75 to < 100): **+1.86 [+0.74, +3.05]**, positive every year.
+  - Deep dip (hist < 0, 75 to < 100): **−1.38 [−2.05, −0.71]**, negative in 3 of 4 years.
+
+  Each B3 leg is one of these states, and the fire sharpens three of them. As a single
+  linear score, the signed excursion has IC ≈ 0 (−0.01) because the relationship bends.
+- **The trigger bar isn't the edge.** Some same-state coins clear the noise floor and
+  have retraced ≥ 30% but didn't fire. Almost all of them are the day after a fire. Once
+  recent fires are excluded, only 19–133 per leg remain in 3.6 years. The day-after rows
+  do as well as the fire (bullish `peak_pct ≤ 25` at 7d: +2.03, 252 rows). So the
+  detector catches essentially every "real excursion, ≥ 30% retraced" setup, and the
+  exact bar it fires on doesn't matter. That is C6a's conclusion reached from the other
+  side.
+- *Mechanism (hypothesis):* a move that is modest by the coin's own standards is noise
+  around its trend, and it reverts. An extreme one carries information (a trend, or a
+  breakdown), and it persists. On the mild legs, the fire finds a real excursion that
+  has already turned: a dip that is both small and over. On the deep leg it has nothing
+  to add. The state already says "breakdown", and the histogram turning doesn't end it.
+
+**As portfolios.** Built as in profit_strategies.md: 14d hold, 0.10% a side, flat funding.
+
+| book | CAGR | Sharpe [95%] | max DD | 2023 / 24 / 25 / 26 |
+|---|---|---|---|---|
+| B3, all fires (the doc's 1.11; calibration) | +27.7% | 1.14 [0.19, 2.29] | −23% | +20 / +7 / +81 / +5% |
+| B3, first fires only | +34.5% | 1.29 [0.35, 2.47] | −21% | +13 / +17 / +106 / +8% |
+| B3, deep leg traded as the state (any coin) | +23.5% | 1.06 [0.11, 2.22] | −29% | −1 / +17 / +53 / +22% |
+| B3, deep leg dropped | +18.1% | 0.65 [−0.29, 1.86] | −41% | +50 / +2 / +53 / −22% |
+| state only: long strong rally, short deep dip | +12.5% | 0.49 [−0.56, 1.50] | −52% | +13 / +45 / −1 / −5% |
+
+- **The state book is not a strategy** (Sharpe 0.49, −52% drawdown). Trading the deep
+  leg as the state instead of as fires changes nothing. B3 stays as it is. The deep leg
+  still earns its place: dropping it halves the Sharpe.
+
+**A mechanism test that failed.** If deep dips underperform because they are
+coin-specific collapses ([confidence_v3.md](confidence_v3.md)), the effect should fade
+on days when many coins are in a deep dip at once. Using history before the live period
+at 14d, it doesn't. Deep fires are −0.56 on low-breadth days (87 ep), −0.11 on mid days,
+and **−1.12 [−1.82, −0.45]** on high-breadth days (1,387 ep). Breadth explains neither
+the leg nor its live October failure.
+
+**Counterfactual for the pending "uncrossed at bar 3" short.** The test measures deep-dip
+coins from bar 3 to 14d:
+- First fires still uncrossed at bar 3: −1.07 [−1.72, −0.46]. That is 59% of fires and
+  reproduces C6a.
+- Non-firing coins in the same state, uncrossed: −0.46 [−0.89, −0.05]. That is 94% of
+  them.
+- Fire − state among the uncrossed: −0.61 [−1.40, +0.19], with the fire worse in 3 of 4
+  years.
+
+About 40% of the check's expected effect is the state persisting. The check stays as
+registered.
+
+### Funding before the fire (live)
+
+The 2026-10-14 pass saw high funding mark bad bullish fires, but only over 2026-09-19 →
+10-07. The table gives the episode IC between 7d funding and 7d alpha for each window.
+Fires from 10-08 to 10-17 had not been seen then. The counterfactual is every crypto coin
+in the day's first run that did not fire bullish.
+
+| window | bullish fires | non-firing coins |
+|---|---|---|
+| Jun–Sep | −0.06 (856 ep) | −0.01 |
+| 09-19 → 10-07 | −0.21 (119 ep) | +0.01 |
+| 10-08 → 10-17 (fresh) | **−0.23** (102 ep) | −0.09 |
+
+- **The effect is specific to bullish fires.** It is not a generic crowding factor.
+- **Two limits.** The fresh window covers only two weeks, so its interval means nothing.
+  Every window since September is the same falling market.
+- *Mechanism (hypothesis):* a bullish fire is a dip whose selling is slowing. If longs
+  kept paying up into the dip, the dip hasn't flushed them, and the unwind is still to
+  come. Non-firing coins with high funding are mostly trending up, where crowding means
+  something else.
+
+### Registered this pass
+
+- Bullish fires with 7d funding ≥ 15% APR vs the rest of bullish (alpha < 0). 15 is a
+  round number about 4 points over Hyperliquid's ~11% baseline. Bullish fires: median
+  8.2, p80 12.6, p90 18.0. As a cohort since June it reads −2.27 [−4.29, −0.36] (210 ep),
+  negative in all five months. Those months are seen data and are not evidence.
+
+The panel, state and backtest scripts were scratch and are not committed. Inputs:
+`state/research_cache/history/*.csv` extended with `state/research_cache/candles/`.
+
+---
+
+## 2026-10-24 — SMA50 / SMA100 / SMA200 on the good and bad fires
+
+Question: the 2026-10-19 SMA200 split, run again on the 50- and 100-day averages and
+on all four B3 legs. History rebuild, first fire per episode, fires 2023-03-02 →
+2026-10-08, candles to 2026-10-16. "Above" means the prior close is above the average
+(`dist_smaN_atr > 0`, the same bar the entry uses). Alpha is in the trade's
+direction, so a bad fire's positive number is a good short. Week-block 95% intervals.
+Everything here was found on this same history; nothing is out of sample. Scratch
+script, not committed.
+
+| leg (trade) | average | 7d above (ep) | 7d below (ep) | 7d above − below | 14d above − below |
+|---|---|---|---|---|---|
+| bearish `peak_pct ≥ 50` (long) | SMA50 | +1.37 (2,214) | +0.43 (1,241) | +0.94 [−0.09, +2.01] | −0.30 |
+| | SMA100 | +1.77 (1,884) | +0.15 (1,571) | **+1.62 [+0.64, +2.65]** | +0.22 [−1.17, +1.55] |
+| | SMA200 | +1.65 (1,703) | +0.44 (1,752) | **+1.21 [+0.10, +2.38]** | +0.16 |
+| bullish `peak_pct ≤ 25` (long) | SMA50 | +1.97 (276) | +1.06 (736) | +0.91 [−0.60, +2.44] | +0.09 |
+| | SMA100 | +1.27 (224) | +1.32 (788) | −0.05 | −1.07 [−3.50, +1.14] |
+| | SMA200 | +0.92 (135) | +1.37 (877) | −0.45 | −1.08 [−3.40, +1.04] |
+| bearish `peak_pct ≤ 25` (short) | SMA50 | +0.61 (478) | +1.10 (1,079) | −0.50 [−1.70, +0.74] | −0.87 |
+| | SMA100 | +0.50 (397) | +1.11 (1,160) | −0.61 | +0.09 |
+| | SMA200 | +0.81 (268) | +0.98 (1,289) | −0.17 | +0.45 |
+| bullish `50 < peak_pct < 100` (short) | SMA50 | +0.05 (727) | +0.57 (1,452) | −0.52 [−1.68, +0.69] | −1.03 |
+| | SMA100 | +0.16 (891) | +0.56 (1,288) | −0.40 | −0.48 |
+| | SMA200 | +0.88 (835) | +0.10 (1,344) | +0.79 [−0.19, +1.75] | +0.48 |
+
+- **Only the pullback long depends on the trend, and only over the first week.** All
+  three averages agree. At 7d the gap is +0.9 to +1.6 and positive every year (SMA100:
+  +0.50 / +0.63 / +2.61 / +2.48). By 14d it is gone: pullbacks below the average go
+  from +0.15 at 7d to +0.84 at 14d, and those above go from +1.77 to +1.05. The trend
+  changes how fast the pullback pays, not how much. That helps a 7d hold. It adds
+  nothing to B3's 14d book.
+- **Counterfactual: being above the average is not the edge.** Non-firing coins on the
+  same days and on the same side of SMA100 score −0.08 above and −0.43 below. Fire minus
+  those coins is +1.86 [+0.92, +2.84] above and +0.58 [−0.13, +1.32] below. Dose
+  response at 7d, by distance above SMA100 in ATRs (pullback / non-firing coins):
+  −2…0: +0.31 / −1.42; 0…2: +1.19 / −0.31; 2…4: +2.26 / −0.46; 4…6: +2.71 / +1.70;
+  > 6: −3.55 / −2.35 (48 ep). The fire's edge rises with the trend and the non-firing
+  coins' alpha doesn't, until coins are stretched more than 6 ATR.
+- **SMA100 isn't "the best average".** Its gap (+1.62) and SMA200's (+1.21) sit
+  inside each other's intervals, and picking it after seeing all three would be
+  selection. The SMA200 check registered 2026-10-19 stays the single test.
+- *Mechanism:* the pullback fire marks momentum cooling after a big move up. Above the
+  average, that move belongs to an established trend. Trends persist, so the pause
+  resolves upward within days. Below the average the same move is a rally inside a
+  downtrend and doesn't extend in week 1. Why those then catch up in week 2 is **not
+  explained**.
+- **The other three legs don't care about the trend.** Bullish `peak_pct ≤ 25` and the
+  bearish `peak_pct ≤ 25` short work above and below every average. Their gaps are
+  noise, and in both cases most fires sit below the averages (73–87% for the bullish
+  leg).
+- **The deep-bullish short fails in one state: early recovery** (above SMA50, below
+  SMA200). Short alpha 7d / 14d: −1.94 / −1.61 (220 ep) there, against +0.50 to +1.49
+  in the other three combinations. Long-side difference vs the rest of the leg is
+  +2.60 [+0.04, +5.11] at 7d and +2.83 [−0.76, +6.03] at 14d. That is why SMA50 and
+  SMA200 seemed to point opposite ways. The counterfactual doesn't support a story,
+  though. Across all days, coins in early recovery *trail* the universe (−1.30 at 7d,
+  negative 2023–25). On the days these fires happen, non-firing early-recovery coins
+  beat it (+1.54). So the fire adds little against its own peers (+0.49), and the
+  failure looks like *which days* these fires land on (alt rebounds), not a property
+  of the state. No mechanism yet. It comes out of a 2×2 cut over five legs and two
+  horizons, so selection is likely.
+- The all-bullish row repeats 2026-10-19: above SMA200 −0.46 vs +0.23 below (7d).
+
+### Registered this pass
+
+- Deep-bullish short in early recovery vs the rest of the deep-bullish leg, 14d.
+  Long-side, so a worse short reads positive. Hypothesis only: no mechanism.
+
+---
+
+## 2026-10-23 — failed-cross exit on the good fires
+
+Question: should v3 bullish and bullish `peak_pct ≤ 25` trades be closed if MACD
+hasn't crossed its signal line *k* bars after entry? History rebuild, first fire per
+episode, fires 2023-03-02 → 2026-10-08, candles to 2026-10-15. Full write-up in
+[profit_strategies.md](profit_strategies.md) §C6a.
+
+- **No.** Per trade the exit costs alpha at every *k* (v3 7d, k = 3: −0.25 [−0.48,
+  −0.03]; `peak_pct ≤ 25` 7d: −0.31 [−0.61, −0.06]). As a universe-hedged portfolio
+  the Sharpe moves ±0.2 with no trend in *k*, which is noise.
+- **Mechanism:** uncrossed good fires are down about 2% vs peers at bar 3 but then
+  earn as much or more alpha than crossed ones (`peak_pct ≤ 25`: +0.87 vs +0.31). The
+  edge is slow selection, and the cross is short-horizon timing.
+- **Counterfactual:** across all eligible coins with a negative histogram, "no cross by
+  bar 3" is worth only about −0.2. On the bad bullish fires (`50 < peak_pct < 100`) the
+  sign flips: uncrossed fires keep drifting (−1.08 after bar 3, 14d), and the exit
+  helps a long by +0.58 [+0.24, +0.91].
+- **Registered:** "bullish 50 < peak_pct < 100, uncrossed at bar 3", expected to be a
+  good short from the bar-3 close to 14d (−1.08 in history). It is a refinement of
+  B3's short leg.
+
+**Tooling.** `dataset.crossed_by_bar3` checks whether the closed-bar MACD histogram
+crossed on the first three daily closes from the fire day. `dataset.attach_late_entry`
+gives `alpha_from_bar3_Nd`: entry at the close of fire day + 2, against the same-run
+class mean over the same bars. Rules that read what happened after the fire live in
+`rules.AFTER_FIRE_RULES`, outside the cohort table, and a test pins them to the
+late-entry metric. Scored from the fire, an "uncrossed" rule would be measuring its own
+first bars. Plumbing check on the live snapshot: 98% of signals have the cross flag,
+and 398 episodes match the rule before registration. Those episodes are not
+evidence.
+
 ## 2026-10-19 — strong assets instead of alts
 
 Question: do the trades work better on assets that trend up (crypto majors, index

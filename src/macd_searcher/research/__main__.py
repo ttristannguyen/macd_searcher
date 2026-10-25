@@ -20,7 +20,7 @@ from scipy.stats import norm
 from ..config import load_config
 from . import cache, dataset
 from .inference import bh_qvalues, block_ci, contrast_ci, per_episode, spearman_ic
-from .rules import RULES, WATCHLIST
+from .rules import AFTER_FIRE_RULES, RULES, WATCHLIST
 
 log = logging.getLogger("macd_searcher.research")
 
@@ -30,8 +30,10 @@ DEFAULT_OOS_FROM = "2026-09-19"
 MIN_EPISODES = 30   # below this a watchlist verdict is "pending", not a result
 
 # Columns that are outcomes, ids or raw inputs — never features. carry_7d is a
-# FORWARD quantity (funding paid during the hold); scanning it would be look-ahead.
-_NOT_FEATURES = {"fire_close", "fire_macd", "fire_hist", "fire_hist_peak", "atr", "oos", "episode_start"}
+# FORWARD quantity (funding paid during the hold); scanning it would be look-ahead, and
+# so would crossed_by_bar3 (the first three bars after the fire).
+_NOT_FEATURES = {"fire_close", "fire_macd", "fire_hist", "fire_hist_peak", "atr", "oos", "episode_start",
+                 "crossed_by_bar3"}
 _OUTCOME_PREFIXES = ("r_", "market_", "alpha_", "bench_", "px_", "ret_", "carry_")
 
 
@@ -101,11 +103,12 @@ def watchlist_section(df: pd.DataFrame, h: int) -> list[str]:
              "seen when the hypothesis was formed.", "",
              "| rule | role | question | measure | since | episodes | value (ep, week CI) | verdict |",
              "|---|---|---|---|---|---|---|---|"]
+    rules = RULES | AFTER_FIRE_RULES
     for c in WATCHLIST:
         hh = c.horizon or h
         col = f"{c.metric}_{hh}d"
         fresh = df[(df["fired_at"] >= pd.Timestamp(c.registered, tz="UTC")) & df[f"alpha_{hh}d"].notna()]
-        mask = RULES[c.rule](fresh)
+        mask = rules[c.rule](fresh)
         g = fresh[mask]
         if c.versus is None:
             measure = f"{c.metric} {hh}d"
@@ -113,7 +116,7 @@ def watchlist_section(df: pd.DataFrame, h: int) -> list[str]:
         else:
             # Timing: this rule against the versus rule's OTHER rows, weeks resampled per group.
             measure = f"{c.metric} {hh}d: rule − rest of {c.versus}"
-            rest = fresh[RULES[c.versus](fresh) & ~mask]
+            rest = fresh[rules[c.versus](fresh) & ~mask]
             ea, eb = per_episode(g, col), per_episode(rest, col)
             m, lo, hi = contrast_ci(ea[col], ea["week"], eb[col], eb["week"])
             n = min(len(ea), len(eb))

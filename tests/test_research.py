@@ -144,6 +144,45 @@ def test_features_come_from_the_bar_before_the_fire_day():
     assert before.loc[0, "roc_7"] == pytest.approx(expected)
 
 
+# ---------------------------------------------------------------- after the fire
+
+def test_crossed_by_bar3_reads_the_first_three_closes_from_the_fire_day():
+    days = [_shift(DAY, i) for i in range(4)]
+    hist = {
+        "UP": pd.Series([-2.0, -1.0, 0.5, 9.0], index=days),      # bullish, crosses on bar 3
+        "LATE": pd.Series([-2.0, -1.0, -0.5, 9.0], index=days),   # bullish, crosses on bar 4: too late
+        "SHORT": pd.Series([2.0, -0.1, 1.0, 1.0], index=days),    # bearish, crosses on bar 2
+        "GAP": pd.Series([-2.0, -1.0], index=days[:2]),           # bar 3 not closed yet
+    }
+    sig = pd.DataFrame({"symbol": list(hist), "day": DAY,
+                        "direction": ["bullish", "bullish", "bearish", "bullish"]})
+    got = dataset.crossed_by_bar3(sig, hist)
+    assert got.iloc[:3].tolist() == [1.0, 0.0, 1.0] and np.isnan(got.iloc[3])
+
+
+def test_late_entry_is_measured_from_bar3_against_the_same_bars():
+    """Entry at the close of bar 3 (fire day + 2), not at the fire: the move during the
+    first bars must not count, or an 'uncrossed' rule would score its own selection."""
+    syms = [f"S{i}" for i in range(12)]
+    candles = {s: pd.concat([_candle({s: 50.0}, DAY)[s],                       # fire day: ignored
+                             _candle({s: 100.0}, _shift(DAY, 2))[s],           # bar 3: entry
+                             _candle({s: 120.0 if s == "S0" else 100.0}, _shift(DAY, 14))[s]])
+               for s in syms}
+    sig = pd.DataFrame({"run_id": "r1", "asset_class": "crypto", "symbol": ["S0", "S0"], "day": DAY,
+                        "direction": ["bullish", "bearish"]})
+    out = dataset.attach_late_entry(sig, _snaps(syms), candles, horizons=(14,))
+    alpha = (0.20 - 0.20 / 12) * 100
+    assert out["alpha_from_bar3_14d"].tolist() == pytest.approx([alpha, -alpha])
+
+
+def test_after_fire_rules_are_scored_only_from_their_late_entry():
+    from macd_searcher.research.rules import AFTER_FIRE_RULES, WATCHLIST
+    assert not set(AFTER_FIRE_RULES) & set(RULES)          # never in the from-the-fire cohort table
+    for c in WATCHLIST:
+        if c.rule in AFTER_FIRE_RULES:
+            assert c.metric == "alpha_from_bar3", c.rule
+
+
 # ---------------------------------------------------------------- statistics
 
 def test_block_ci_collapses_on_constant_data():

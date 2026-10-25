@@ -405,6 +405,12 @@ funding would eat most of a +0.86% alpha.
 **Recommendation:** no funding gate now. Net out ~0.16%/week on longs in any trading
 rule built on v3, and re-test the out-of-sample funding effect once the market turns.
 
+*Update 2026-10-25 ([research_log.md](research_log.md)):* on bullish fires from
+2026-10-08 to 10-17, which were unseen when this was written, `fund_7d` IC is −0.23
+(102 episodes). Non-firing coins show no such effect (−0.01 to −0.09), so it is
+specific to bullish fires. It is still one falling market. It is now a watchlist check
+with a fixed cut (`fund_7d_apr ≥ 15`), scored from 2026-10-25.
+
 ## Recommendations
 
 1. **Change how rules are judged before changing the rule.** Add the decomposition

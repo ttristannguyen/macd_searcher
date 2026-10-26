@@ -1,448 +1,404 @@
-# Automated trading — strategy options and how to choose between them
+# Automated trading — strategy plan
 
-Planning doc. **No strategy is chosen yet** — this lays out the option space, the
-evidence each option rests on, and an evaluation protocol that picks the winner on
-out-of-sample, after-cost results rather than on the headline numbers. Nothing here
-is built.
+Planning doc, **redesigned 2026-10-26** around the portfolio backtests in
+[profit_strategies.md](profit_strategies.md). It replaces the v2 plan, a levered
+long-only book of v2 bullish fires. That plan's own audit showed its returns were
+market timing on two sell-offs, not selection. Its lessons are kept in the
+[appendix](#appendix-the-v2-plan-and-its-audit). **Nothing here is built.** Every
+number is in-sample on the 2023-03 → 2026-10 crypto rebuild unless marked, so read
+each one as a ceiling.
 
-## 0. Audit against the research method (2026-10-15)
+## 0. Summary
 
-Every quantitative claim below was re-run under
-[research_method.md](research_method.md): 7d alpha against the same-run, same-class
-mean (exits from candles), repeat fires collapsed to episodes (re-fire within a day),
-week-block 95% intervals, and a date-based walk-forward. Snapshot synced 2026-10-15
-14:00 (7,877 deduped signals). Brackets are those intervals.
+**What to trade: B3.** A dollar-neutral crypto-perp book, long the fires the research
+calls good and short the fires it calls bad, each held 14 days. Net Sharpe 1.11
+[0.12, 2.22], CAGR +23%, max drawdown −22%, correlation −0.02 with both BTC and the alt
+index. A BTC trend sleeve can sit beside it as a separate decision (§6).
 
-**The finding that reframes the whole plan: this strategy trades market *timing*,
-not asset *selection*.** The v2 cohort's raw 7d return, +3.85% [+0.29, +6.73] per
-episode, is +4.24% market move and **−0.36% alpha**. The coins it picks do no better
-than random same-class coins bought at the same instant. The money comes from *when*
-it buys: after crypto sell-offs that, in this sample, bounced. v2 earned +5.61% raw
-on signals fired while BTC's own signal line was below zero and **−0.22%** on the
-rest. That below-zero condition held during exactly **two stretches** (Jun 9 – Jul 20
-and Aug 15 – 19).
+**Why it replaces the v2 plan:**
+- The selection edge is worth +0.5 to +1.5% a week, and the alt market moves ±40% in
+  a half-year. Long books track the alt index (beta ≈ 1.0): the combined good-fires
+  book made −11% a year, and −63% in 2025. Only a neutral book keeps the edge.
+- The hedge has to look like the long leg. Hedged with BTC or the top 20 coins, the
+  same longs lose 19–27% a year. The bad fires are that look-alike hedge, and they
+  earn alpha of their own.
 
-So the edge's real sample is two market episodes, not 89 days or 272 episodes.
-October, the first month nobody fitted anything to, had no BTC downtrend, and every
-long cohort lost about 5%.
+**Where the redesign wins efficiency.** At the assumed 0.10% a side, costs take about
+a third of B3's gross return. Most of the changes below are about trading the same
+book more cheaply and more faithfully:
+1. **Closed-bar signals, once a day** (§2). The bot trades the strategy that was
+   backtested, not production's forming-candle cousin.
+2. **First fire per episode only** (§1.2). Sharpe 1.22–1.29 against 1.11 for all
+   fires, with fewer orders.
+3. **Maker-first entries worked over hours** (§3.1). The fire bar doesn't matter for
+   these legs, so there's no reason to cross the spread at 00:00.
+4. **One netted rebalance a day** (§3.2). Entries, exits and flips become one order
+   per coin, and names that only drift are left alone.
+5. **One target-book function shared by the backtester and the bot** (§8.1). Live
+   trades exactly what was tested.
 
-| § | claim | verdict | evidence |
+**What to expect.** Somewhere between the variant built only from pre-registered
+pieces (Sharpe 0.23) and the in-sample 1.1–1.3. In-sample that meant roughly
++10–25% a year at 1x neutral, with flat years: 2023 and 2024 made +1% each in the
+main backtest. Paper trading measures costs and fidelity. The edge itself is confirmed
+leg by leg on the research watchlist (§7).
+
+### What changed
+
+| axis | v2 plan (to 2026-10-25) | this plan | why |
 |---|---|---|---|
-| 1 | v2 +3.80% at 7d | **holds raw, but it is the market** | raw +3.85 [+0.29, +6.73]; market +4.24; alpha −0.36 [−1.71, +0.88] |
-| 1 | real sample ~89 days | **fewer still** | 272 episodes over ~21 weeks; the timing edge rests on 2 regime stretches |
-| 3A | crypto only, excl Jun 9–12: +4.68% | **true, but it is crypto's move** | v2 crypto: raw +5.50 = market +5.72, alpha −0.63. *Every* bullish crypto signal: raw +5.20, alpha +0.57. v2 adds nothing over taking them all |
-| 3A | equity split: tech wins, Korea/China/IPO loses | **holds, but the doc's explanation is wrong** | group B alpha −2.88 [−4.90, −1.35] for v2, and **−2.34 [−3.69, −1.08] for *all* bullish equity signals**. These stocks underperformed their class in this period whatever fired. It is a sector repricing, not a v2-specific flaw, and `peak_pct` doesn't explain it (17% record troughs in group B vs 30% in A) |
-| 3B | waiting to enter lowers returns | **confirmed** | entering at d+1 vs at fire: v2 −2.58 [−3.73, −1.09], consistent with buying a bounce whose first day matters |
-| 3C | failed-cross exit is the biggest lever | **rejected as an EV lever** | timing stats verified (median 3 bars; 55 / 80 / 94% by bar 3 / 5 / 10; 0.4% never). But exiting uncrossed trades at bar *k* changes nothing. Best in-sample *k* (5) on the Aug–Sep test: v2 +0.14 [−0.16, +0.40], v3 +0.00; bullish crypto at *k*=4: −0.17. The 65.6% vs 16.0% split is look-ahead: completion is known only after the fact, and by bar *k* the loss is already taken |
-| 3C | Bollinger stop adds no EV | unchanged | — |
-| 3D | conviction sizing by sig/ATR depth | **drop** | sig/ATR carries no selection information (episode IC −0.025 [−0.120, +0.060]) |
-| 3F | BTC hedge is the key diagnostic | **done: v2's edge is beta** | v2 crypto hedged against BTC, excl Jun 9–12: −0.11 [−1.85, +1.85]. Hedged returns elsewhere are mostly alts beating BTC, which every bullish crypto signal gets (+2.92) |
-| 3G | BTC-signal-line regime filter | **cannot be validated yet** | it is where all of v2's raw EV sits, but on 2 stretches. Pre-registered on the research watchlist |
-| 3H | ATR expansion: +4.85% vs +1.70%, crypto +7.24% | **raw reproduces, but it is timing again** | alpha −0.07 vs −0.08 (crypto +0.46 vs +0.38). Random crypto assets with expanding ATR also out-returned (+3.63% vs +1.90% raw) at zero alpha (+0.01). It marks post-sell-off market state, the same bet as v2 and §3G. "Doubles the pool" means more of the same market exposure |
-| 1, 8 | funding not modelled | **now measured** | a 7d long pays +0.16% of notional (≈8.3%/yr; p90 +0.38%). At the proposed 3.5x total exposure, fully deployed, that is ≈0.56% of equity a week. Real, not fatal, and it scales with exposure |
+| what is traded | v2 bullish fires, long | four `peak_pct` legs, long and short | v2 has no selection edge (H4); `peak_pct` does (H1, H3) |
+| market exposure | long, up to 3.5x | dollar-neutral | long alt books track the alt index (beta ≈ 1.0), which fell 71% in 2025 |
+| hedge | none (BTC as a diagnostic) | the bad fires | BTC and top-20 hedges lose 19–27% a year |
+| signal source | production alerts, forming candle | closed-bar detector at 00:00 UTC | the backtest is closed-bar; 65% of 00:00 first fires exist only on the flat bar |
+| trigger | every confident fire | first fire of an episode | higher Sharpe, fewer orders; matches H9 on S1 |
+| entry | market order at fire | maker-first over a window | the fire bar doesn't matter for these legs |
+| hold / exit | 7d, stops and failed-cross exits considered | 14d, time exit only | the low-band edge grows with the hold; exits cost alpha (C6a) |
+| size | 2–5% margin a trade at 5x | 1x neutral (2x gross), ≤ 10% a name | Kelly at a haircut Sharpe is ~1.5–1.7x |
+| margin | isolated | cross, with a short tail stop | the legs offset each other |
+| halt | −50% | −30% proposed (−50% with the BTC sleeve) | about 1.4x each book's backtest drawdown |
 
-**What this changes in the plan:**
+## 1. The book
 
-1. **Split the strategy into its two layers and test them separately.**
-   - *Timing:* whether to be long at all. This is where the money and the risk are,
-     and it is unproven: 2 episodes.
-   - *Selection:* which coin. This layer is worth ~+1% a week at best. On crypto
-     excluding Jun 9–12, v3 had alpha +1.50 [−0.03, +3.31]. Bullish crypto minus
-     record troughs had raw +5.63 and alpha +1.08 [−0.19, +2.36], a bigger pool than
-     v2 for the same timing.
-2. **If timing is the edge, consider trading it directly.** BTC/ETH or a liquid
-   crypto basket when the timing condition fires could be the vehicle. Spreading the
-   same market bet across 40 thin alts adds slippage without adding return.
-3. **Add two gates to §5:**
-   - Report each candidate's alpha (or BTC-hedged return) beside its raw return, so
-     you know which layer is paying.
-   - Before admitting any timing filter, count its independent regime stretches and
-     require at least 5.
+### 1.1 Legs
 
-   Use week-block, episode-level intervals in place of "one vote per day".
-4. **Treat October as the first real test**, ahead of the Aug–Sep split, which the
-   plan's authors had already seen.
-5. **The §7 account simulations ran on v2,** whose returns are market moves. So the
-   account behaves like leveraged crypto beta bought after sell-offs. That is why
-   total exposure, not per-trade risk, set the drawdown. Re-run them on whichever
-   candidate replaces v2.
+Alpha is against the equal-weight eligible universe and signed in the direction
+traded, so positive means the trade won. Per-trade numbers come from the research
+log's band table (2026-10-18) and pullback pass (2026-10-16). "Fire − state" is the
+2026-10-25 panel: the fire against non-firing coins in the same MACD state.
 
-Pre-registered on the research watchlist (`research/rules.py`) on 2026-10-15: v2's
-timing, the BTC-downtrend filter, and §3H as selection. Each is scored only on fires
-from that date, so all three are pending until fresh outcomes arrive (~2026-10-22).
-An earlier draft of this line quoted "baselines" from a window that had already been
-seen; see [research_log.md](research_log.md).
-
-## 1. What the data supports — and what it doesn't
-
-The starting point is the v2 confidence cohort (bullish, sig/ATR < −0.5, reduction
-0.3–0.6 — see [confidence_v2.md](confidence_v2.md)):
-
-| | n | win | EV (7d) |
-|---|---|---|---|
-| all confident signals | 515 | 63.1% | +3.80% |
-| at 3d instead | 517 | 70.6% | +3.54% |
-| avg best move (MFE) / worst move (MAE) | | | +15.7% / −7.6% |
-
-Three measurements, taken for this plan, change how that headline should be read:
-
-**The signals are clustered, so the real sample is ~89 days, not 515 trades.**
-Confident signals fire on a median of 3 per active day, but p90 is 14 and the
-busiest day had 40. They cluster on market-wide turns. Giving each active day one
-vote instead of each signal:
-
-| | n | win | EV (7d) |
-|---|---|---|---|
-| one vote per day | 89 days | 51.7% | +1.93% |
-
-Still positive, but it is a coin-flip hit rate with positive skew, not a 63% machine.
-
-**One week carries a lot of it.** June 9–12 alone produced 128 signals (a single
-market bottom). Removing those four days:
-
-| | n | win | EV (7d) |
-|---|---|---|---|
-| excluding Jun 9–12 | 387 | 55.8% | +2.57% |
-| crypto only, excluding Jun 9–12 | 202 | 58.9% | **+4.68%** |
-
-Crypto survives the removal almost untouched; the rest of the book leans on that
-week. That is the strongest single argument for a crypto-only universe.
-
-**Capital is the binding constraint, not signal count.** Holding every confident
-signal for 7 days means a median of 18 open positions, p90 of 73, and a peak of 152.
-Any real strategy has to decide what happens on the 40-signal day.
-
-**Not yet in any number:** exchange fees, funding payments on perpetuals, and
-slippage. Every EV above is close-to-close from the fire price. *(Funding since
-measured: a 7d long pays +0.16% of notional on average — §0.)*
-
-## 2. What "most profit" should mean
-
-Maximising raw expected profit has a trivial and ruinous answer: maximum leverage on
-every signal. So the objective is **the highest return at a drawdown you can live
-with** — formally, maximise expected log growth subject to a maximum drawdown limit.
-In practice every candidate is ranked on net return ÷ max drawdown, with raw net
-return as the tiebreak. The drawdown limit is a number only you can set (see §7).
-
-## 3. The decision space
-
-A strategy is one choice on each axis. The axes are independent, which is what makes
-the space searchable.
-
-### A. Universe
-| option | evidence |
-|---|---|
-| all classes | headline +3.80%, but leans on one week |
-| **crypto only** | +4.68% with the June burst removed; equity +0.21% throughout |
-| crypto, liquidity-filtered | same edge, fewer thin books to fill in; cuts slippage |
-| crypto + selected equities | see below — the equity +0.16% hides two opposite groups |
-
-**Why equity averages ~0 (researched 2026-10-01).** Confident equity signals split
-into two populations that cancel out:
-
-| confident equity signals | n | win | EV (7d) |
-|---|---|---|---|
-| US mega/large-cap tech + crypto-proxy stocks (COIN, MSTR, HOOD, CRCL…) | 86 | 72.1% | +3.81% |
-| Korea/memory, China, recent IPOs, speculative small caps | 84 | 27.4% | −3.57% |
-
-The split holds in both regime halves (+3.08% / +4.87% vs −6.14% / −2.42%) and with
-the Jul 20–22 cluster removed (+4.54% vs −2.00%). It does **not** hold for bullish
-equity signals in general, so it is the v2 rule that works only on some stocks.
-
-> **Audit 2026-10-15:** measured as alpha, it *does* hold for all bullish equity
-> signals: group B −2.34% [−3.69, −1.08] against its class whatever fired. The
-> losing stocks were repricing as a group, which is not a property of the v2 rule.
-> See §0.
-
-The losing groups share a cause: an ongoing *fundamental* repricing, where a deep
-negative signal line means "trend", not "stretched".
-- **BABA** (14 signals, 14% win, −6.33%): four straight disappointing quarters; June
-  quarter net income −75% on AI spending, EPS $1.01 vs $1.78 expected, ADR −8.6% the
-  next day.
-- **Korea/memory** (SK Hynix, Samsung, DRAM, Micron, SanDisk, KOSPI): a multi-wave
-  July rout after >200% YTD gains. SK Hynix fell 14.6% on Jul 2 and 15% on Jul 13 (Q2
-  estimate 8% under consensus, slow HBM4 shipments). Our Jul 20–22 fires landed
-  mid-rout: 31 signals, −198pp combined.
-- **SpaceX (SPCX)**: IPO'd Jun 12 at $135, peaked $201.8, below IPO price by mid-July
-  with ~1.4bn shares unlocking in phases from Aug 6.
-
-A hand-picked whitelist would overfit, so the candidates to test are *rule-based*
-versions of the same idea: an earnings-window exclusion (needs an earnings calendar),
-a recent-IPO / lockup exclusion, a sector-trend filter (e.g. skip a memory name while
-the DRAM index's own signal line is falling), and a liquidity/market-cap floor.
-
-### B. Entry
-| option | evidence |
-|---|---|
-| **market order at fire** | measured best |
-| limit order a fraction below fire | may improve price, risks missing the fast movers — the ones that complete the cross |
-| ~~wait for confirmation~~ | **rejected on data**: entering 1d or 3d later lowered returns in every cohort tested |
-
-### C. Exit — probably the biggest lever
-| option | idea | evidence |
-|---|---|---|
-| fixed 3d | take the peak win-rate horizon | 70.6% win, +3.54% |
-| fixed 7d | take the peak EV horizon | 63.1% win, +3.80% |
-| **failed-cross exit** | exit if the histogram has not crossed back above zero within *k* bars | bullish crosses that fail run **16.0% win / −6.11%**, completed ones **65.6% / +4.93%**; you learn which within a few bars |
-| take-profit / stop-loss bracket | size the bracket from the MFE/MAE distributions | MFE +15.7% vs MAE −7.6% says a lot of upside is given back by 7d |
-| trail after the cross completes | lock in once the thesis is confirmed | untested |
-| opposite-signal exit | close if the same symbol fires bearish | untested |
-
-**Timing for *k* (measured 2026-10-01, daily bars, 20-bar follow-through):** confident
-signals cross a median of 3 bars after firing. 56% have crossed by bar 3, 80% by bar
-5 and 94% by bar 10, and none failed to cross within 20 bars. A signal still uncrossed
-at bar 5 is already in the slowest fifth, so test *k* ∈ {4, 5, 6, 8}.
-
-The failed-cross exit is the most promising idea on the table. It is the only exit
-built on the single largest effect in the dataset, and it cuts losers early without
-touching winners — exactly the asymmetry that grows profit.
-
-> **Audit 2026-10-15 — rejected as an EV lever.** Simulated on daily closes
-> (exit at bar *k* if the histogram hasn't crossed, else hold 7d), walk-forward:
-> the best in-sample *k* adds +0.14% [−0.16, +0.40] on Aug–Sep for v2 and +0.00% for
-> v3. The 16% vs 66% split needs hindsight. By bar *k* an uncrossed trade has
-> already lost most of what it will lose. It does cut 16–30% of trades early at no
-> EV cost, so it may still earn a place as a way to free capital under the §7
-> exposure cap. See §0.
-
-**Bollinger-band stop (tested 2026-10-14).** Stop at the lower BB(20, 2) minus a
-buffer, 544 confident signals, daily bars, 7-day hold, gap fills at the open:
-
-| stop | hit | win | EV (1x, after taker fees) | worst trade |
-|---|---|---|---|---|
-| none | — | 62% | +3.34% | −20.4% |
-| lower band − 2% | 24% | 57% | +2.90% | −17.6% |
-| lower band − 3% | 20% | 59% | +3.03% | −18.5% |
-| fixed −8% | 18% | 61% | +3.25% | −10.9% |
-| fixed −5% | 40% | 51% | +2.43% | −10.9% |
-
-No stop *adds* EV: each one also exits trades that dip and then recover. A stop's
-job here is capping the tail. The lower band sits a median 4.9% below entry, so the
-band-minus-2% stop is a median 6.9% away and 13.2% at p10. That variable distance is
-fine **if position size is set from it** (risk a fixed % of the account, size =
-risk ÷ stop distance). Used with a fixed leverage, it is not.
-
-### D. Position sizing
-| option | idea |
-|---|---|
-| equal notional | simplest baseline |
-| **volatility-scaled** | size by 1/ATR so every trade risks the same; ATR as a % of price ranges roughly 2–8% across this universe, so equal notional gives a volatile coin 4x the risk of a quiet one |
-| conviction-scaled | bigger size for deeper sig/ATR, which completes the cross more often (88% below −1 vs 83% at −1 to −0.5) |
-| fractional Kelly | size from measured edge and variance; only once the edge is known out-of-sample |
-
-### E. Portfolio limits
-Max concurrent positions, max new entries per day (the 40-signal day), max per
-symbol, and a cap on total BTC-beta. On a burst day the question becomes *which* 10
-of 40 to take — ranked by sig/ATR depth, liquidity, or at random.
-
-### F. Hedging
-| option | what it answers |
-|---|---|
-| unhedged long | maximum return in an up market |
-| **BTC-beta-hedged** (long the signals, short BTC against them) | whether the edge is real selection or just being long at market bottoms. Given how much of it sits in one bottoming week, this is the most important *diagnostic* in the plan, even if the hedged version isn't what you trade |
-
-### G. Regime filter
-A market-level switch, such as only trading while BTC's own signal line sits below
-zero. Tempting after July's −1.08%, but a filter fitted to four months is the easiest
-way in this plan to overfit. It is only admissible if it wins on data it wasn't
-chosen on.
-
-### H. Volatility state at fire (added after the AMD review, 2026-09-29)
-
-Prompted by xyz:AMD's Sep 3 bullish fire. It came after four quiet months: price
-flat, the MACD decaying to just below zero (sig/ATR −0.41, so v2 skipped it), and ATR
-nearly halving. It then ran +38%. Tested across all 2,751 bullish signals, **that
-quiet "squeeze" shape does not repeat**. Signals with the full AMD shape win 41% of
-the time for +0.65% at 7d, and the squeeze flips sign between regime halves
-(−5.71% then +5.65%).
-
-The **opposite** state does work. Bullish fires where ATR has *expanded* over the
-prior 30 bars (ratio > 1.10):
-
-| | n | win | EV (7d) |
-|---|---|---|---|
-| expanding | 905 | 60.8% | +4.85% |
-| the rest | 1,846 | 49.4% | +1.70% |
-| expanding, crypto | 642 | 65.1% | **+7.24%** |
-| expanding, equity | 198 | 46.5% | −1.46% |
-
-Mann-Whitney p = 2.2e-9. It beats the rest in both halves (+0.59% vs −0.75%, then
-+8.46% vs +4.21%) and survives removing the June burst (+4.46%).
-
-> **Audit 2026-10-15:** all of that gap is market move. Alpha is −0.07% vs −0.08%,
-> and random crypto assets with expanding ATR out-returned too (+3.63% vs +1.90%) at
-> zero alpha. It marks a post-sell-off market, the same timing bet as v2. See §0. **90% of these
-signals are not in the v2 rule**, so it could roughly double the crypto candidate
-pool. The weak point is the first half: +0.59% is barely positive in absolute terms.
-It goes into the §5 protocol as a candidate filter, not a finding.
-
-### Out of scope for now: shorts
-Bearish signals are negative EV across the book, with an MFE/MAE ratio near 0.6. The
-retired v1 rule shows what happens when you trade them anyway. Revisit only with a
-new, separately validated rule.
-
-## 4. Candidate strategies to test
-
-A starting set, chosen to span the axes rather than to guess the winner:
-
-| id | universe | exit | sizing | limits | purpose |
+| leg | fire | side | alpha 7d / 14d | fire − state 7d / 14d | mechanism (hypothesis) |
 |---|---|---|---|---|---|
-| **S0** | all | fixed 7d | equal | none | the benchmark — the headline as a strategy |
-| S1 | crypto | fixed 3d | equal | none | does the cleaner universe + faster exit beat S0? |
-| S2 | crypto | failed-cross at *k*, else 7d | equal | none | the main hypothesis |
-| S3 | crypto | TP/SL bracket | equal | none | does a bracket beat the signal-based exit? |
-| S4 | crypto | best of S1–S3 | vol-scaled | caps | does it survive realistic capital limits? |
-| S5 | = S4 | = S4 | = S4 | = S4 + BTC hedge | how much is alpha vs beta? |
+| **L1** | bullish, `peak_pct ≤ 25` | long | +1.51 / +1.92 | **+1.10 / +1.62** | a dip that is mild by the coin's own standards and already over; noise around its trend, so it reverts |
+| **L2** | bearish, `peak_pct ≥ 50` (the pullback) | long | +1.16 to +2.34 (three periods) / +0.5 to +2.0 by band | **+1.12** / +0.33 | a pullback in a leader: a strong trend cooling, and trends persist |
+| **S1** | bearish, `peak_pct ≤ 25` | short | +0.55 / +1.04 | **+0.99 / +1.18** | a feeble rally in a weak coin, already over |
+| **S2** | bullish, `50 < peak_pct < 100` | short | ≈ 0 / +0.70 to +0.85 | −0.02 / +0.35 | a deep dip is a breakdown and keeps drifting; the state does it, not the fire |
 
-The winners then get the regime filter and conviction sizing layered on, one at a
-time, each required to earn its place out-of-sample.
+- **Not traded:** both directions at `peak_pct` 25–50 (≈ 0 at every horizon), and
+  bullish record troughs (`peak_pct = 100`), which are +0.01 across history and so
+  neither a long nor a short.
+- **S2 is the weak leg on its own and still earns its place.** As B3's only short it
+  makes Sharpe 0.73, against 0.98 for S1. Dropping it halves the book's Sharpe
+  (1.14 → 0.65): it has more episodes than S1 (2,179 vs 1,557) and makes the short
+  side broad enough to hedge. Trading it as the MACD state on any coin gives the same
+  book (1.06), so it stays a fire: fewer names, one signal stream for all four legs.
 
-## 5. Evaluation protocol — how we avoid fooling ourselves
+### 1.2 Construction
 
-**Backtester.** Daily Hyperliquid candles (the backfills already fetch and splice
-these), simulating each exit rule bar by bar. Daily bars don't say whether the high or
-the low came first, so when a bar touches both the stop and the target, **assume the
-stop hit first**. Pessimistic by construction.
+- **Universe.** Hyperliquid core crypto perps above the scanner's $300k prior-day
+  volume floor, with 200+ closed daily bars. The rebuild had no OI history, so it did
+  not apply the $1M OI floor. The bot doesn't either, so it matches the backtest.
+- **Trigger: the first fire of an episode.** An episode is a run of same-direction
+  fires with no gap over a day. Re-fires inside it don't extend the hold. A new episode
+  on the same coin restarts the clock. The book scored higher this way in both builds
+  (1.22 in profit_strategies.md, 1.29 against 1.14 in the 2026-10-25 rebuild). On S1
+  it also follows H9: bearish re-fires are worse shorts, −1.01 every year. H9 implies
+  that bearish re-fires are *better* L2 longs, but the first-fire book still scored
+  higher overall, so the rule is not tuned per leg.
+- **Hold:** 14 daily closes from entry. The exit happens at that day's rebalance.
+- **One position per coin.** A new first fire in a traded band sets the side and
+  restarts the clock, so a flip is one netted order. A fire in an untraded band
+  leaves the position alone. *The scratch backtests didn't record their rule for
+  this. The committed backtester pins it (§8.1).*
+- **Weights.** Equal weight within each side, at most 10% of equity per name. Both
+  sides are sized to the thinner one: side gross = min(100%, 10% × names on the
+  thinner side). With 3 longs and 20 shorts, that is 30% a side, 10% per long and 1.5%
+  per short. The rest sits in cash. Topping up the thin side with a universe basket is
+  a variant (§8.2).
 
-**Costs, all modelled.**
-- Taker fees on both legs.
-- Funding paid or received for every hour held. Pull Hyperliquid's funding history per
-  symbol rather than assuming a rate.
-- Slippage scaled to each asset's 24h volume, which `asset_snapshots` already logs.
+## 2. Signals: closed bars, once a day
 
-**Walk-forward split.** Choose every parameter (*k*, bracket levels, caps) on
-June–July. Report results on August–September, which the parameters never saw. The
-out-of-sample number is the one that counts.
+**The bot runs the production detector itself, on closed daily bars**
+(`use_forming_candle: false`), once a day just after the 00:00 UTC close. That is the
+detector `scripts/historical_rebuild.py` uses, and the one every number here comes
+from. The bot does not read the scanner's alerts.
 
-**Robustness gates.** A strategy is rejected if any of these fail:
-1. Positive net of costs on the out-of-sample months.
-2. Still positive with June 9–12 removed.
-3. Still positive with one vote per day.
-4. No single month's loss exceeds your drawdown limit.
+- **Fidelity.** A bot on production alerts would be a different strategy from the one
+  backtested (profit_strategies.md §5). Production repaints intraday. About 65% of its
+  00:00 first fires exist only because the 00:00 run reads a seconds-old, near-flat
+  bar.
+- **The forming candle's head start cancels out in a long/short book.** Forming fires
+  come a median 20h earlier. In that time price has moved +0.92% (bullish) and +0.65%
+  (bearish) in the fire's direction (raw, live data). Entering early helps L1 and S1
+  by those amounts and hurts S2 and L2 by the same amounts. It is also raw market move,
+  which a neutral book doesn't keep.
+- **Simpler operations.** One decision a day that doesn't change intraday, with no
+  dedup across the 4-hourly runs.
 
-**Metrics reported for every candidate:** net return, max drawdown, return ÷ drawdown,
-Sortino, profit factor, time in market, worst day, and number of independent trading
-days.
+The scanner, Telegram and the dashboard stay as they are. Expect the bot's book and
+the Telegram alerts to differ. The bot trades closed-bar fires, and the alerts are
+forming-candle fires.
 
-## 6. Path from backtest to live
+## 3. Execution: costs are the lever
 
-1. **Paper trading, 4+ weeks.** The winning strategy runs live on real signals with
-   simulated fills logged to a new table. Compare with what the backtest predicted
-   for the same period; a large gap means the backtest is wrong somewhere.
-2. **Small live.** Real orders at small size through a Hyperliquid **API agent
-   wallet**, which can trade but cannot withdraw. Hard kill-switches: a daily loss
-   limit, max open positions, max leverage, and a halt if exchange positions don't
-   match the ledger.
-3. **Scale** only after live results track paper results.
+B3's Sharpe at 0 / 0.05 / 0.10 / 0.20% per side is **1.65 / 1.38 / 1.11 / 0.58**.
+From that row and B3's volatility (~19%, its CAGR over its Sharpe), the assumed 0.10%
+costs about 10% a year, roughly a third of gross return. Halving the cost is worth more than any filter on the
+table.
 
-**Architecture guardrails, carried over from this repo:**
-- The trader is a **separate process**, not part of the scanner. "Logging must never
-  break a scan" extends naturally: trading must never break a scan either.
-- Entries are idempotent. The scanner re-fires the same setup every 4h, so use the
-  same per-symbol-per-day dedup the dashboard uses, or you'll quadruple into positions.
-- The API key lives in `.env`, which I never read. Wiring it up is a step for you.
+### 3.1 Patient, maker-first entries
 
-**A middle option worth considering:** semi-automation. The bot posts a proposed
-order to Telegram and places it only when you tap confirm. You keep a veto while the
-strategy earns trust, and the whole ledger and risk layer still get built.
+- **The fire bar doesn't matter for these legs.** Same-state coins on the day *after*
+  a fire do as well as the fire. For L1 at 7d that is +2.03 (252 rows) against +1.31
+  for first fires (research log 2026-10-25). The edge is slow selection that builds
+  over weeks (C6a). That was measured on L1 only. Paper trading checks the other legs.
+- **How:** post-only limit orders at the touch from 00:05 UTC, re-quoted through a
+  fixed window (8h to start), then cross whatever is still unfilled. Hyperliquid's base
+  fees are 0.015% maker against 0.045% taker.
+- **This is not the v2 lesson reversed.** For v2, entering a day late cost −2.58%
+  (appendix). v2 is a bounce trade that pays in its first days. These legs pay over
+  weeks.
+- Exits get the same treatment. The 14-day clock is in no hurry either.
+- **Unknowns to log:** fill rate, and adverse selection (resting bids fill when the
+  price is falling).
 
-## 7. Decisions only you can make
+### 3.2 One netted rebalance a day
 
-- **Capital and max acceptable drawdown.** This defines "most profit" (§2). *Open.*
-- **Leverage.** *User's proposal (2026-10-14): 5–10x.* Tested against the confident
-  cohort with liquidation approximated at a (1/L − 5%) adverse move:
+Each daily run computes the target book, diffs it against the open positions, and
+sends one net order per coin. A coin moving from L2 to S1 on the same day trades once.
+Equal weights re-spread whenever a name opens or closes. To stop that from resizing
+every position each day, a name is traded only when it is more than ±25% off its
+target weight. The band changes turnover, not selection. The backtester measures its
+cost against tracking error (§8.2).
 
-  | leverage | liquidated before the 7-day exit | note |
-  |---|---|---|
-  | 5x, with a stop inside ~−15% | ~1% (gap-throughs) | workable |
-  | 10x | **32–40%** | liquidation sits near −5%; the median 7-day intrabar dip is −3.9% and p25 is −6.7% |
+### 3.3 Capacity
 
-  At 10x the exchange liquidates before the band stop (median −6.9%) can ever fire,
-  so a third of trades lose 100% of their margin during dips this signal routinely
-  recovers from. **Recommendation:** cap at 5x, use isolated margin, and treat
-  leverage as an output of risk-based sizing (§3D), not a setting. A small account
-  doesn't change this: the ruin risk per trade is the same at any account size.
-  Per-asset maximums on Hyperliquid also apply; many alts allow far less than 10x.
-- **Sizing.** *User's proposal (2026-10-14): 2–5% of equity as margin per trade, by
-  confidence, 5x, stop at lower Bollinger band − 2%.* Account-level simulation of the
-  544 confident signals (Jun 9 – Oct 7, daily mark-to-market, taker fees, **no
-  funding**; skip a trade if margin is exhausted):
+Cap each position at about 1% of the coin's prior-day volume. At $10k equity a 10%
+position is $1k, 0.3% of the $300k floor, so the cap only binds at larger size. The
+edge isn't confined to illiquid coins: restricted to ≥ $2M / $10M / $50M prior-day
+volume, B3 makes 0.74 / 1.69 / 1.21. That is non-monotone, so it reads as "no
+liquidity dependence", not as a threshold to pick.
 
-  | sizing | return | max drawdown | worst day |
-  |---|---|---|---|
-  | 2% flat | +83% | −39.8% | −21.5% |
-  | 2% flat, total exposure ≤ 3x | +44% | −29.7% | −16.3% |
-  | 2% flat, total exposure ≤ 2x | +20% | −23.4% | −10.9% |
-  | confidence 2–5% | +57% | −38.7% | −24.2% |
-  | 5% flat | +23% | −53.5% | −25.1% |
+### 3.4 Exits
 
-  The stop bounds *one trade* (2% × 5x × a median 6.9% stop ≈ 0.7% of equity), but
-  **drawdown is set by total exposure**: signals cluster, so up to ~50 positions at
-  2% margin can be open together, i.e. 5x the account long one market move. Larger
-  per-trade size did *worse*, not better, and confidence-scaling did not help (its
-  input, sig/ATR depth, barely changes EV inside the rule). The real controls are a
-  **total-exposure cap**, a per-day entry cap, a per-sector cap, and an account-level
-  halt. All of these numbers are in-sample on ~90 independent days; treat the
-  differences between rows as noisy and the 20–55% drawdown range as the robust part.
-- **Account halt.** *Decided (2026-10-14): −50% from peak equity.* Rationale: the
-  simulated max drawdown at 2% sizing is ~−40%, so a fall past −50% means something
-  is wrong rather than normal variance. Measured on Hyperliquid account value
-  (mark-to-market, including unrealised PnL). On trigger: close all positions,
-  cancel orders, stop new entries, and require a **manual** restart.
-  - *Caveats recorded with the decision:* the −40% is in-sample, before funding, on
-    ~90 independent days, so live drawdowns can run deeper without anything being
-    broken. A −50% halt also cannot stop a single-move gap: with 5x total exposure a
-    10% market drop is −50% before the bot can act. That is the job of the exposure
-    cap, not the halt. Recovering from −50% needs +100%.
-  - *Soft halt and daily loss limit — tested and rejected (2026-10-14).* Simulated on
-    the same 544 signals, 2% margin, 5x, hard halt −50%:
+- **Time only:** close at the 14th daily close.
+- **No stop on longs.** Stops cap the tail and add no alpha (C6, appendix).
+- **No failed-cross exit.** On the good fires, it sells the uncrossed trades at bar 3,
+  just before they earn their alpha (C6a, 3.6 years, portfolio level).
+- **Shorts get a tail stop only** (§5).
 
-    | added control | return | max drawdown |
-    |---|---|---|
-    | none | +83% | −39.8% |
-    | stop entries below −25%, resume above −15% | +11% | −37.7% |
-    | halve size below −25%, restore above −15% | +45% | −38.7% |
-    | total exposure ≤ 3x instead | +44% | **−29.7%** |
+## 4. Sizing and margin
 
-    The entry halt deadlocks: with no new trades the account can't climb back above
-    −15%, so it sat out 82 days. More fundamentally, this strategy's drawdowns happen
-    during selloffs, which is exactly when confident bullish signals fire. Pausing
-    after a loss removes the trades that do the recovering, so it cut return 7x while
-    barely touching the drawdown. A daily loss limit fired on only 1–2 days and can't
-    reduce a loss that happens within the day.
+- **1x neutral (2x gross) until live data confirms the edge.** With half the backtest
+  Sharpe, half-Kelly is about 1.5–1.7x. Full Kelly from the in-sample Sharpe (6.4x for
+  B2) is not usable. Never size from these numbers.
+- **Cross margin, not isolated.** The legs offset each other: an alt rally that hurts
+  the shorts lifts the longs. Isolated margin would liquidate shorts on moves the book
+  absorbs as a whole. Per-name tail risk gets its own stop instead (§5). The v2 plan
+  chose isolated margin for a levered long book, where nothing offsets.
+- **Gross ≤ 2x, or ≤ 3x with the BTC sleeve.** The margin needed is roughly the sum
+  of each notional over its asset's max leverage. Even at a 3x alt maximum, that is
+  about two-thirds of equity. The bot checks it at startup.
 
-    **Drawdown is controlled at entry, not after the loss**: the total-exposure cap
-    is the one control that cut it. The daily figure is kept only as an alert (a
-    Telegram message on any day worse than −15%), not as a trading block.
-  - *Exposure-cap sweep (2026-10-14),* 2% margin, 5x, return / max drawdown:
+## 5. Risk controls
 
-    | cap | full period | 1st half | 2nd half | excl Jun 9–12 |
-    |---|---|---|---|---|
-    | 1x | −2% / −17.5% | −0% / −10.4% | −2% / −17.0% | −5% / −17.2% |
-    | 2x | +20% / −23.4% | +11% / −14.2% | +9% / −18.8% | +10% / −23.1% |
-    | 3x | +44% / −29.7% | +26% / −16.4% | +14% / −25.5% | +13% / −31.1% |
-    | 3.5x | +55% / −34.2% | +32% / −19.3% | **+17% / −29.2%** | +21% / −34.2% |
-    | 4x | +72% / −36.7% | +47% / −20.0% | +17% / −34.5% | **+27% / −36.7%** |
-    | none | +83% / −39.8% | +63% / −20.4% | +13% / −36.0% | +28% / −39.8% |
+A neutral book's drawdown comes from the spread between legs, not from the market. The
+v2 plan's main control, a total-exposure cap on a long book, becomes neutrality itself
+plus:
 
-    "No cap" only wins when the June bottom is in the sample. Without it, and in the
-    more recent half, return stops rising around 3.5–4x while drawdown keeps rising.
-    Below 2x the strategy doesn't make money in any split. No single cap is best
-    everywhere, so take the middle of the plateau rather than the brightest cell.
-    Funding, not yet modelled, grows with exposure and pushes toward the lower end.
-  - *Proposed (open):* total exposure ≤ **3.5x** equity as the primary drawdown
-    control, with the −50% hard halt as the emergency backstop.
-- **Automation.** *Decided: fully automatic* (2026-10-14). The §6 kill-switches become
-  mandatory, not optional.
-- **Venue.** *Decided: Hyperliquid only* (2026-10-14).
+| control | rule | why |
+|---|---|---|
+| net exposure | \|long − short\| ≤ 10% of equity after each rebalance | stays neutral as names open and close |
+| per name | ≤ 10% of equity, ≤ 1% of prior-day volume | backtest construction; capacity |
+| short tail stop | a resting exchange trigger order, placed at entry, closes a short that is up e.g. +50% against it | alt returns are right-skewed: B2 hedged with 20 random alts lost 36% in 2024, because a small short basket sometimes holds the one that goes 5x. Set wide enough to catch only squeezes; the backtester must show it costs ~0 alpha |
+| account halt | at −30% from peak: close all, cancel orders, manual restart (proposal, §10) | about 1.4x B3's −22% backtest drawdown |
+| ledger check | halt if exchange positions ≠ ledger | carried over |
+| daily alert | Telegram message on a day worse than −5% | an alert, not a block: in the v2 tests, soft halts deadlocked |
+| leg kill | drop a leg at the next rebalance if its watchlist check is contradicted | the edge is confirmed leg by leg |
 
-## 8. Caveats to keep honest
+**No regime switch.** B3 earned most in alt sell-offs and high-dispersion months. In
+alt rallies it made less: +2.2% a month, positive in 44% of 9 such months. But no
+timing rule survived history (H5, H6), so a switch would fit one cycle. Expect flat
+stretches and sit through them.
 
-- About 3.5 months of data, one broad market regime, and thresholds fitted on the same
-  data. The walk-forward split in §5 is the main defence, and it is a thin one.
-- ~89 independent days is a small sample. Treat any backtest Sharpe from it with
-  suspicion.
-- Every return in this doc is gross. Funding on 7-day perp longs in a hot market is
-  the cost most likely to surprise.
-- Automated trading turns bugs directly into losses. The paper-trading phase exists as
-  much to catch code defects as to validate the edge.
+## 6. Optional: a BTC trend sleeve (C1, giving B4)
+
+- **Rule:** long the BTC perp at 1x equity when the prior daily close is above its
+  N-day SMA, otherwise flat, checked at the same daily run. At N = 50 it switches about
+  22 times a year.
+- **Evidence:** alone (SMA50), Sharpe 1.08, max drawdown −29%. With B3: **1.51 [0.46,
+  2.65]**, CAGR +67%, max drawdown −36%, positive every year. With SMA100 or SMA200 the
+  combination makes 1.24 or 1.25.
+- **What is robust** is that the two streams don't correlate. **What isn't** is the
+  level: SMA50 was the best of four averages tried, and B3 is in-sample. Expect about
+  1.2.
+- **It is a market bet.** Its case rests on outside evidence (time-series trend in
+  crypto is widely documented) plus one bull run, and nothing the detector knows. It
+  takes the backtest drawdown from −22% to −36%. Decide it apart from B3. If yes, fix N
+  before paper trading and don't change it afterwards.
+
+## 7. Refinements wait for the watchlist
+
+Every leg was found on the history it is backtested on. The variant built only from
+pre-registered pieces makes Sharpe 0.23. So the book's *selection* doesn't change
+on more backtests of that history. Each refinement waits for its out-of-sample check in
+`research/rules.py`, scored only on fires from its registration date, and is adopted
+one at a time.
+
+| refinement | leg | watchlist check (registered) | on confirmation |
+|---|---|---|---|
+| L1 as a leg | L1 | `bullish peak_pct <= 25`, 7d and 14d (10-16, 10-18) | keep; contradicted → drop |
+| L2 as a leg | L2 | `bearish pullback (peak_pct >= 50)` (10-16) | keep; contradicted → drop |
+| S1 as a leg | S1 | `v3 bearish (shadow)`, 7d and 14d (10-14, 10-18) | keep; contradicted → drop |
+| short S2 only if uncrossed at bar 3, entered at the bar-3 close | S2 | `bullish 50 < peak_pct < 100, uncrossed at bar 3` (10-23) | switch: ~59% of the capital for about the same drift (−1.08 vs −0.15 crossed), though ~40% of it is the state |
+| skip L1 when 7d funding ≥ 15% APR | L1 | `bullish, 7d funding >= 15% APR` (10-25) | skip those longs: crowded longs still to unwind. High-funding S2 fires are already short |
+| drop early-recovery coins (above SMA50, below SMA200) from S2 | S2 | `bullish 50 < peak_pct < 100, early recovery` (10-24) | only once a mechanism exists; it is a post hoc 2×2 cut |
+| pullback above SMA200 | L2 | `crypto pullback above SMA200` (10-19) | relevant only with a 7d L2 hold: the trend changes how fast the pullback pays, not how much |
+| v3 on index equities | new sleeve | `v3 bullish, S&P 500 / Nasdaq-100` (10-19) | a separate equity book, backtested first |
+
+profit_strategies.md §6.1 also asked for portfolio-level checks. The paper book
+provides the first one: B3's long-minus-short spread, logged from the day paper
+trading starts and never backfilled (§8.3).
+
+## 8. Build and evaluation
+
+### 8.1 Commit the backtester first, and calibrate it
+
+- The profit_strategies.md backtests were scratch scripts. Commit one, with tests,
+  that reproduces B3 on the cached history (`state/research_cache/`): Sharpe about 1.1
+  on all fires, 1.2–1.3 on first fires. This is the same discipline as
+  [historical_rebuild.md](historical_rebuild.md)'s calibration. If it lands far off,
+  find out why before going further.
+- **One pure target-book function** maps fires, closed bars and the open positions to
+  target weights. The backtester and the live bot both call it, so live trades what
+  was tested. Candles, the exchange and the ledger stay outside it, the same layering
+  as `stats.py` → `web/perf.py`. The rules §1.2 leaves open (side conflicts, thin
+  sides) are pinned here, with tests.
+
+### 8.2 Execution variants only
+
+More selection changes on this history would add more in-sample selection. So the
+backtester tests only how the book is executed, each variant against the calibrated
+baseline:
+
+1. first fire per episode vs all fires (the baseline is first fires)
+2. the ±25% drift band, against daily re-weighting: turnover vs tracking
+3. the short tail stop's level: is its alpha cost ≈ 0?
+4. thin side scaled down vs topped up with a universe basket: capital use
+5. per-leg holds, L2 at 7d and the rest at 14d. L2's fire edge is front-loaded (+1.12
+   at 7d, +0.33 at 14d) while L1 and S1 grow. It doubles L2's turnover, and it is a
+   horizon found on this history, so it is adopted only if the live 7d pullback check
+   agrees
+6. costs at the per-side figure paper trading measures
+
+Report for each: Sharpe with a 30-day block-bootstrap 95% interval, CAGR, max
+drawdown, years and half-years, turnover, average names per side, and cost and
+funding drag.
+
+### 8.3 Paper trading, 8 weeks or more
+
+The live bot runs against real order books, with simulated fills logged to a new table
+next to a backtest replay of the same days.
+
+**It measures:**
+- **Real costs per side:** spread, slippage, maker fill rate, adverse selection. This
+  is the biggest unknown. At 0.20% the Sharpe halves.
+- **Fidelity:** paper book vs replay. Every gap is a bug or a cost.
+- **Real funding per coin.** The backtest assumes a flat 9% APR paid on longs and 6.5%
+  received on shorts.
+
+**It can't measure the edge.** Over 8 weeks a Sharpe's standard error is about ±2.5,
+so 8 weeks of P&L is noise. The legs are confirmed on the watchlist, which counts
+episodes, not weeks.
+
+**Go to small live when all of these hold:**
+1. Measured all-in cost ≤ 0.10% a side.
+2. Paper vs replay differences are explained by costs and timing, with no unexplained
+   position mismatch.
+3. No leg's watchlist check is contradicted.
+
+**Stop and rethink if** costs stay above 0.20% a side after maker execution, or two
+legs are contradicted.
+
+### 8.4 Small live, then scale
+
+- Real orders at small size through a Hyperliquid **API agent wallet**, which can
+  trade but not withdraw. Every §5 control is mandatory.
+- Scale capital only after live tracks paper. Raise gross towards ~1.5x only after
+  the watchlist confirms the legs.
+
+**Architecture guardrails:**
+- **A separate process.** Trading must never break a scan, and a scan never places an
+  order.
+- **Idempotent by construction.** The target book is a function of closed bars, so
+  re-running a day gives the same orders. The ledger keys each rebalance by its UTC
+  day.
+- **Once a day.** The only intraday logic is the short tail stop, and it rests on the
+  exchange, so no intraday process is needed.
+- **The API key lives in `.env`, which I never read.** Wiring it up is a step for
+  you.
+
+## 9. Left out on purpose
+
+| idea | why not | source |
+|---|---|---|
+| long-only signal books | they ride the alt index (beta ≈ 1.0) | profit_strategies.md A1 |
+| BTC or top-20 hedge | adds the majors-minus-alts gap: −19% to −27% a year | B2 hedge table |
+| v3 bullish at 7d, universe-hedged | costs take it from 0.59 gross to 0.00 net | B1 |
+| market timing (v2, BTC downtrend, signal clusters) | no timing hypothesis survived history | H4–H6, A4, C2 |
+| stops on longs, Bollinger and failed-cross exits | no alpha; the failed-cross exit gives up unpaid edge | C6, C6a |
+| sizing by sig/ATR | sig carries no selection information | confidence_v3_research.md §1 |
+| SMA filter on the pullback at 14d | the gap is gone by 14d | research log 2026-10-24 |
+| ATR expansion | timing, not selection | H7 |
+| record-trough gate | doesn't generalise (+0.01 across history) | H2 |
+| equities | no candles before 2025-11; a sleeve only if its check confirms | §7 |
+| funding carry, maker-order reversal | don't use the signals; can't be backtested here | C3, C7 |
+
+## 10. Decisions only you can make
+
+- **Capital and maximum acceptable drawdown.** *Open.* They set the halt and the gross.
+- **Leverage.** The 5–10x proposal (2026-10-14) was for a long-only book and is
+  **superseded**. *Proposal:* 1x neutral (2x gross), at most ~1.5x after the
+  watchlist confirms.
+- **Account halt.** −50% was decided (2026-10-14) for the v2 book. **Re-opened.**
+  *Proposal:* −30% for B3 alone and −50% with the BTC sleeve, about 1.4x each book's
+  backtest drawdown (−22%, −36%).
+- **BTC sleeve.** *Open:* whether to run it, and which N, fixed before paper trading.
+- **Automation.** *Decided:* fully automatic (2026-10-14). That stands, and the §5
+  controls are mandatory.
+- **Venue.** *Decided:* Hyperliquid only (2026-10-14). That stands. Every core perp
+  can be shorted, and shorts receive funding at the baseline rate.
+
+## 11. Caveats
+
+- **In-sample ceiling.** The legs, the 14-day hold and SMA50 were all found on
+  2023–26. The pre-registered variant made 0.23.
+- **One regime carries the result.** Most of the profit came in 2025H2 and 2026H1
+  (+48%, +14%), an alt sell-off with high dispersion.
+- **Costs, funding and short availability are assumed.** Squeezes and borrow at size
+  are unknown until paper and small live.
+- **Closed-bar trading is not the alert stream.** The bot's book won't match Telegram
+  one-to-one, and that is by design (§2).
+- **Crypto only.** Every interval is about ±1 Sharpe wide. B3 is better than zero, and
+  only just at the lower bound.
+
+## Appendix: the v2 plan and its audit
+
+The plan before 2026-10-26 traded v2 confident bullish fires long, at 2–5% margin per
+trade, 5x, with a total-exposure cap around 3.5x. The full text is in git history:
+`git show bfdbc5d:docs/trading_strategy.md`.
+
+**The audit (2026-10-15).** v2's raw 7d return of +3.85% per episode was +4.24% market
+move and −0.36% alpha. Its picks did no better than random same-class coins bought at
+the same instant. The money came from buying after crypto sell-offs that bounced,
+during two BTC-downtrend stretches. The historical rebuild then found no v2 selection
+edge (H4) and no timing rule that holds (H5, H6). That left nothing to trade in the
+v2 plan, and led to profit_strategies.md and this redesign.
+
+The plan's two candidate filters are still tracked on the watchlist. **§3G** was a
+regime switch: trade only while BTC's own MACD signal line is below zero. **§3H** was
+ATR expansion, ATR14 over its value 30 bars earlier > 1.10. Both turned out to be
+timing, not selection (H6, H7).
+
+**Lessons that carry over:**
+
+| lesson | evidence (v2, Jun–Oct 2026) | where it lands now |
+|---|---|---|
+| drawdown is set by total exposure, not per-trade stops | 2% margin at 5x: −39.8% max drawdown uncapped, −29.7% with exposure ≤ 3x; a stop bounded one trade at ~0.7% of equity | neutrality plus a gross cap (§4, §5) |
+| soft halts deadlock | stopping entries below −25% sat out 82 days and cut return from +83% to +11% | hard manual halt; the daily loss is an alert (§5) |
+| high leverage liquidates on ordinary dips | at 10x, 32–40% of trades were liquidated before the 7d exit | ≤ 2x gross (§4) |
+| stops cap the tail and add no EV | lower Bollinger band −2%: +3.34% → +2.90%; fixed −8%: +3.25% | no long stops; a short tail stop only (§3.4) |
+| the failed-cross exit needs hindsight | the 16% vs 66% win split is known only afterwards; walk-forward +0.14 [−0.16, +0.40] | rejected again over 3.6 years (C6a) |
+| entering late cost v2 | d+1 entry: −2.58 [−3.73, −1.09] | v2 is a bounce trade; these legs aren't (§3.1) |
+| the equity split (US tech wins; Korea, China, IPOs lose) is sector repricing | the losing group's alpha was −2.34 for *all* bullish equity signals, not just v2 | equities wait for their own check (§7) |
+| clustered signals make capital the constraint | v2 held a median 18 positions, p90 73 | 10% cap, equal weight, first fires only (§1.2) |

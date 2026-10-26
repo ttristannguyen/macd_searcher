@@ -166,7 +166,7 @@ def indicators(candles: pd.DataFrame) -> pd.DataFrame:
 
     put("atr_pct", atr14 / c * 100)
     put("atr_ratio_14_50", atr14 / _wilder(tr, 50))
-    put("atr_change_30", atr14 / atr14.shift(30))   # trading_strategy.md 3H's "ATR expanded" ratio
+    put("atr_change_30", atr14 / atr14.shift(30))   # the v2 plan's 3H "ATR expanded" ratio (trading_strategy.md appendix)
     for n in (20, 50, 100, 200):
         put(f"dist_sma{n}_atr", (c - c.rolling(n, min_periods=n).mean()) / atr14)
     sma50 = c.rolling(50).mean()
@@ -232,7 +232,7 @@ def market_context(candles: dict[str, pd.DataFrame], classes: dict[str, str]) ->
     if "BTC" in candles:
         btc = indicators(candles["BTC"])
         bc = candles["BTC"].sort_values("ts")
-        # The regime switch in trading_strategy.md 3G: BTC's own signal line vs zero.
+        # The v2 plan's 3G regime switch (trading_strategy.md appendix): BTC's own signal line vs zero.
         out["btc_signal_line"] = pd.Series(macd(bc["close"])["signal"].to_numpy(),
                                            index=bc["ts"].dt.strftime("%Y-%m-%d"))
         out["btc_roc_7"] = btc["roc_7"]

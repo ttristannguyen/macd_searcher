@@ -92,7 +92,7 @@ RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
     "bullish peak_pct <= 25": lambda d: _bull(d) & (d.peak_pct <= 25),
     "all bullish": _bull,
     "bullish crypto": _bull_crypto,
-    # trading_strategy.md 3G and 3H, tracked so the watchlist can test them.
+    # The v2 plan's 3G and 3H (trading_strategy.md appendix), tracked so the watchlist can test them.
     "BTC downtrend (bullish crypto)": lambda d: _bull_crypto(d) & (_col(d, "btc_signal_line") < 0),
     "ATR expanding (bullish crypto)": lambda d: _bull_crypto(d) & (_col(d, "atr_change_30") > 1.10),
     # Episode structure (2026-10-15 dataset pass, docs/research_log.md).

@@ -279,7 +279,8 @@ price above its 200-day average at the prior close. First fire per episode, 7d l
 | S&P 500 / Nasdaq-100 names, pullback long | 133 | +0.24 | +0.52 | −0.28 | +1.06 |
 | other equities, v3 bullish | 100 | −1.41 | −0.76 | −0.64 | −1.98 |
 
-The index-name v3 result matches §3A of trading_strategy.md (tech wins, Korea/China/
+The index-name v3 result matches the v2 plan's equity split in
+[trading_strategy.md](trading_strategy.md#appendix-the-v2-plan-and-its-audit) (tech wins, Korea/China/
 IPOs lose), but it is 44 trades in one window. There is no equity history to check it
 on (candles start 2025-11). The crypto pullback works on equities only weakly.
 

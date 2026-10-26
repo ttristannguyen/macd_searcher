@@ -7,11 +7,12 @@ into tradeable strategies. Each one is backtested as a **portfolio**, with costs
 overlapping positions and a hedge you could actually hold. It does not pick a winner.
 It says which ideas have money in them, which don't, and how far to trust each one.
 
-[trading_strategy.md](trading_strategy.md) is the earlier plan built around v2. Its
-operations and risk sections (§6–7) still apply. Its account simulations (+83% at 5x)
-ran on v2 over Jun–Oct 2026, and [its own audit](trading_strategy.md#0-audit-against-the-research-method-2026-10-15)
-shows that return was market move, not selection. This doc re-asks "what to trade" on
-3.6 years of history instead of 4 months.
+[trading_strategy.md](trading_strategy.md) was the earlier plan, built around v2. Its
+account simulations (+83% at 5x) ran on v2 over Jun–Oct 2026, and
+[its own audit](trading_strategy.md#appendix-the-v2-plan-and-its-audit) shows that
+return was market move, not selection. This doc re-asks "what to trade" on 3.6 years of
+history instead of 4 months. *2026-10-26:* trading_strategy.md has since been
+redesigned around B3 from this doc.
 
 **Data.** Historical rebuild: the closed-candle detector over the crypto perps, fires
 2023-03-02 → 2026-10-08 (`state/research_cache/history_rebuild.pkl`, built 2026-10-16).
@@ -367,8 +368,9 @@ hold. As portfolios, B2's Sharpe by hold is 1.10 / 1.37 / 0.92 / 0.56 / 0.41 at
 outside the signal window. Somewhere in 7–14 days looks right. The jumps between
 neighbouring holds are noise.
 
-**C6. Signal-specific exits.** Already tested and rejected in
-[trading_strategy.md](trading_strategy.md): Bollinger exits, failed-cross exits, stops.
+**C6. Signal-specific exits.** Already tested and rejected in the v2 plan
+([trading_strategy.md](trading_strategy.md#appendix-the-v2-plan-and-its-audit)):
+Bollinger exits, failed-cross exits, stops.
 None adds alpha. Stops are tail control. The failed-cross exit is re-tested below on
 the good fires, over 3.6 years and as a portfolio. It still doesn't help.
 
@@ -441,8 +443,9 @@ What the exit buys is 15–50% fewer open names (`peak_pct ≤ 25`, 14d: 9.3 →
 average). That is only worth something when capital or an exposure cap binds, and in
 these books it doesn't.
 
-**Verdict:** don't add it to the long legs. This is the same answer as
-[trading_strategy.md](trading_strategy.md) §3C, which tested v2 over 4 months. Now it
+**Verdict:** don't add it to the long legs. This is the same answer as the v2 plan's
+audit ([trading_strategy.md](trading_strategy.md#appendix-the-v2-plan-and-its-audit)),
+which tested v2 over 4 months. Now it
 holds over 3.6 years, on the edges that do work, and at portfolio level. **Hypothesis,
 not tested out of sample:** the failed cross may sharpen B3's *short* leg. Among
 bullish `50 < peak_pct < 100` fires, the ones still uncrossed at bar 3 carry the
@@ -493,7 +496,7 @@ timing from signal clusters doesn't work.
    long-minus-short spread > 0; B2's > 0; the bearish pullback as a long. That gets the
    first clean answer on whether the in-sample edge is real.
 2. **Paper-trade B3 next to C1**, following the path in
-   [trading_strategy.md](trading_strategy.md) §6. Log intended and simulated fills,
+   [trading_strategy.md](trading_strategy.md) §8. Log intended and simulated fills,
    per-coin funding, and spreads at entry. That measures the two biggest unknowns: real
    costs, and whether forming-candle fires behave like the closed-candle backtest.
 3. **Decide on C1 separately.** BTC trend-following needs none of the signal research.

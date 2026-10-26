@@ -125,9 +125,11 @@ from. The bot does not read the scanner's alerts.
 - **Simpler operations.** One decision a day that doesn't change intraday, with no
   dedup across the 4-hourly runs.
 
-The scanner, Telegram and the dashboard stay as they are. Expect the bot's book and
-the Telegram alerts to differ. The bot trades closed-bar fires, and the alerts are
-forming-candle fires.
+The scanner and the dashboard stay as they are. Telegram carries both views
+(`book.py`, from 2026-10-26). The 00:00 UTC run sends this closed-bar book: every open
+position by leg, today's entries in bold, and today's exits. The other runs send that
+day's forming-candle fires, grouped by leg, as an early look. Only the 00:00 message
+is the book.
 
 ## 3. Execution: costs are the lever
 
@@ -367,8 +369,8 @@ legs are contradicted.
   (+48%, +14%), an alt sell-off with high dispersion.
 - **Costs, funding and short availability are assumed.** Squeezes and borrow at size
   are unknown until paper and small live.
-- **Closed-bar trading is not the alert stream.** The bot's book won't match Telegram
-  one-to-one, and that is by design (§2).
+- **Only the daily message is the book.** The intraday Telegram alerts are
+  forming-candle fires and won't match it one-to-one, by design (§2).
 - **Crypto only.** Every interval is about ±1 Sharpe wide. B3 is better than zero, and
   only just at the lower bound.
 

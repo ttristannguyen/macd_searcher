@@ -1,15 +1,17 @@
 """Telegram notification + dispatch gates.
 
 Responsibilities:
-  - Format the per-run signal list into a single text body (with sane
-    truncation if the body would exceed Telegram's 4096-char limit).
+  - Format the message body (with sane truncation if it would exceed Telegram's
+    4096-char limit). Two messages, both grouped by B3 leg
+    (docs/trading_strategy.md): the daily book from the 00:00 UTC run, and each
+    other run's forming-candle fires.
   - Decide whether to actually send: skipped during quiet hours, skipped in
     dry-run mode, skipped if Telegram secrets are missing. In all of those
     cases the body is still printed to stdout so the cron log captures it.
   - Send via raw HTTP to api.telegram.org with simple retry on transient
     failures.
 
-Sent with HTML parse_mode so high-confidence rows can be bolded; HTML was chosen
+Sent with HTML parse_mode so the day's new positions can be bolded; HTML was chosen
 over MarkdownV2 because it only requires escaping `& < >` (symbol names are the
 only interpolated free text), whereas MarkdownV2 would need every `+ - . |` in the
 numbers escaped. Everything else is emojis and indentation, which render the same
@@ -27,12 +29,10 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from .book import LEGS, LONG_LEGS, Book, Leg, Position, leg_of
+from .classify import classify_asset
 from .config import AppConfig
-from .signals import (
-    Signal,
-    is_high_confidence,
-    signal_line_atr_multiple,
-)
+from .signals import Signal, signal_line_atr_multiple
 
 
 log = logging.getLogger(__name__)
@@ -40,8 +40,14 @@ log = logging.getLogger(__name__)
 # Telegram's hard cap is 4096 chars; chunk well below for safety.
 _CHUNK_SOFT_CAP = 3800
 
-_STAGE_HEADER = "📉 histogram flattening"
-_DIRECTION_EMOJI = {"bullish": "🟢", "bearish": "🔴"}
+# Green for the legs held long, red for the legs held short. L2 is a bearish fire
+# held long, so colour follows the trade, not the fire's direction.
+_LEG_HEADER: dict[Leg, str] = {
+    "L1": "🟢 L1 LONG · bullish pk ≤ 25",
+    "L2": "🟢 L2 LONG · bearish pk ≥ 50",
+    "S1": "🔴 S1 SHORT · bearish pk ≤ 25",
+    "S2": "🔴 S2 SHORT · bullish 50 < pk < 100",
+}
 
 
 # ---------- quiet hours ----------
@@ -77,14 +83,9 @@ def _fmt_stage1_row(s: Signal) -> str:
       also the axis the dashboard buckets into octiles. The %-of-price reading was
       dropped from the row (2026-10-16); it is still on the dashboard.
     * `pk` — where this excursion's peak ranks among the token's own completed swings
-      of the same sign in the lookback (0 = smallest, 100 = deepest). Low is the side
-      the v3 shadow rule favours, confirmed across 2023-2026 history and strongest at
-      25 or below (docs/historical_rebuild.md). Shown as a plain number, not a marker,
-      until the live watchlist confirms it.
-
-    High-confidence rows (see `is_high_confidence`) are bolded, which is why the
-    sender uses HTML parse_mode. There is deliberately no record-trough warning: it
-    was shipped on 2026 live data and did not replicate in history.
+      of the same sign in the lookback (0 = smallest, 100 = deepest). It is what puts
+      the fire in its B3 leg. There is deliberately no record-trough warning: it was
+      shipped on 2026 live data and did not replicate in history.
     """
     assert s.reduction_from_peak is not None
     pct = s.reduction_from_peak * 100
@@ -92,21 +93,29 @@ def _fmt_stage1_row(s: Signal) -> str:
     sig = f"  sig {sig_atr:+.2f}×ATR" if sig_atr is not None else ""
     peak = f"  pk {s.hist_peak_pct:.0f}" if s.hist_peak_pct is not None else ""
     rsi = f"  RSI {s.rsi_14:.0f}" if s.rsi_14 is not None else ""
-    row = f"{escape(s.name):<10} ↓{pct:.0f}%{sig}{peak}{rsi}"
-    return f"  <b>{row}</b>" if is_high_confidence(s) else f"  {row}"
+    return f"  {escape(s.name):<10} ↓{pct:.0f}%{sig}{peak}{rsi}"
 
 
-def _strength_key(s: Signal) -> tuple[bool, float]:
-    """Sort order within a direction bucket: high-confidence rows first, then
-    SHALLOWEST reduction first.
+def _reduction_key(s: Signal) -> float:
+    """SHALLOWEST reduction first within a leg.
 
     This used to rank deepest-reduction first, on the assumption that a bigger
     flatten was a stronger read. Measurement says the opposite — bearish fires at
     0.3-0.4 reduction returned +1.78% EV against -0.99% for 0.8-1.0, because a
-    deeply-flattened histogram means the move is already over. Sorting ascending
-    puts the best rows at the top, where the bolding is actually useful.
+    deeply-flattened histogram means the move is already over.
     """
-    return (not is_high_confidence(s), s.reduction_from_peak or 0.0)
+    return s.reduction_from_peak or 0.0
+
+
+def _by_leg(signals: list[Signal]) -> dict[Leg, list[Signal]]:
+    """Crypto fires in a B3 leg, grouped in leg order. Everything else is dropped:
+    B3 was backtested on crypto perps only, and trades no other `pk` band."""
+    out: dict[Leg, list[Signal]] = {leg: [] for leg in LEGS}
+    for s in signals:
+        leg = leg_of(s.direction, s.hist_peak_pct)
+        if leg is not None and classify_asset(s.name) == "crypto":
+            out[leg].append(s)
+    return {leg: rows for leg, rows in out.items() if rows}
 
 
 def format_message(
@@ -115,31 +124,58 @@ def format_message(
     cfg: AppConfig,
     now_utc: datetime | None = None,
 ) -> str:
-    """Render the full message body. May exceed Telegram's per-message limit;
-    callers should pass the result through `chunk_for_telegram` before sending."""
+    """Render an intraday run's forming-candle fires, grouped by B3 leg. May exceed
+    Telegram's per-message limit; callers should pass the result through
+    `chunk_for_telegram` before sending."""
     when = (now_utc or datetime.now(tz=timezone.utc)).strftime("%Y-%m-%d %H:%M UTC")
-    lines: list[str] = []
-    lines.append(f"📊 MACD scan — {when}")
-    lines.append(f"{scanned_count} assets scanned, {len(signals)} signal(s)")
-
-    if not signals:
-        lines.append("")
-        lines.append("No assets met the configured criteria this cycle.")
+    legs = _by_leg(signals)
+    lines = [
+        f"📊 MACD scan — {when}",
+        f"{scanned_count} assets scanned, {sum(len(r) for r in legs.values())} in B3 legs",
+        "",
+    ]
+    if not legs:
+        lines.append("No B3 fires this cycle.")
         return "\n".join(lines)
 
-    lines.append("")
-    lines.append(f"{_STAGE_HEADER} ({len(signals)})")
-    for direction in ("bearish", "bullish"):
-        rows = sorted(
-            [s for s in signals if s.direction == direction],
-            key=_strength_key,
-        )
-        if not rows:
-            continue
-        lines.append(f"{_DIRECTION_EMOJI[direction]} {direction.upper()} ({len(rows)})")
-        for s in rows:
-            lines.append(_fmt_stage1_row(s))
+    for leg, rows in legs.items():
+        lines.append(f"{_LEG_HEADER[leg]} ({len(rows)})")
+        lines.extend(_fmt_stage1_row(s) for s in sorted(rows, key=_reduction_key))
+    return "\n".join(lines)
 
+
+def _fmt_position_row(book: Book, p: Position) -> str:
+    """Name, the `pk` that put it in its leg, and days held. A position opened today
+    is bolded: it is the one to act on."""
+    days = book.days_held(p)
+    row = f"{escape(p.symbol):<10} pk {p.peak_pct:.0f}  {'new' if days == 0 else f'd{days}'}"
+    return f"  <b>{row}</b>" if days == 0 else f"  {row}"
+
+
+def format_book_message(book: Book) -> str:
+    """Render the daily B3 book: every open position by leg, newest first, then the
+    positions that expired today."""
+    longs = sum(1 for p in book.positions if p.leg in LONG_LEGS)
+    new = sum(1 for p in book.positions if p.entry == book.day)
+    lines = [
+        f"📒 B3 book — {book.day.isoformat()}",
+        f"Long {longs} · Short {len(book.positions) - longs} · {new} new · {len(book.exits)} exits",
+        "",
+    ]
+    if not book.positions and not book.exits:
+        lines.append("No open B3 positions.")
+        return "\n".join(lines)
+
+    for leg in LEGS:
+        rows = sorted((p for p in book.positions if p.leg == leg),
+                      key=lambda p: (book.days_held(p), p.symbol))
+        if rows:
+            lines.append(f"{_LEG_HEADER[leg]} ({len(rows)})")
+            lines.extend(_fmt_position_row(book, p) for p in rows)
+    if book.exits:
+        lines.append(f"⏹ EXITS ({len(book.exits)})")
+        lines.extend(f"  {escape(p.symbol):<10} {p.leg}"
+                     for p in sorted(book.exits, key=lambda p: (p.leg, p.symbol)))
     return "\n".join(lines)
 
 
@@ -230,18 +266,27 @@ async def send_signals(
     cfg: AppConfig,
     now_utc: datetime | None = None,
 ) -> str:
-    """Format + dispatch. Honors send_when_empty, dry_run, quiet hours, and
-    missing credentials. In any non-send path the message body is still
-    printed so cron logs capture the scan output.
+    """Format + dispatch an intraday run's fires. Returns the dispatch status."""
+    text = format_message(signals, scanned_count, cfg, now_utc=now_utc)
+    return await _dispatch(text, not _by_leg(signals), cfg, now_utc)
+
+
+async def send_book(book: Book, cfg: AppConfig, now_utc: datetime | None = None) -> str:
+    """Format + dispatch the daily B3 book. Returns the dispatch status."""
+    empty = not book.positions and not book.exits
+    return await _dispatch(format_book_message(book), empty, cfg, now_utc)
+
+
+async def _dispatch(text: str, empty: bool, cfg: AppConfig, now_utc: datetime | None) -> str:
+    """Honors send_when_empty, dry_run, quiet hours, and missing credentials. In
+    any non-send path the message body is still printed so cron logs capture the
+    scan output.
 
     Returns a dispatch status for the run log:
     'sent' | 'empty_suppressed' | 'dry_run' | 'quiet_hours' | 'no_creds'.
     """
-
-    text = format_message(signals, scanned_count, cfg, now_utc=now_utc)
-
-    if not signals and not cfg.notify.send_when_empty:
-        log.info("No signals; send_when_empty=false. Skipping send.")
+    if empty and not cfg.notify.send_when_empty:
+        log.info("Nothing in the B3 legs; send_when_empty=false. Skipping send.")
         return "empty_suppressed"
 
     if cfg.notify.dry_run:

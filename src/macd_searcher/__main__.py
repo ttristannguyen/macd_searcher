@@ -24,13 +24,18 @@ import uuid
 from datetime import datetime, timezone
 
 from . import db
+from .book import build_book, history_days
 from .config import AppConfig, load_config
-from .hyperliquid import fetch_universe_and_candles
-from .notify import send_raw_text, send_signals
+from .hyperliquid import fetch_universe_and_candles, trim_to_lookback
+from .notify import send_book, send_raw_text, send_signals
 from .signals import compute_all_metrics, evaluate_all, is_high_confidence
 
 
 log = logging.getLogger("macd_searcher")
+
+# The run that sends the daily B3 book instead of the forming-candle alert: the
+# first after the 00:00 UTC daily close (cron is pinned to UTC), 10-11am Melbourne.
+BOOK_HOUR_UTC = 0
 
 
 def _now_iso() -> str:
@@ -72,6 +77,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Disable SQLite logging for this run regardless of config.",
     )
+    p.add_argument(
+        "--book",
+        action="store_true",
+        help="Send the daily B3 book this run, whatever the hour.",
+    )
     return p.parse_args(argv)
 
 
@@ -85,14 +95,32 @@ def _setup_logging(level: str) -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
+async def _send_book(candles: dict, cfg: AppConfig, now_utc: datetime) -> str:
+    """The daily B3 message. A failure to build the book is reported, never raised:
+    the scan's DB logging runs after this and must not be skipped."""
+    try:
+        book = build_book(candles, cfg, now_utc.date())
+    except Exception as exc:
+        log.exception("Failed to build the B3 book")
+        await _try_send_error_alert(cfg, exc, "🛑 B3 book failed")
+        return "book_failed"
+    return await send_book(book, cfg, now_utc=now_utc)
+
+
 async def _run_once(
     cfg: AppConfig,
     conn: sqlite3.Connection | None = None,
     run_id: str | None = None,
     started_at: str | None = None,
+    book_run: bool = False,
 ) -> None:
     started = time.perf_counter()
-    assets, candles, universe_total = await fetch_universe_and_candles(cfg)
+    end_ms = int(time.time() * 1000)
+    # The book needs a longer history than the scan. Fetch it once and cut the scan's
+    # exact share back out, rather than hitting the API twice in one run.
+    lookback = history_days(cfg) if book_run else cfg.candles.lookback_days
+    assets, fetched, universe_total = await fetch_universe_and_candles(cfg, lookback, end_ms)
+    candles = trim_to_lookback(fetched, cfg.candles.lookback_days, end_ms) if book_run else fetched
     signals = evaluate_all(candles, cfg)
 
     # Per-asset snapshots (every asset, fired or not) — best-effort.
@@ -103,7 +131,10 @@ async def _run_once(
         except Exception:
             log.exception("Failed to write asset_snapshots")
 
-    status = await send_signals(signals, scanned_count=len(candles), cfg=cfg)
+    if book_run:
+        status = await _send_book(fetched, cfg, datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc))
+    else:
+        status = await send_signals(signals, scanned_count=len(candles), cfg=cfg)
 
     if conn is not None and run_id is not None:
         try:
@@ -125,15 +156,17 @@ async def _run_once(
              time.perf_counter() - started, len(candles), len(signals), status)
 
 
-async def _try_send_error_alert(cfg: AppConfig, exc: BaseException) -> None:
-    """Best-effort one-shot Telegram alert when the run blows up.
+async def _try_send_error_alert(
+    cfg: AppConfig, exc: BaseException, title: str = "🛑 macd_searcher run failed"
+) -> None:
+    """Best-effort one-shot Telegram alert when the run (or a part of it) blows up.
 
     Silent if Telegram isn't configured or the send itself fails — we already
     logged the original exception.
     """
     if not cfg.telegram.configured or cfg.notify.dry_run:
         return
-    body = "🛑 macd_searcher run failed\n\n" + "".join(
+    body = f"{title}\n\n" + "".join(
         traceback.format_exception_only(type(exc), exc)
     ).strip()
     try:
@@ -184,8 +217,9 @@ def main(argv: list[str] | None = None) -> int:
             conn = None
             run_id = None
 
+    book_run = args.book or datetime.now(tz=timezone.utc).hour == BOOK_HOUR_UTC
     try:
-        asyncio.run(_run_once(cfg, conn, run_id, started_at))
+        asyncio.run(_run_once(cfg, conn, run_id, started_at, book_run))
         return 0
     except KeyboardInterrupt:
         log.warning("Interrupted")

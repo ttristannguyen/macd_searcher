@@ -16,7 +16,7 @@ Every 4 hours, the scanner:
 2. Drops anything illiquid (default: 24h notional volume < $1M *or* open interest < $1M) so only tradeable markets remain.
 3. Fetches the last ~200 daily candles per surviving asset, concurrently.
 4. Runs two MACD-based detectors on each asset and emits at most one signal per asset (the higher-priority of the two if both fire).
-5. Formats a single Telegram message grouped by stage and direction, ordered by signal strength.
+5. Formats a Telegram message grouped by B3 leg ([docs/trading_strategy.md](docs/trading_strategy.md)), crypto only. The 00:00 UTC run sends the daily **B3 book** from closed bars: every open position by leg, today's entries in bold, today's exits. That run fetches ~316 days of candles, enough for a 200-bar window on each of the last 16 days. The other runs send that day's forming-candle fires in a leg.
 
 Quiet hours (`Australia/Melbourne` 00:00–08:00 by default) suppress the Telegram send but the scan still runs and prints to stdout so the cron log captures it.
 
@@ -50,18 +50,36 @@ Every fired signal also records the token's **14-day RSI at fire time** — show
 
 ## Example Telegram output
 
-```
-📊 MACD scan — 2026-05-29 06:49 UTC
-142 assets scanned, 26 signal(s)
+The daily book (00:00 UTC run; **bold** rows are today's entries):
 
-📉 histogram flattening (26)
-🔴 BEARISH (13)
-  PURR       hist +0.000148 (↓98% from +0.006445)  RSI 71  px $0.0949
-  ATOM       hist +0.001451 (↓86% from +0.01061)   RSI 64  px $2.0588
+```
+📒 B3 book — 2026-10-26
+Long 10 · Short 44 · 3 new · 2 exits
+
+🟢 L2 LONG · bearish pk ≥ 50 (10)
+  XMR        pk 100  new
+  ALT        pk 100  d3
   ...
-🟢 BULLISH (13)
-  xyz:CRWV   hist -0.115 (↓95% from -2.435)   RSI 32  px $107.58
-  xyz:AMZN   hist -0.1233 (↓95% from -2.579)  RSI 29  px $272.89
+🔴 S1 SHORT · bearish pk ≤ 25 (5)
+  COMP       pk 25  d1
+  ...
+🔴 S2 SHORT · bullish 50 < pk < 100 (39)
+  XPL        pk 71  new
+  FET        pk 89  d1
+  ...
+⏹ EXITS (2)
+  ICP        S2
+  ONDO       S2
+```
+
+The other runs' forming-candle fires:
+
+```
+📊 MACD scan — 2026-10-26 08:00 UTC
+150 assets scanned, 9 in B3 legs
+
+🟢 L1 LONG · bullish pk ≤ 25 (2)
+  SOL        ↓35%  sig -0.80×ATR  pk 12  RSI 41
   ...
 ```
 
@@ -78,11 +96,12 @@ uv run python -m macd_searcher --dry-run      # prints the message instead of se
 CLI:
 
 ```
-macd-searcher [-c PATH] [--dry-run] [--log-level {DEBUG,INFO,WARNING,ERROR}]
+macd-searcher [-c PATH] [--dry-run] [--book] [--log-level {DEBUG,INFO,WARNING,ERROR}]
 ```
 
 - `-c / --config PATH` — override the config file location (also honors the `MACD_SEARCHER_CONFIG` env var)
 - `--dry-run` — force-skip the Telegram send and print to stdout
+- `--book` — send the daily B3 book this run, whatever the hour
 - `--log-level` — override `log_level` in config for one run
 
 ---

@@ -15,11 +15,16 @@ import pytest
 
 from dataclasses import replace
 
+from datetime import date
+
+from macd_searcher.book import Book, Position
 from macd_searcher.config import AppConfig
 from macd_searcher.notify import (
     chunk_for_telegram,
+    format_book_message,
     format_message,
     in_quiet_hours,
+    send_book,
     send_signals,
 )
 from macd_searcher.signals import (
@@ -85,34 +90,56 @@ def _mk_signal(
     direction: str,
     **kw,
 ) -> Signal:
-    defaults = dict(close=100.0, macd=0.1, hist=0.05)
+    # pk 10 by default puts a crypto fire in a B3 leg (L1 bullish, S1 bearish), so
+    # it shows up in the message.
+    defaults = dict(close=100.0, macd=0.1, hist=0.05, hist_peak_pct=10.0)
     defaults.update(kw)
     return Signal(name=name, stage=stage, direction=direction, **defaults)  # type: ignore[arg-type]
 
 
 def test_format_message_empty_signals():
     text = format_message([], scanned_count=99, cfg=AppConfig())
-    assert "0 signal" in text
-    assert "No assets" in text
+    assert "0 in B3 legs" in text
+    assert "No B3 fires" in text
 
 
-def test_format_message_groups_by_direction():
+def _leg_signal(name: str, direction: str, peak_pct: float | None) -> Signal:
+    return _mk_signal(name, "histogram_flattening", direction, hist_peak=0.5,
+                      reduction_from_peak=0.5, hist_peak_pct=peak_pct)
+
+
+def test_format_message_groups_by_leg_in_leg_order():
     signals = [
-        _mk_signal("ETH", "histogram_flattening", "bullish",
-                   macd=-50, hist=-10, close=2000, hist_peak=-25, reduction_from_peak=0.6),
-        _mk_signal("SOL", "histogram_flattening", "bearish",
-                   macd=2, hist=0.1, close=85, hist_peak=0.5, reduction_from_peak=0.8),
+        _leg_signal("DEEP", "bullish", 80.0),       # S2
+        _leg_signal("WEAK", "bearish", 10.0),       # S1
+        _leg_signal("LEADER", "bearish", 90.0),     # L2
+        _leg_signal("MILD", "bullish", 20.0),       # L1
     ]
     text = format_message(signals, scanned_count=50, cfg=AppConfig())
-    assert "histogram flattening" in text
-    # No Stage-3 vestiges.
-    assert "zero-line" not in text and "Stage 3" not in text
-    # Each signal name should appear exactly once.
-    for name in ("ETH", "SOL"):
-        assert text.count(name) == 1
-    # Direction headers should be present.
-    assert "BEARISH" in text
-    assert "BULLISH" in text
+    headers = [ln for ln in text.split("\n") if ln.startswith(("🟢", "🔴"))]
+    assert [h.split()[1] for h in headers] == ["L1", "L2", "S1", "S2"]
+    assert text.index("MILD") < text.index("LEADER") < text.index("WEAK") < text.index("DEEP")
+    assert "4 in B3 legs" in text
+
+
+def test_format_message_colours_by_trade_not_by_fire():
+    """L2 is a bearish fire held long, so its header is green."""
+    text = format_message([_leg_signal("LEADER", "bearish", 90.0)], 1, AppConfig())
+    assert "🟢 L2 LONG" in text and "🔴" not in text
+
+
+def test_format_message_drops_untraded_bands_and_non_crypto():
+    signals = [
+        _leg_signal("MIDBAND", "bullish", 40.0),
+        _leg_signal("RECORD", "bullish", 100.0),
+        _leg_signal("NOPK", "bearish", None),
+        _leg_signal("xyz:TSLA", "bullish", 10.0),
+        _leg_signal("SOL", "bullish", 10.0),
+    ]
+    text = format_message(signals, scanned_count=5, cfg=AppConfig())
+    for gone in ("MIDBAND", "RECORD", "NOPK", "TSLA"):
+        assert gone not in text
+    assert "SOL" in text and "1 in B3 legs" in text
 
 
 def test_format_message_includes_rsi_when_present():
@@ -139,21 +166,6 @@ def test_format_message_sorts_shallowest_reduction_first():
     assert text.index("SHALLOW") < text.index("MID") < text.index("DEEP")
 
 
-def test_format_message_floats_high_confidence_to_top():
-    """A bolded row buried under 30 others is useless, so confidence outranks
-    reduction — even when the confident row has a deeper reduction."""
-    signals = [
-        _mk_signal("PLAIN", "histogram_flattening", "bullish",
-                   close=100, macd=-0.3, hist=-0.2, atr=2.0,
-                   hist_peak=-2, reduction_from_peak=0.31),   # sig/ATR -0.05
-        _mk_signal("CONFIDENT", "histogram_flattening", "bullish",
-                   close=100, macd=-2.2, hist=-0.2, atr=2.0,
-                   hist_peak=-2, reduction_from_peak=0.55),   # sig/ATR -1.00
-    ]
-    text = format_message(signals, scanned_count=2, cfg=AppConfig())
-    assert text.index("CONFIDENT") < text.index("PLAIN")
-
-
 def test_format_message_omits_hist_peak_and_price():
     """The row was trimmed to reduction + RSI; the raw hist value, the peak it fell
     from, and the price all moved to the dashboard."""
@@ -171,38 +183,13 @@ def test_format_message_omits_hist_peak_and_price():
     assert "$" not in row and "54,321" not in row
 
 
-def test_format_message_bolds_high_confidence_row():
-    """Bullish + signal line well below zero + reduction under the cap = the
-    measured high-EV slice. atr=2.0 makes sig/ATR = (macd - hist) / 2."""
-    signals = [
-        _mk_signal("SOL", "histogram_flattening", "bullish",
+def test_format_message_never_bolds_intraday_rows():
+    """v2's bold marker is gone (no selection edge); bold now means a new B3 position,
+    which only the daily book knows about. This row was v2-confident."""
+    s = _mk_signal("SOL", "histogram_flattening", "bullish",
                    macd=-2.2, hist=-0.2, close=85.0, hist_peak=-0.5,
-                   reduction_from_peak=0.45, atr=2.0),   # sig/ATR -1.00
-    ]
-    text = format_message(signals, scanned_count=1, cfg=AppConfig())
-    assert "<b>" in text and "</b>" in text
-    assert "SOL" in text
-
-
-def test_format_message_does_not_bold_ordinary_rows():
-    """Each miss on its own is enough to withhold the marker."""
-    cases = [
-        # reduction past the cap — the cross is mechanical by then, and late
-        dict(direction="bullish", macd=-2.2, hist=-0.2, atr=2.0, reduction_from_peak=0.85),
-        # signal line not far enough below zero (sig/ATR exactly -0.5)
-        dict(direction="bullish", macd=-1.2, hist=-0.2, atr=2.0, reduction_from_peak=0.45),
-        # signal line above zero entirely
-        dict(direction="bullish", macd=+1.8, hist=-0.2, atr=2.0, reduction_from_peak=0.45),
-        # no ATR to normalize by
-        dict(direction="bullish", macd=-2.2, hist=-0.2, atr=None, reduction_from_peak=0.45),
-        # bearish never qualifies — EV is negative across the rest of the book
-        dict(direction="bearish", macd=-2.2, hist=-0.2, atr=2.0, reduction_from_peak=0.45),
-    ]
-    for kw in cases:
-        direction = kw.pop("direction")
-        s = _mk_signal("XYZ", "histogram_flattening", direction,
-                       close=100.0, hist_peak=-0.5, **kw)
-        assert "<b>" not in format_message([s], scanned_count=1, cfg=AppConfig()), kw
+                   reduction_from_peak=0.45, atr=2.0)   # sig/ATR -1.00
+    assert "<b>" not in format_message([s], scanned_count=1, cfg=AppConfig())
 
 
 def test_format_message_escapes_symbol_names():
@@ -265,16 +252,13 @@ def test_format_message_omits_sig_without_atr():
     assert "↓40%" in row
 
 
-@pytest.mark.parametrize("peak_pct,shown", [(18.4, "pk 18"), (100.0, "pk 100"), (None, None)])
+@pytest.mark.parametrize("peak_pct,shown", [(18.4, "pk 18"), (99.6, "pk 100")])
 def test_format_message_shows_peak_percentile_as_a_plain_number(peak_pct, shown):
-    """`pk` is context: a number on every row that has it, never a marker."""
+    """`pk` is a number on every row, rounded; 99.6 is S2, not a record trough."""
     s = _mk_signal("PK", "histogram_flattening", "bullish", close=100.0, macd=-1.0, hist=-0.2,
                    atr=2.0, reduction_from_peak=0.4, hist_peak_pct=peak_pct, hist_top_n=6)
     row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "PK" in ln)
-    if shown:
-        assert shown in row
-    else:
-        assert "pk" not in row
+    assert shown in row
 
 
 # ---------- chunking ----------
@@ -367,8 +351,76 @@ async def test_send_signals_missing_credentials_prints_warning_and_text():
 
 def test_format_message_has_no_record_trough_warning():
     """The record-trough warning was removed after it failed to replicate in history
-    (docs/historical_rebuild.md, H2). A record trough reads `pk 100`, nothing more."""
+    (docs/historical_rebuild.md, H2). A record trough is in no B3 leg, so it isn't shown."""
     s = _mk_signal("REC", "histogram_flattening", "bullish", close=100.0, macd=-1.0, hist=-0.2,
                    atr=2.0, reduction_from_peak=0.4, hist_peak_pct=100.0, hist_top_n=6)
-    row = next(ln for ln in format_message([s], 1, AppConfig()).split("\n") if "REC" in ln)
-    assert "\u26a0" not in row and "record" not in row
+    text = format_message([s], 1, AppConfig())
+    assert "REC" not in text and "\u26a0" not in text and "record" not in text
+
+
+# ---------- the daily book ----------
+
+_DAY = date(2026, 10, 26)
+
+
+def _pos(symbol: str, leg: str, days_ago: int, peak_pct: float = 12.0) -> Position:
+    return Position(symbol, leg, date.fromordinal(_DAY.toordinal() - days_ago), peak_pct)  # type: ignore[arg-type]
+
+
+def _book() -> Book:
+    return Book(
+        day=_DAY,
+        positions=[_pos("OLDER", "L1", 9), _pos("FRESH", "L1", 0), _pos("LEADER", "L2", 3, 88.0),
+                   _pos("DEEP", "S2", 1, 70.0)],
+        exits=[_pos("GONE", "S1", 14)],
+    )
+
+
+def test_book_message_counts_sides_new_and_exits():
+    lines = format_book_message(_book()).split("\n")
+    assert lines[0].endswith("B3 book — 2026-10-26")
+    assert lines[1] == "Long 3 \u00b7 Short 1 \u00b7 1 new \u00b7 1 exits"
+
+
+def test_book_message_bolds_only_today_s_entries_newest_first():
+    text = format_book_message(_book())
+    fresh = next(ln for ln in text.split("\n") if "FRESH" in ln)
+    older = next(ln for ln in text.split("\n") if "OLDER" in ln)
+    assert fresh.strip().startswith("<b>") and "new" in fresh
+    assert "<b>" not in older and "d9" in older
+    assert text.index("FRESH") < text.index("OLDER")
+
+
+def test_book_message_lists_legs_then_exits():
+    text = format_book_message(_book())
+    assert text.index("L1 LONG") < text.index("L2 LONG") < text.index("S2 SHORT") < text.index("EXITS")
+    assert "S1 SHORT" not in text                   # an empty leg gets no header
+    assert "GONE" in text.split("EXITS")[1]
+    assert "pk 88" in next(ln for ln in text.split("\n") if "LEADER" in ln)
+
+
+def test_book_message_when_flat():
+    text = format_book_message(Book(day=_DAY, positions=[], exits=[]))
+    assert "Long 0 \u00b7 Short 0" in text and "No open B3 positions." in text
+
+
+@pytest.mark.asyncio
+async def test_send_book_empty_with_send_when_empty_false_prints_nothing():
+    base = AppConfig()
+    cfg = base.model_copy(update={
+        "notify": base.notify.model_copy(update={"send_when_empty": False, "dry_run": True})
+    })
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        status = await send_book(Book(day=_DAY, positions=[], exits=[]), cfg)
+    assert status == "empty_suppressed" and buf.getvalue() == ""
+
+
+@pytest.mark.asyncio
+async def test_send_book_dry_run_prints_the_book():
+    base = AppConfig()
+    cfg = base.model_copy(update={"notify": base.notify.model_copy(update={"dry_run": True})})
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        assert await send_book(_book(), cfg) == "dry_run"
+    assert "B3 book" in buf.getvalue() and "FRESH" in buf.getvalue()

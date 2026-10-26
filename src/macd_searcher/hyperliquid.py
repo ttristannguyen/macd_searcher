@@ -279,17 +279,23 @@ async def fetch_funding_history(
     return df[["ts", "funding", "premium"]].drop_duplicates("ts").sort_values("ts").reset_index(drop=True)
 
 
+_DAY_MS = 86_400_000
+
+
 async def fetch_all_candles(
     client: httpx.AsyncClient,
     assets: list[AssetMeta],
     cfg: AppConfig,
+    lookback_days: int | None = None,
+    end_ms: int | None = None,
 ) -> dict[str, pd.DataFrame]:
-    """Fetch 1D candles for every asset concurrently.
+    """Fetch 1D candles for every asset concurrently, `lookback_days` back from
+    `end_ms` (defaults: the configured lookback, ending now).
 
     Assets whose fetch fails are logged and dropped from the result.
     """
-    end_ms = int(time.time() * 1000)
-    start_ms = end_ms - cfg.candles.lookback_days * 86_400_000
+    end_ms = end_ms if end_ms is not None else int(time.time() * 1000)
+    start_ms = end_ms - (lookback_days or cfg.candles.lookback_days) * _DAY_MS
 
     sem = asyncio.Semaphore(cfg.hyperliquid.concurrency)
 
@@ -308,8 +314,27 @@ async def fetch_all_candles(
     return out
 
 
+def trim_to_lookback(
+    candles: dict[str, pd.DataFrame], lookback_days: int, end_ms: int
+) -> dict[str, pd.DataFrame]:
+    """The candles a `lookback_days` fetch ending at `end_ms` would have returned,
+    cut from a longer fetch with the same end.
+
+    candleSnapshot returns every bar that closes at or after `startTime`, including
+    the one that opened before it (checked against the live API 2026-10-26), so a
+    bar is kept when its close is past the start, not its open.
+    """
+    start = pd.Timestamp(end_ms - lookback_days * _DAY_MS, unit="ms", tz="UTC")
+    return {
+        coin: df[df["ts"] + pd.Timedelta(days=1) > start].reset_index(drop=True)
+        for coin, df in candles.items()
+    }
+
+
 async def fetch_universe_and_candles(
     cfg: AppConfig,
+    lookback_days: int | None = None,
+    end_ms: int | None = None,
 ) -> tuple[list[AssetMeta], dict[str, pd.DataFrame], int]:
     """One-shot helper: open a client, filter universe, fetch all candles.
 
@@ -317,5 +342,5 @@ async def fetch_universe_and_candles(
     """
     async with httpx.AsyncClient() as client:
         assets, universe_total = await fetch_universe(client, cfg)
-        candles = await fetch_all_candles(client, assets, cfg)
+        candles = await fetch_all_candles(client, assets, cfg, lookback_days, end_ms)
     return assets, candles, universe_total

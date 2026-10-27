@@ -366,7 +366,10 @@ not a rule. If it holds in a rising market, it is a natural addition to B3's sho
 hold. As portfolios, B2's Sharpe by hold is 1.10 / 1.37 / 0.92 / 0.56 / 0.41 at
 7 / 10 / 14 / 21 / 30 days. Longer holds cut costs but dilute the edge with time
 outside the signal window. Somewhere in 7–14 days looks right. The jumps between
-neighbouring holds are noise.
+neighbouring holds are noise. *2026-10-27, per leg ([exit_research.md](exit_research.md)):*
+the longs' alpha is spent by day 14 (L2's by day 7), while S1 and S2 keep earning
+through day 21. Holding only the shorts 21 days adds +0.27 Sharpe to B3, in both halves
+of the history.
 
 **C6. Signal-specific exits.** Already tested and rejected in the v2 plan
 ([trading_strategy.md](trading_strategy.md#appendix-the-v2-plan-and-its-audit)):

@@ -31,9 +31,9 @@ MIN_EPISODES = 30   # below this a watchlist verdict is "pending", not a result
 
 # Columns that are outcomes, ids or raw inputs — never features. carry_7d is a
 # FORWARD quantity (funding paid during the hold); scanning it would be look-ahead, and
-# so would crossed_by_bar3 (the first three bars after the fire).
+# so would crossed_by_bar3 and deep_dip_day (bars after the fire).
 _NOT_FEATURES = {"fire_close", "fire_macd", "fire_hist", "fire_hist_peak", "atr", "oos", "episode_start",
-                 "crossed_by_bar3"}
+                 "crossed_by_bar3", "deep_dip_day"}
 _OUTCOME_PREFIXES = ("r_", "market_", "alpha_", "bench_", "px_", "ret_", "carry_")
 
 
@@ -180,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--oos-from", default=DEFAULT_OOS_FROM,
                     help="first day the live rule has not seen (default %(default)s)")
-    ap.add_argument("--horizon", type=int, default=7, choices=dataset.HORIZONS)
+    ap.add_argument("--horizon", type=int, default=7, choices=dataset.HORIZONS + dataset.CANDLE_HORIZONS)
     ap.add_argument("--gap-days", type=int, default=1,
                     help="a re-fire within this many days continues an episode (default %(default)s)")
     ap.add_argument("--offline", action="store_true", help="use the cache as-is; no API calls")

@@ -14,10 +14,14 @@ import numpy as np
 import pandas as pd
 
 from ..indicators import macd
+from ..signals import _peak_vs_history
 from ..stats import episodes
 from ..web.perf import _base
 
 HORIZONS = (1, 3, 7, 14)
+# Horizons the database doesn't score (live outcomes stop at 14d): exits from closed
+# candles only, so they exist only when the report runs with candles.
+CANDLE_HORIZONS = (21,)
 # A class needs this many symbols in a run before its mean is a usable benchmark.
 MIN_BENCH_SYMBOLS = 10
 
@@ -79,10 +83,13 @@ def daily_closes(snaps: pd.DataFrame, candles: dict[str, pd.DataFrame] | None = 
          _shift_day(pd.Series(seen.index.get_level_values("day")), -1)], names=["symbol", "day"]))
     if not candles:
         return from_snaps
-    from_candles = pd.concat(
-        {s: pd.Series(df["close"].to_numpy(), index=df["ts"].dt.strftime("%Y-%m-%d"))
-         for s, df in candles.items()}, names=["symbol", "day"])
-    return from_candles.combine_first(from_snaps)
+    return candle_closes(candles).combine_first(from_snaps)
+
+
+def candle_closes(candles: dict[str, pd.DataFrame]) -> pd.Series:
+    """The close of each (symbol, day) in the candle cache, no snapshot fallback."""
+    return pd.concat({s: pd.Series(df["close"].to_numpy(), index=df["ts"].dt.strftime("%Y-%m-%d"))
+                      for s, df in candles.items()}, names=["symbol", "day"])
 
 
 def benchmark(snaps: pd.DataFrame, candles: dict[str, pd.DataFrame] | None = None,
@@ -112,6 +119,31 @@ def benchmark(snaps: pd.DataFrame, candles: dict[str, pd.DataFrame] | None = Non
     cols = [f"bench_{n}d" for n in horizons]
     grouped = out.groupby(["run_id", "asset_class"])[cols]
     return grouped.mean().where(grouped.count() >= MIN_BENCH_SYMBOLS).reset_index()
+
+
+def closed_candles(candles: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Each symbol's cached candles minus the newest bar, which may have been forming
+    when it was cached (``cache._top_up`` re-fetches it on the next run)."""
+    return {s: df.sort_values("ts").iloc[:-1] for s, df in candles.items()}
+
+
+def attach_candle_exits(sig: pd.DataFrame, closed: dict[str, pd.DataFrame],
+                        horizons=CANDLE_HORIZONS) -> pd.DataFrame:
+    """``px_Nd`` and ``ret_Nd`` for horizons the database doesn't score: the close of day
+    ``fire_day + N``, the bar ``update_outcomes`` would use. Pass CLOSED candles only, or
+    a forming bar's price becomes a final exit. Candles alone, never snapshots: a
+    snapshot exit exists only while the symbol is still in the universe (see
+    ``benchmark``)."""
+    if not closed:
+        return sig.assign(**{f"{col}_{n}d": np.nan for n in horizons for col in ("px", "ret")})
+    close_of = candle_closes(closed)
+    sign = np.where(sig["direction"] == "bullish", 1.0, -1.0)
+    out = {}
+    for n in horizons:
+        px = close_of.reindex(pd.MultiIndex.from_arrays([sig["symbol"], _shift_day(sig["day"], n)])).to_numpy()
+        out[f"px_{n}d"] = px
+        out[f"ret_{n}d"] = sign * (px / sig["fire_close"].to_numpy() - 1)
+    return sig.assign(**out)
 
 
 def attach_outcomes(sig: pd.DataFrame, bench: pd.DataFrame, horizons=HORIZONS) -> pd.DataFrame:
@@ -318,26 +350,95 @@ def crossed_by_bar3(sig: pd.DataFrame, hist: dict[str, pd.Series]) -> pd.Series:
     return pd.Series(np.where(np.isnan(bars).any(axis=1), np.nan, crossed), index=sig.index)
 
 
+def _late_alpha(sig: pd.DataFrame, snaps: pd.DataFrame, close_of: pd.Series, entry: int, n: int) -> np.ndarray:
+    """Alpha (in %) of entering at the close of day ``fire_day + entry`` and exiting at the
+    close of ``fire_day + n``. The benchmark is the same-run, same-class mean over those
+    same bars, so a random late entry also scores zero."""
+    def forward(symbols: pd.Series, days: pd.Series) -> np.ndarray:
+        at = lambda k: close_of.reindex(pd.MultiIndex.from_arrays([symbols, _shift_day(days, k)])).to_numpy()  # noqa: E731
+        return at(n) / at(entry) - 1
+
+    b = snaps[["run_id", "asset_class"]].assign(bench=forward(snaps["symbol"], snaps["day"]))
+    grouped = b.groupby(["run_id", "asset_class"])["bench"]
+    bench = grouped.mean().where(grouped.count() >= MIN_BENCH_SYMBOLS).rename("bench").reset_index()
+    aligned = sig[["run_id", "asset_class"]].merge(bench, on=["run_id", "asset_class"], how="left")
+    sign = np.where(sig["direction"] == "bullish", 1.0, -1.0)
+    return sign * (forward(sig["symbol"], sig["day"]) - aligned["bench"].to_numpy()) * 100
+
+
 def attach_late_entry(sig: pd.DataFrame, snaps: pd.DataFrame, candles: dict[str, pd.DataFrame],
                       horizons=HORIZONS) -> pd.DataFrame:
     """``alpha_from_bar3_Nd``: the alpha of entering at the close of bar 3 instead of at
-    the fire, exiting on the same bar as ``px_Nd``. The benchmark is the same-run,
-    same-class mean over those same bars, so a random late entry also scores zero."""
+    the fire, exiting on the same bar as ``px_Nd``."""
     close_of = daily_closes(snaps, candles)
+    return sig.assign(**{f"alpha_from_bar3_{n}d": _late_alpha(sig, snaps, close_of, LATE_BAR - 1, n)
+                         for n in horizons if n > LATE_BAR})
 
-    def forward(symbols: pd.Series, days: pd.Series, n: int) -> np.ndarray:
-        at = lambda k: close_of.reindex(pd.MultiIndex.from_arrays([symbols, _shift_day(days, k)])).to_numpy()  # noqa: E731
-        return at(n) / at(LATE_BAR - 1) - 1
 
-    sign = np.where(sig["direction"] == "bullish", 1.0, -1.0)
-    out = {}
-    for n in (h for h in horizons if h > LATE_BAR):
-        b = snaps[["run_id", "asset_class"]].assign(bench=forward(snaps["symbol"], snaps["day"], n))
-        grouped = b.groupby(["run_id", "asset_class"])["bench"]
-        bench = grouped.mean().where(grouped.count() >= MIN_BENCH_SYMBOLS).rename("bench").reset_index()
-        aligned = sig[["run_id", "asset_class"]].merge(bench, on=["run_id", "asset_class"], how="left")
-        out[f"alpha_from_bar3_{n}d"] = sign * (forward(sig["symbol"], sig["day"], n) - aligned["bench"].to_numpy()) * 100
-    return sig.assign(**out)
+def attach_extension(sig: pd.DataFrame, snaps: pd.DataFrame, closed: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """``alpha_from_14d_21d``: what holding past the 14-day exit for one more week adds -
+    entry at the close of fire day + 14, exit at fire day + 21 (docs/exit_research.md).
+    From closed candles only, like ``attach_candle_exits``."""
+    return sig.assign(alpha_from_14d_21d=_late_alpha(sig, snaps, candle_closes(closed), 14, 21))
+
+
+# A coin "in a deep dip": histogram below zero and the current negative excursion in
+# the top quarter of its own prior dips (state peak_pct >= 75), the state that keeps
+# drifting down universe-wide (docs/research_log.md 2026-10-25). Read on closed bars,
+# over the detector's 200-bar window (config.yaml candles.lookback_days).
+DEEP_DIP_PCT = 75
+STATE_LOOKBACK = 200
+
+
+def first_deep_dip(sig: pd.DataFrame, hist: dict[str, pd.Series], last: int = 13) -> pd.Series:
+    """Days after the fire (0 = the fire day's own close) of the first daily close on
+    which the coin is in a deep dip, up to ``fire_day + last`` (the bar before the 14d
+    exit); NaN if there was none or the close hasn't happened. ``hist`` maps symbol ->
+    closed-bar histogram indexed by 'YYYY-MM-DD'.
+
+    Bearish fires only: they start in a rally, so a deep dip is a transition. A bullish
+    fire is already in a dip. A FORWARD quantity, like ``crossed_by_bar3``: use it only
+    to choose a late entry, never as a fire-time feature.
+    """
+    out = pd.Series(np.nan, index=sig.index)
+    bearish = sig[sig["direction"] == "bearish"]
+    for symbol, idx in bearish.groupby("symbol").groups.items():
+        h = hist.get(symbol)
+        if h is None:
+            continue
+        at = {d: i for i, d in enumerate(h.index)}
+        state: dict[int, bool] = {}           # bar index -> deep dip, shared by repeat fires
+
+        def deep(i: int) -> bool:
+            if i not in state:
+                pct = None
+                if h.iloc[i] < 0:
+                    _, pct, _ = _peak_vs_history(h.iloc[i + 1 - STATE_LOOKBACK:i + 1], "bullish")
+                state[i] = pct is not None and pct >= DEEP_DIP_PCT
+            return state[i]
+
+        for ix in idx:
+            fire_day = pd.Timestamp(sig.at[ix, "day"])
+            for k in range(last + 1):
+                i = at.get((fire_day + pd.Timedelta(days=k)).strftime("%Y-%m-%d"))
+                if i is None or i + 1 < STATE_LOOKBACK:
+                    break                     # not closed yet, or too little history
+                if deep(i):
+                    out[ix] = k
+                    break
+    return out
+
+
+def attach_dip_exit(sig: pd.DataFrame, snaps: pd.DataFrame, closed: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """``deep_dip_day`` (see ``first_deep_dip``) and ``alpha_from_dip_14d``: the alpha
+    from the close of that day to the 14d exit - what a long gives up by NOT exiting
+    when the coin falls into a deep dip (docs/exit_research.md). From closed candles only."""
+    dip = first_deep_dip(sig, {s: _closed_bar_hist(c) for s, c in closed.items()})
+    close_of = candle_closes(closed)
+    alpha = pd.Series(np.nan, index=sig.index)
+    for k, idx in dip.dropna().groupby(dip.dropna()).groups.items():
+        alpha[idx] = _late_alpha(sig.loc[idx], snaps, close_of, int(k), 14)
+    return sig.assign(deep_dip_day=dip, alpha_from_dip_14d=alpha)
 
 
 def _closed_bar_hist(candles: pd.DataFrame) -> pd.Series:
@@ -350,11 +451,14 @@ def _closed_bar_hist(candles: pd.DataFrame) -> pd.Series:
 def build(conn: sqlite3.Connection, candles: dict | None = None, funding: dict | None = None,
           gap_days: int = 1, oos_from: str | None = None) -> pd.DataFrame:
     """The full research frame. Indicator and funding columns are present only when
-    those caches are passed in. Alpha works from the database alone, but carries a
-    survivorship bias without candles (see ``benchmark``)."""
+    those caches are passed in, and 21-day outcomes are NaN without candles. Alpha
+    works from the database alone, but carries a survivorship bias without candles
+    (see ``benchmark``)."""
     sig = load_signals(conn)
     snaps = load_snapshots(conn)
-    df = attach_outcomes(sig, benchmark(snaps, candles))
+    closed = closed_candles(candles or {})
+    bench = benchmark(snaps, candles).merge(benchmark(snaps, closed, CANDLE_HORIZONS), on=["run_id", "asset_class"])
+    df = attach_outcomes(attach_candle_exits(sig, closed), bench, HORIZONS + CANDLE_HORIZONS)
     df = assign_episodes(df, gap_days)
     df = attach_open_interest(df, snaps)
     if candles:
@@ -363,6 +467,8 @@ def build(conn: sqlite3.Connection, candles: dict | None = None, funding: dict |
         df = df.join(_at_previous_day(df, market_context(candles, classes)))
         df = attach_late_entry(df, snaps, candles)
         df["crossed_by_bar3"] = crossed_by_bar3(df, {s: _closed_bar_hist(c) for s, c in candles.items()})
+        df = attach_extension(df, snaps, closed)
+        df = attach_dip_exit(df, snaps, closed)
     if funding:
         df = attach_funding(df, funding)
     df["oos"] = df["fired_at"] >= pd.Timestamp(oos_from, tz="UTC") if oos_from else False

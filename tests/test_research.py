@@ -176,11 +176,64 @@ def test_late_entry_is_measured_from_bar3_against_the_same_bars():
 
 
 def test_after_fire_rules_are_scored_only_from_their_late_entry():
-    from macd_searcher.research.rules import AFTER_FIRE_RULES, WATCHLIST
+    from macd_searcher.research.rules import AFTER_FIRE_METRIC, AFTER_FIRE_RULES, WATCHLIST
     assert not set(AFTER_FIRE_RULES) & set(RULES)          # never in the from-the-fire cohort table
+    assert set(AFTER_FIRE_METRIC) == set(AFTER_FIRE_RULES)
     for c in WATCHLIST:
         if c.rule in AFTER_FIRE_RULES:
-            assert c.metric == "alpha_from_bar3", c.rule
+            assert c.metric == AFTER_FIRE_METRIC[c.rule], c.rule
+
+
+def test_candle_exits_never_read_the_newest_cached_bar():
+    """The newest cached bar may have been forming when it was fetched; a 21d exit read
+    from it would freeze a partial close as the outcome."""
+    bars = pd.concat([_candle({"S": 100.0}, DAY)["S"], _candle({"S": 90.0}, _shift(DAY, 21))["S"]])
+    sig = pd.DataFrame({"symbol": ["S", "S"], "day": DAY, "direction": ["bullish", "bearish"], "fire_close": 100.0})
+    forming = dataset.attach_candle_exits(sig, dataset.closed_candles({"S": bars}))
+    assert forming["px_21d"].isna().all()
+
+    later = pd.concat([bars, _candle({"S": 95.0}, _shift(DAY, 22))["S"]])
+    closed = dataset.attach_candle_exits(sig, dataset.closed_candles({"S": later}))
+    assert closed["px_21d"].tolist() == [90.0, 90.0]
+    assert closed["ret_21d"].tolist() == pytest.approx([-0.10, 0.10])
+
+
+def test_extension_is_measured_from_the_14d_exit():
+    """Holding past the 14d exit is judged on the week after it alone."""
+    syms = [f"S{i}" for i in range(12)]
+    candles = {s: pd.concat([_candle({s: 50.0}, DAY)[s],                        # before the 14d exit: ignored
+                             _candle({s: 100.0}, _shift(DAY, 14))[s],
+                             _candle({s: 120.0 if s == "S0" else 100.0}, _shift(DAY, 21))[s],
+                             _candle({s: 1.0}, _shift(DAY, 22))[s]])           # newest bar: never read
+               for s in syms}
+    sig = pd.DataFrame({"run_id": "r1", "asset_class": "crypto", "symbol": ["S0", "S0"], "day": DAY,
+                        "direction": ["bullish", "bearish"]})
+    out = dataset.attach_extension(sig, _snaps(syms), dataset.closed_candles(candles))
+    alpha = (0.20 - 0.20 / 12) * 100
+    assert out["alpha_from_14d_21d"].tolist() == pytest.approx([alpha, -alpha])
+
+
+def _dip_hist(after_fire: list[float]) -> pd.Series:
+    """200 bars of excursions (+1, then a dip of 1, 2, 3 or 4), a positive fire-day bar,
+    then ``after_fire``."""
+    body = []
+    for i in range(20):
+        body += [1.0] * 5 + [-float(i % 4 + 1)] * 5
+    vals = body + [1.0] + after_fire
+    days = pd.date_range("2025-12-01", periods=len(vals), freq="D").strftime("%Y-%m-%d")
+    return pd.Series(vals, index=days)
+
+
+def test_first_deep_dip_finds_the_close_where_the_dip_reaches_the_top_quarter():
+    deep = _dip_hist([-0.5, -2.5, -4.5] + [-4.0] * 11)     # 0th, 50th, then 100th percentile
+    mild = _dip_hist([-0.5] * 14)
+    short = _dip_hist([-0.5] * 5)                          # window not closed yet
+    fire_day = deep.index[200]
+    sig = pd.DataFrame({"symbol": ["DEEP", "MILD", "SHORT", "DEEP"], "day": fire_day,
+                        "direction": ["bearish", "bearish", "bearish", "bullish"]})
+    got = dataset.first_deep_dip(sig, {"DEEP": deep, "MILD": mild, "SHORT": short})
+    assert got.iloc[0] == 3
+    assert got.iloc[1:].isna().all()                       # never deep; not yet known; bullish fires skipped
 
 
 # ---------------------------------------------------------------- statistics

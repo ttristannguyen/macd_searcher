@@ -174,6 +174,15 @@ liquidity dependence", not as a threshold to pick.
 ### 3.4 Exits
 
 - **Time only:** close at the 14th daily close.
+- **Candidate: hold the shorts 21 days** (2026-10-27,
+  [exit_research.md](exit_research.md)). By day 14 the longs' alpha has stopped
+  accruing. S1 and S2 keep earning in week 3, positive every year. As a portfolio
+  it adds +0.27 [−0.05, +0.58] Sharpe, in both 2023–24 and 2025–26, and short holds of
+  21–30 days form a plateau. It was found on this history, so it waits for its check
+  (§7).
+- **No path-based exit.** Stops, take-profits and trailing stops on alpha, and
+  zero-cross and opposite-fire exits, were tested on all four legs. None helps in both
+  halves of the history (exit_research.md §3).
 - **No stop on longs.** Stops cap the tail and add no alpha (C6, appendix).
 - **No failed-cross exit.** On the good fires, it sells the uncrossed trades at bar 3,
   just before they earn their alpha (C6a, 3.6 years, portfolio level).
@@ -202,7 +211,7 @@ plus:
 |---|---|---|
 | net exposure | \|long − short\| ≤ 10% of equity after each rebalance | stays neutral as names open and close |
 | per name | ≤ 10% of equity, ≤ 1% of prior-day volume | backtest construction; capacity |
-| short tail stop | a resting exchange trigger order, placed at entry, closes a short that is up e.g. +50% against it | alt returns are right-skewed: B2 hedged with 20 random alts lost 36% in 2024, because a small short basket sometimes holds the one that goes 5x. Set wide enough to catch only squeezes; the backtester must show it costs ~0 alpha |
+| short tail stop | a resting exchange trigger order, placed at entry, closes a short that is up e.g. +50% against it | alt returns are right-skewed: B2 hedged with 20 random alts lost 36% in 2024, because a small short basket sometimes holds the one that goes 5x. Set wide enough to catch only squeezes. *Measured 2026-10-27:* at +50% it costs 0.11 Sharpe and doesn't cut drawdown, because squeezes partly revert. At +100% it costs 0.06 (exit_research.md §6) |
 | account halt | at −30% from peak: close all, cancel orders, manual restart (proposal, §10) | about 1.4x B3's −22% backtest drawdown |
 | ledger check | halt if exchange positions ≠ ledger | carried over |
 | daily alert | Telegram message on a day worse than −5% | an alert, not a block: in the v2 tests, soft halts deadlocked |
@@ -245,6 +254,9 @@ one at a time.
 | short S2 only if uncrossed at bar 3, entered at the bar-3 close | S2 | `bullish 50 < peak_pct < 100, uncrossed at bar 3` (10-23) | switch: ~59% of the capital for about the same drift (−1.08 vs −0.15 crossed), though ~40% of it is the state |
 | skip L1 when 7d funding ≥ 15% APR | L1 | `bullish, 7d funding >= 15% APR` (10-25) | skip those longs: crowded longs still to unwind. High-funding S2 fires are already short |
 | drop early-recovery coins (above SMA50, below SMA200) from S2 | S2 | `bullish 50 < peak_pct < 100, early recovery` (10-24) | only once a mechanism exists; it is a post hoc 2×2 cut |
+| hold S1 21 days instead of 14 | S1 | `crypto bearish peak_pct <= 25, first fires`, 14d exit → 21d (10-27) | hold S1 21 days |
+| hold S2 21 days instead of 14 | S2 | `crypto bullish 50 < peak_pct < 100, first fires`, 14d exit → 21d (10-27) | hold S2 21 days |
+| exit a long whose coin enters a deep dip (hist < 0, state `peak_pct ≥ 75`) | L2 | `crypto pullback, first fires, deep dip by day 13` (10-27) | add the exit; its history gain is mostly 2023–24 |
 | pullback above SMA200 | L2 | `crypto pullback above SMA200` (10-19) | relevant only with a 7d L2 hold: the trend changes how fast the pullback pays, not how much |
 | v3 on index equities | new sleeve | `v3 bullish, S&P 500 / Nasdaq-100` (10-19) | a separate equity book, backtested first |
 
@@ -277,10 +289,11 @@ baseline:
 2. the ±25% drift band, against daily re-weighting: turnover vs tracking
 3. the short tail stop's level: is its alpha cost ≈ 0?
 4. thin side scaled down vs topped up with a universe basket: capital use
-5. per-leg holds, L2 at 7d and the rest at 14d. L2's fire edge is front-loaded (+1.12
-   at 7d, +0.33 at 14d) while L1 and S1 grow. It doubles L2's turnover, and it is a
-   horizon found on this history, so it is adopted only if the live 7d pullback check
-   agrees
+5. per-leg holds: shorts at 21d, longs at 14d (+0.27 Sharpe in-sample,
+   exit_research.md). This replaces the earlier candidate, L2 at 7d. L2's fire edge is
+   front-loaded, but as a portfolio the change is neutral (1.40 vs 1.42) and adds 14%
+   turnover. It is a horizon found on this history, so it is adopted only if its live
+   check agrees (§7)
 6. costs at the per-side figure paper trading measures
 
 Report for each: Sharpe with a 30-day block-bootstrap 95% interval, CAGR, max
@@ -339,6 +352,7 @@ legs are contradicted.
 | v3 bullish at 7d, universe-hedged | costs take it from 0.59 gross to 0.00 net | B1 |
 | market timing (v2, BTC downtrend, signal clusters) | no timing hypothesis survived history | H4–H6, A4, C2 |
 | stops on longs, Bollinger and failed-cross exits | no alpha; the failed-cross exit gives up unpaid edge | C6, C6a |
+| stops, take-profits and trailing stops on alpha; zero-cross and opposite-fire exits | none helps in both halves of the history; take-profits flip sign with the market | exit_research.md §3 |
 | sizing by sig/ATR | sig carries no selection information | confidence_v3_research.md §1 |
 | SMA filter on the pullback at 14d | the gap is gone by 14d | research log 2026-10-24 |
 | ATR expansion | timing, not selection | H7 |

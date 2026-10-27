@@ -66,6 +66,10 @@ def _bull_deep(d: pd.DataFrame) -> pd.Series:
     return _bull(d) & (d.peak_pct > 50) & (d.peak_pct < 100)
 
 
+def _first(d: pd.DataFrame) -> pd.Series:
+    return d["episode_start"].astype(bool)
+
+
 def _v2(d: pd.DataFrame) -> pd.Series:
     return _bull(d) & (d.atr > 0) & (d.sig_atr < CONFIDENCE_MAX_SIG_ATR) & (d.red < CONFIDENCE_MAX_REDUCTION)
 
@@ -119,6 +123,11 @@ RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
         & (_col(d, "dist_sma50_atr") > 0) & (_col(d, "dist_sma200_atr") <= 0),
     # 2026-10-25 pass: crowded longs going into the dip (baseline funding is ~11% APR).
     "bullish, 7d funding >= 15% APR": lambda d: _bull(d) & (_col(d, "fund_7d_apr") >= 15),
+    # B3's short legs as traded: crypto, first fire per episode (docs/exit_research.md).
+    "crypto bearish peak_pct <= 25, first fires": lambda d: _bear(d) & (d["asset_class"] == "crypto")
+        & (d.peak_pct <= 25) & _first(d),
+    "crypto bullish 50 < peak_pct < 100, first fires": lambda d: _bull_deep(d) & (d["asset_class"] == "crypto")
+        & _first(d),
     "all bearish": _bear,
     "everything": lambda d: d["direction"].notna(),
 }
@@ -126,10 +135,17 @@ RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
 # Rules that also use what happened AFTER the fire. Scored from the fire, they would
 # condition on their own first bars (an uncrossed fire has by construction fallen), so
 # they are kept out of RULES and the cohort table. A check may use one only with the
-# matching late-entry metric (dataset.attach_late_entry).
+# late-entry metric that starts where its condition is known (AFTER_FIRE_METRIC).
 AFTER_FIRE_RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
     # 2026-10-23 (profit_strategies.md C6a): the uncrossed deep fires carry the drift.
     "bullish 50 < peak_pct < 100, uncrossed at bar 3": lambda d: _bull_deep(d) & (_col(d, "crossed_by_bar3") == 0),
+    # 2026-10-27 (exit_research.md): a pullback long whose coin then falls into a deep dip.
+    "crypto pullback, first fires, deep dip by day 13": lambda d: _crypto_pullback(d) & _first(d)
+        & _col(d, "deep_dip_day").notna(),
+}
+AFTER_FIRE_METRIC = {
+    "bullish 50 < peak_pct < 100, uncrossed at bar 3": "alpha_from_bar3",
+    "crypto pullback, first fires, deep dip by day 13": "alpha_from_dip",
 }
 
 
@@ -157,7 +173,8 @@ class Check:
     # only has to not contradict it — it acts once it has enough episodes.
     role: str = "discovery"
     # Days held. None = the report's --horizon (7 by default). Set it when the
-    # hypothesis itself is about a holding period. Live outcomes stop at 14d.
+    # hypothesis itself is about a holding period. Live outcomes stop at 14d; 21d
+    # comes from closed candles (dataset.CANDLE_HORIZONS).
     horizon: int | None = None
 
 
@@ -243,4 +260,17 @@ WATCHLIST: tuple[Check, ...] = (
           "156 ep; Sep 19 - Oct 7 -6.37 [-9.82, -2.69], 49 ep; Oct 8-17 -4.96, 14 ep; all one falling market "
           "from September)", -1, "skip or short bullish fires with crowded funding",
           versus="all bullish", registered="2026-10-25"),
+    # Added 2026-10-27 (docs/exit_research.md): exits for B3. Each is measured from the
+    # 14d exit or the deep-dip close, never from the fire. Bearish alpha is short-side
+    # and bullish long-side, so a good S2 short reads negative and a bad L2 long positive.
+    Check("crypto bearish peak_pct <= 25, first fires", "Does B3's S1 short keep earning in the week after its "
+          "14d exit? (history 2023-26, 14d -> 21d: +0.40 [-0.13, +0.91], every year)", +1,
+          "hold S1 shorts 21 days", registered="2026-10-27", metric="alpha_from_14d", horizon=21),
+    Check("crypto bullish 50 < peak_pct < 100, first fires", "Does B3's S2 short keep earning in the week after "
+          "its 14d exit? (history 2023-26, 14d -> 21d, long-side: -0.38 [-0.92, +0.18], 3 of 4 years)", -1,
+          "hold S2 shorts 21 days", registered="2026-10-27", metric="alpha_from_14d", horizon=21),
+    Check("crypto pullback, first fires, deep dip by day 13", "Do pullback LONGS whose coin "
+          "falls into a deep dip (hist < 0, state peak_pct >= 75) lose from there to the 14d exit? (history "
+          "2023-26, long-side -1.19 [-2.02, -0.42], 31% of trades; -1.81 in 2023-24, -0.58 in 2025-26)", +1,
+          "exit L2 longs on a deep dip", registered="2026-10-27", metric="alpha_from_dip", horizon=14),
 )

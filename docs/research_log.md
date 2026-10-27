@@ -8,6 +8,58 @@ own docs ([confidence_v3_research.md](confidence_v3_research.md),
 
 ---
 
+## 2026-10-27 — exits for B3
+
+Question: does any exit beat B3's 14-day time exit? Full write-up in
+[exit_research.md](exit_research.md). Fires 2023-03-02 → 2026-10-08, first fire per
+episode, candles to 2026-10-24. Every rule is reported on 2023–24 and 2025–26
+separately.
+
+- **The legs run on different clocks.** The longs' fire edge is spent by day 14, and
+  L2's by day 7. S1 and S2 keep earning in days 14–21 (+0.50, +0.71), positive every
+  year. Holding the shorts 21 days adds **+0.27 [−0.05, +0.58]** Sharpe to the book.
+  The gain is positive in both periods, holds at 0.05–0.20% costs, and short holds of
+  21–30 days form a plateau.
+- **Path exits don't work.** Stops, take-profits and trailing stops on alpha, and
+  zero-cross and opposite-fire exits, are noise, flip with the market, or cost alpha.
+  The good longs lean towards reversal after a bad start (C6a).
+- **State exit, hypothesis only.** An L2 long whose coin falls into a deep dip loses
+  −1.57 more by day 14. Exiting it adds +0.65 per trade in 2023–24 and +0.13 in
+  2025–26.
+- **The short tail stop at +50% costs 0.11 Sharpe.** 63% of the shorts that touch +50%
+  end the 14 days better than the stop.
+
+**Tooling.** The pipeline now has a 21-day horizon (`dataset.CANDLE_HORIZONS`),
+measured from closed candles only, because the database scores outcomes to 14d. A
+symbol's newest cached bar is never read, since it may have been forming when cached.
+Two new late-entry metrics:
+- `alpha_from_14d_21d`: entry at the 14d exit, exit at day 21.
+- `alpha_from_dip_14d`: from the first close after the fire on which the coin is in a
+  deep dip (`deep_dip_day`, bearish fires only) to the 14d exit.
+
+Each after-fire rule now names its metric in `rules.AFTER_FIRE_METRIC`, and a test pins
+it. `--horizon 21` also works for the cohort table.
+
+**Plumbing check** on the 2026-10-27 snapshot. Fires through 2026-10-03 have a 21d
+outcome, 99.9% of the crypto rows that have a 14d outcome. A deep dip comes before the
+exit on 33% of crypto pullback first fires (history: 31%). These live episodes were
+all seen before registration, so they are orientation, not evidence:
+
+| leg | measure | live value | episodes |
+|---|---|---|---|
+| S1 | days 14–21 | +0.25 [−0.85, +1.10] | 208 |
+| S2 | days 14–21, long-side | −0.74 [−1.80, +0.86] | 233 |
+| L2 | after a deep dip, short-side | +3.03 [+0.99, +6.99] | 159 |
+
+### Registered this pass
+
+- S1 and S2 crypto first fires: alpha from the 14d exit to day 21 (> 0 as a short).
+  These are two checks, so each leg's hold can switch on its own.
+- Crypto pullback first fires whose coin falls into a deep dip by day 13: alpha from
+  that close to the 14d exit, expected negative for the long.
+
+---
+
 ## 2026-10-25 — periodic pass: the fire vs the state it fires in
 
 Snapshot synced 2026-10-25 (latest run 04:00 UTC): 8,578 deduped signals, 7,474 with a

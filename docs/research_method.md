@@ -105,7 +105,13 @@ use a forward-window column as a feature: `bars_to_zero_cross`,
 *Why:* "never crossed zero" looked like a +6.7% predictor until restricted to
 "crossed by day 3", when the effect reversed. A rule that legitimately waits for
 post-fire bars ("still uncrossed at bar 3") goes in `rules.AFTER_FIRE_RULES` and is
-scored only from that later entry (`alpha_from_bar3_Nd`), never from the fire.
+scored only from the later entry where its condition is known
+(`rules.AFTER_FIRE_METRIC`, e.g. `alpha_from_bar3_Nd`), never from the fire.
+`deep_dip_day` and `crossed_by_bar3` are forward columns of this kind.
+
+**Horizons past 14 days** come from closed candles only (`dataset.CANDLE_HORIZONS`).
+The database scores outcomes to 14d. Those exits never read a symbol's newest cached
+bar, which may have been forming when it was fetched, and never fall back to snapshots.
 
 **8. Check absolute thresholds against volatility.** Median daily ATR in this
 universe is ~6% of price; a ">10% move in 14 days" is 1.6 daily ATRs. *Why:* half of

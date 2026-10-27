@@ -50,6 +50,12 @@ _LEG_HEADER: dict[Leg, str] = {
 }
 
 
+def _leg_header(leg: Leg, count: int) -> str:
+    """Escaped: S2's `50 < pk < 100` is a bare `<`, which Telegram's HTML parser
+    rejects as a malformed tag and fails the whole send."""
+    return f"{escape(_LEG_HEADER[leg])} ({count})"
+
+
 # ---------- quiet hours ----------
 
 
@@ -139,7 +145,7 @@ def format_message(
         return "\n".join(lines)
 
     for leg, rows in legs.items():
-        lines.append(f"{_LEG_HEADER[leg]} ({len(rows)})")
+        lines.append(_leg_header(leg, len(rows)))
         lines.extend(_fmt_stage1_row(s) for s in sorted(rows, key=_reduction_key))
     return "\n".join(lines)
 
@@ -170,7 +176,7 @@ def format_book_message(book: Book) -> str:
         rows = sorted((p for p in book.positions if p.leg == leg),
                       key=lambda p: (book.days_held(p), p.symbol))
         if rows:
-            lines.append(f"{_LEG_HEADER[leg]} ({len(rows)})")
+            lines.append(_leg_header(leg, len(rows)))
             lines.extend(_fmt_position_row(book, p) for p in rows)
     if book.exits:
         lines.append(f"⏹ EXITS ({len(book.exits)})")

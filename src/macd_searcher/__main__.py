@@ -123,13 +123,18 @@ async def _run_once(
     candles = trim_to_lookback(fetched, cfg.candles.lookback_days, end_ms) if book_run else fetched
     signals = evaluate_all(candles, cfg)
 
-    # Per-asset snapshots (every asset, fired or not) — best-effort.
+    # Per-asset snapshots (every asset, fired or not) and the signals — best-effort,
+    # and written BEFORE the send, so a Telegram failure can't cost the run its rows.
     if conn is not None and run_id is not None:
         try:
             metrics = compute_all_metrics(candles, cfg)
             db.insert_snapshots(conn, run_id, {a.name: a for a in assets}, metrics)
         except Exception:
             log.exception("Failed to write asset_snapshots")
+        try:
+            db.insert_signals(conn, run_id, signals, started_at or _now_iso())
+        except Exception:
+            log.exception("Failed to write signals")
 
     if book_run:
         status = await _send_book(fetched, cfg, datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc))
@@ -138,7 +143,6 @@ async def _run_once(
 
     if conn is not None and run_id is not None:
         try:
-            db.insert_signals(conn, run_id, signals, started_at or _now_iso())
             db.finalize_run(
                 conn, run_id,
                 completed_at=_now_iso(),
@@ -150,7 +154,7 @@ async def _run_once(
                 notify_status=status,
             )
         except Exception:
-            log.exception("Failed to write signals / finalize run row")
+            log.exception("Failed to finalize run row")
 
     log.info("Scan complete in %.2fs (%d assets, %d signals, notify=%s)",
              time.perf_counter() - started, len(candles), len(signals), status)

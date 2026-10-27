@@ -7,6 +7,7 @@ non-send branches via config.
 from __future__ import annotations
 
 import io
+import re
 from contextlib import redirect_stdout
 from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
@@ -424,3 +425,37 @@ async def test_send_book_dry_run_prints_the_book():
     with redirect_stdout(buf):
         assert await send_book(_book(), cfg) == "dry_run"
     assert "B3 book" in buf.getvalue() and "FRESH" in buf.getvalue()
+
+
+# ---------- Telegram HTML validity ----------
+#
+# Both messages go out with parse_mode=HTML, where Telegram rejects the WHOLE send if
+# any `<`, `>` or `&` isn't part of a tag or entity. A dry run only prints, so this is
+# the one check that the text would survive Telegram's parser (2026-10-27: the S2
+# header's bare `50 < pk < 100` failed every live send).
+
+
+def _assert_telegram_html(text: str) -> None:
+    assert text.count("<b>") == text.count("</b>")
+    body = re.sub(r"&(lt|gt|amp|quot);", "", text).replace("<b>", "").replace("</b>", "")
+    bad = [ch for ch in "<>&" if ch in body]
+    assert not bad, f"unescaped {bad} in:\n{text}"
+
+
+def test_intraday_message_is_valid_telegram_html():
+    signals = [
+        _leg_signal("MILD", "bullish", 20.0), _leg_signal("LEADER", "bearish", 90.0),
+        _leg_signal("WEAK", "bearish", 10.0), _leg_signal("DEEP", "bullish", 80.0),
+        _leg_signal("A<B&C", "bullish", 10.0),
+    ]
+    _assert_telegram_html(format_message(signals, scanned_count=5, cfg=AppConfig()))
+
+
+def test_book_message_is_valid_telegram_html():
+    book = Book(
+        day=_DAY,
+        positions=[_pos("FRESH", "L1", 0), _pos("LEADER", "L2", 3, 88.0),
+                   _pos("WEAK", "S1", 2), _pos("A<B&C", "S2", 0, 70.0)],
+        exits=[_pos("X>Y", "S2", 14, 70.0)],
+    )
+    _assert_telegram_html(format_book_message(book))

@@ -128,6 +128,12 @@ RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
         & (d.peak_pct <= 25) & _first(d),
     "crypto bullish 50 < peak_pct < 100, first fires": lambda d: _bull_deep(d) & (d["asset_class"] == "crypto")
         & _first(d),
+    # 2026-10-28 pass: B3's long leg L2 by peak_pct band. At 14d, only the 75-<100 band
+    # earned alpha. Record peaks gave alpha in week 1 and lost it in week 2.
+    "crypto pullback, first fires": lambda d: _crypto_pullback(d) & _first(d),
+    "crypto pullback peak_pct >= 75, first fires": lambda d: _crypto_pullback(d) & (d.peak_pct >= 75) & _first(d),
+    "crypto pullback 75 <= peak_pct < 100, first fires": lambda d: _crypto_pullback(d) & (d.peak_pct >= 75)
+        & (d.peak_pct < RECORD_PEAK_PCT) & _first(d),
     "all bearish": _bear,
     "everything": lambda d: d["direction"].notna(),
 }
@@ -273,4 +279,16 @@ WATCHLIST: tuple[Check, ...] = (
           "falls into a deep dip (hist < 0, state peak_pct >= 75) lose from there to the 14d exit? (history "
           "2023-26, long-side -1.19 [-2.02, -0.42], 31% of trades; -1.81 in 2023-24, -0.58 in 2025-26)", +1,
           "exit L2 longs on a deep dip", registered="2026-10-27", metric="alpha_from_dip", horizon=14),
+    # Added 2026-10-28 (docs/research_log.md): B3's L2 long by peak_pct band, first fires.
+    # Bearish alpha is short-side, so a better LONG reads negative.
+    Check("crypto pullback 75 <= peak_pct < 100, first fires", "Is L2 a better 14d LONG in the 75-<100 band "
+          "than in the rest of the leg? (closed-bar history to 2026-10, long-side: 75-<100 +2.24 [+0.73, +3.76], "
+          "every year; 50-75 +0.19; records -0.12; band - rest +2.15 [+0.46, +3.90])", -1,
+          "restrict L2 to 75 <= peak_pct < 100", versus="crypto pullback, first fires",
+          registered="2026-10-28", horizon=14),
+    Check("crypto pullback 75 <= peak_pct < 100, first fires", "Is the 75-<100 band a better 14d LONG than "
+          "record peaks? (closed-bar history to 2026-10, long-side: records +1.48 at 7d, -0.12 at 14d; "
+          "band - records at 14d +2.36 [-0.33, +5.07])", -1,
+          "drop record peaks from L2", versus="crypto pullback peak_pct >= 75, first fires",
+          registered="2026-10-28", horizon=14),
 )

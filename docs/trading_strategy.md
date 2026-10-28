@@ -257,6 +257,8 @@ one at a time.
 | hold S1 21 days instead of 14 | S1 | `crypto bearish peak_pct <= 25, first fires`, 14d exit → 21d (10-27) | hold S1 21 days |
 | hold S2 21 days instead of 14 | S2 | `crypto bullish 50 < peak_pct < 100, first fires`, 14d exit → 21d (10-27) | hold S2 21 days |
 | exit a long whose coin enters a deep dip (hist < 0, state `peak_pct ≥ 75`) | L2 | `crypto pullback, first fires, deep dip by day 13` (10-27) | add the exit; its history gain is mostly 2023–24 |
+| L2 only at 75 ≤ `peak_pct` < 100 | L2 | `crypto pullback 75 <= peak_pct < 100, first fires` against the rest of the pullback, 14d (10-28) | remove the 50–75 band and record peaks from L2 |
+| no record peaks in L2 | L2 | the same band against `crypto pullback peak_pct >= 75, first fires`, 14d (10-28) | remove record peaks from L2 |
 | pullback above SMA200 | L2 | `crypto pullback above SMA200` (10-19) | relevant only with a 7d L2 hold: the trend changes how fast the pullback pays, not how much |
 | v3 on index equities | new sleeve | `v3 bullish, S&P 500 / Nasdaq-100` (10-19) | a separate equity book, backtested first |
 

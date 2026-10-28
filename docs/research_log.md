@@ -8,6 +8,79 @@ own docs ([confidence_v3_research.md](confidence_v3_research.md),
 
 ---
 
+## 2026-10-28 — L2 and S2 by `peak_pct` band and histogram reduction
+
+Question: how do B3's L2 and S2 legs change with the `peak_pct` band and with the
+histogram reduction (`red`) at the fire?
+
+Data: the closed-bar rebuild, extended with the live candle cache to 2026-10-24. The
+data is crypto only. The tables use the first fire of each episode, as B3 trades. Alpha
+is in the direction of the trade. Intervals use week blocks. The panel has 95,921
+coin-days and 26,972 fires. Before 2026-06-08, 23,122 of the 23,125 cached rebuild fires
+match, with the same `peak_pct` and `red`. The scripts are scratch and are not committed.
+All of this is in-sample.
+
+| leg | band | 7d | 14d | 21d | episodes |
+|---|---|---|---|---|---|
+| L2 | 50–75 | +0.35 | +0.19 | | 1,438 |
+| L2 | 75–<100 | **+1.80** [+0.71, +2.87] | **+2.24** [+0.73, +3.76] | | 802 |
+| L2 | 100 | +1.48 [−0.29, +3.44] | −0.12 [−2.30, +2.17] | | 655 |
+| S2 | 50–75 | +0.21 | +0.58 | +0.73 | 1,403 |
+| S2 | 75–<100 | +0.54 | **+1.44** [+0.33, +2.49] | **+2.23** [+0.95, +3.48] | 821 |
+
+- **At 14d, the 75–<100 band holds all of L2's alpha.** It is positive every year. It
+  beats the rest of the leg by +2.15 [+0.46, +3.90]. The full leg is +0.68 [−0.05, +1.42].
+- **Record peaks (100) earn +1.48 in week 1 and lose it by day 14.**
+- **S2's deeper band is better**, by +0.86 [−0.56, +2.30] at 14d and +1.51 [−0.07,
+  +3.14] at 21d. Both intervals include zero.
+- The 2026-10-18 band table used the mean of all fires in each episode. Re-fires are
+  better longs (H9), so that table showed bearish 25–50 and 50–75 too high. On first
+  fires, bearish 25–50 as a long is +0.18 / +0.38 at 7d / 14d. That is ≈ 0, as
+  trading_strategy.md §1.1 says.
+
+**Histogram reduction does not sort either leg.** The `red` bins are round numbers near
+the quartiles of `red`. They were fixed before the first look.
+- By `red` alone (0.30–0.45 / 0.45–0.60 / 0.60–0.80 / 0.80–1.00) at 14d: L2 is +0.89 /
+  +0.52 / −0.21 / +1.18, and S2 is +0.72 / +1.96 / +0.13 / +0.72. There is no gradient.
+- In each band, the rank IC of `red` against alpha is between −0.08 and +0.06. Only 1
+  of 12 intervals excludes zero: S2 50–75 at 14d, +0.06 [+0.00, +0.11].
+- One cell passes the usual robustness tests: S2 50–75 × `red` 0.45–0.60, +2.81 [+1.12,
+  +4.43] at 14d (323 ep). Without its top 10 symbols, it is +2.52. Both halves of the
+  history are positive. But the best `red` bin changes between bands, and no mechanism
+  explains it. It is 1 cell of about 80, so it is not a finding.
+- The same cell in L2 (+0.94 at 14d) falls to +0.20 without its top 10 symbols.
+
+**Counterfactual.** Almost no coin retraces 30% without a fire: 37 coin-days in 3.6
+years in L2's bands. Thus, a test of `red` against non-firing coins is not possible.
+This agrees with 2026-10-25: the detector finds each such setup. The possible comparison
+is the same band before the histogram retraces 30%. These coin-days have a retrace below
+0.30, a peak above the noise floor, and no same-side fire in the last 5 days.
+
+| 14d | state, retrace < 0.30 | fire |
+|---|---|---|
+| L2 50–75 | −0.35 | +0.19 |
+| L2 75–<100 | +0.94 | +2.24 |
+| L2 100 | **+2.15** [+0.06, +4.39] | −0.12 |
+| S2 50–75 | +0.35 | +0.58 |
+| S2 75–<100 | +0.81 | +1.44 |
+
+- In the 75–<100 band, the L2 fire adds approximately +1.3 to its state.
+- **On record peaks, the fire is a worse long than its state.** A record rally that
+  continues to extend continues to pay. After its histogram falls by 30%, the rally gives
+  back its week-1 gain by day 14. In the record band, a deeper `red` is also worse: IC
+  −0.06 [−0.13, +0.01] at 14d.
+- *Mechanism (hypothesis):* a record-strength excursion is a blow-off. When its momentum
+  falls by 30% or more, the move is complete.
+- The S2 fire adds little to its state (+0.2 / +0.6), as on 2026-10-25.
+
+### Registered this pass
+
+- The crypto pullback with 75 ≤ `peak_pct` < 100 against the rest of the pullback,
+  first fires, 14d. A better long reads negative.
+- The same band against record-peak pullbacks, first fires, 14d.
+
+---
+
 ## 2026-10-27 — exits for B3
 
 Question: does any exit beat B3's 14-day time exit? Full write-up in

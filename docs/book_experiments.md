@@ -152,10 +152,14 @@ as the counterfactual.
   same leg on that day. No leg has less alpha on cluster days. L2 has its most stable
   alpha on cluster days (+1.01 [+0.42, +1.61], 2,599 episodes).
 - **Re-fire after entry.** H9 says that bearish re-fires are signs of strength. Then a
-  re-fire in days 1–2 should be bad for an S1 short and good for an L2 long. The S1
-  result shows no effect (+0.92 vs +0.83). L2 shows the expected sign (+0.72 vs +0.16
-  from bar 2 to day 14), but only 20% of the trades have no re-fire. S2 changes sign
-  between the halves.
+  re-fire in days 1–2 should be bad for an S1 short and good for an L2 long. The
+  values are alpha in the trade direction, from bar 2 to day 14, with re-fire vs no
+  re-fire:
+  - *S1:* no effect (+0.92 vs +0.83).
+  - *L2:* the result agrees. L2 trades with a re-fire earn more alpha than L2 trades
+    without one (+0.72 vs +0.16). But only 20% of L2 trades have no re-fire, and they
+    still earn +0.16. Thus an exit on them gives nothing.
+  - *S2:* the sign changes between the halves.
 - **Weekend fires.** L1 and L2 fires on a Saturday or Sunday decision day have about 0
   alpha (L1 −0.05, L2 −0.25), and weekday fires +2.20 and +1.24. Both halves show
   this. But S1 weekend fires are better shorts (+1.81 vs +1.08), and non-fired L2 coins

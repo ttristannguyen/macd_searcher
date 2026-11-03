@@ -373,7 +373,7 @@ def _book() -> Book:
         day=_DAY,
         positions=[_pos("OLDER", "L1", 9), _pos("FRESH", "L1", 0), _pos("LEADER", "L2", 3, 88.0),
                    _pos("DEEP", "S2", 1, 70.0)],
-        exits=[_pos("GONE", "S1", 14)],
+        exits=[_pos("GONE", "S1", 15)],
     )
 
 
@@ -456,6 +456,6 @@ def test_book_message_is_valid_telegram_html():
         day=_DAY,
         positions=[_pos("FRESH", "L1", 0), _pos("LEADER", "L2", 3, 88.0),
                    _pos("WEAK", "S1", 2), _pos("A<B&C", "S2", 0, 70.0)],
-        exits=[_pos("X>Y", "S2", 14, 70.0)],
+        exits=[_pos("X>Y", "S2", 15, 70.0)],
     )
     _assert_telegram_html(format_book_message(book))

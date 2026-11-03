@@ -115,8 +115,9 @@ log's band table (2026-10-18) and pullback pass (2026-10-16). "Fire − state" i
 - **Hold:** ~~14 daily closes from entry. The exit happens at that day's rebalance.~~
   The exit is at the close of fire day + 14, the exit bar of `alpha_14d` in the
   research pipeline. The entry is at the close of the day before the fire day, so a
-  hold has 15 daily returns. *The live Telegram book (`book.py`) still exits one day
-  earlier, at the 14th close.*
+  hold has 15 daily returns. *From 2026-11-03, the live Telegram book (`book.py`)
+  uses the same exit. It lists a position in 15 daily books, then as an exit in the
+  next book.*
 - **One position per coin.** A new first fire in a traded band sets the side and
   restarts the clock, so a flip is one netted order. A fire in an untraded band
   leaves the position alone. *~~The scratch backtests didn't record their rule for
@@ -318,8 +319,8 @@ frozen panel (`state/research_cache/backtest_panel.pkl`).
   was tested. Candles, the exchange and the ledger stay outside it, the same layering
   as `stats.py` → `web/perf.py`. The rules §1.2 leaves open (side conflicts, thin
   sides) are pinned here, with tests. *2026-11-03:* this is `target_book`. The live
-  bot does not call it yet. `book.py` has its own copy of the rules, and it exits one
-  day earlier (§1.2).
+  bot does not call it yet. `book.py` has its own copy of the rules, with the same
+  exit day (§1.2). A test keeps the two holds equal.
 
 ### 8.2 Execution variants only
 

@@ -16,7 +16,7 @@ Every 4 hours, the scanner:
 2. Drops anything illiquid (default: 24h notional volume < $1M *or* open interest < $1M) so only tradeable markets remain.
 3. Fetches the last ~200 daily candles per surviving asset, concurrently.
 4. Runs two MACD-based detectors on each asset and emits at most one signal per asset (the higher-priority of the two if both fire).
-5. Formats a Telegram message grouped by B3 leg ([docs/trading_strategy.md](docs/trading_strategy.md)), crypto only. The 00:00 UTC run sends the daily **B3 book** from closed bars: every open position by leg, today's entries in bold, today's exits. That run fetches ~316 days of candles, enough for a 200-bar window on each of the last 16 days. The other runs send that day's forming-candle fires in a leg.
+5. Formats a Telegram message grouped by B3 leg ([docs/trading_strategy.md](docs/trading_strategy.md)), crypto only. The 00:00 UTC run sends the daily **B3 book** from closed bars: every open position by leg, today's entries in bold, today's exits. That run fetches ~317 days of candles, enough for a 200-bar window on each of the last 17 days. The other runs send that day's forming-candle fires in a leg.
 
 Quiet hours (`Australia/Melbourne` 00:00–08:00 by default) suppress the Telegram send but the scan still runs and prints to stdout so the cron log captures it.
 

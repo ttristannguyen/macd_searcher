@@ -19,6 +19,7 @@ from macd_searcher.book import (
     open_positions,
 )
 from macd_searcher.config import AppConfig
+from macd_searcher.research import backtest as bt
 
 TODAY = date(2026, 10, 26)
 
@@ -86,7 +87,7 @@ def test_forming_bar_cannot_change_a_fire():
 
 
 def test_a_day_s_fires_do_not_depend_on_later_bars():
-    """The book re-reads the last 16 days every run; a fire must read the same each time."""
+    """The book re-reads the last 17 days every run; a fire must read the same each time."""
     cfg = AppConfig()
     closes = _random_walk(330)
     full = _candles(closes)
@@ -109,8 +110,8 @@ def test_volume_floor_and_short_history_skip_the_day():
 
 def test_history_days_covers_every_window_the_book_reads():
     cfg = AppConfig()
-    # 16 fire days, each a window of `lookback` closed bars ending the day before.
-    assert history_days(cfg) > cfg.candles.lookback_days + HOLD_DAYS + 1
+    # 17 fire days, each a window of `lookback` closed bars ending the day before.
+    assert history_days(cfg) > cfg.candles.lookback_days + HOLD_DAYS + 2
 
 
 # ---------- positions ----------
@@ -126,18 +127,28 @@ def test_a_first_fire_opens_a_position_in_its_leg():
 
 
 def test_a_re_fire_neither_opens_nor_extends_a_position():
-    # The episode starts 14 days ago in an untraded band; its re-fires in L1 don't count.
-    fires = [_fire("A", 14, peak_pct=40.0), _fire("A", 13), _fire("A", 12)]
+    # The episode starts 15 days ago in an untraded band; its re-fires in L1 don't count.
+    fires = [_fire("A", 15, peak_pct=40.0), _fire("A", 14), _fire("A", 13)]
     assert open_positions(fires, TODAY) == {}
-    # A traded first fire 14 days ago has expired, however long the episode ran.
-    fires = [_fire("A", 14), _fire("A", 13), _fire("A", 12)]
+    # A traded first fire 15 days ago has expired, however long the episode ran.
+    fires = [_fire("A", 15), _fire("A", 14), _fire("A", 13)]
     assert open_positions(fires, TODAY) == {}
 
 
 def test_position_expires_after_the_hold():
-    fires = [_fire("A", HOLD_DAYS - 1)]
+    fires = [_fire("A", HOLD_DAYS)]
     assert "A" in open_positions(fires, TODAY)
     assert "A" not in open_positions(fires, TODAY + timedelta(days=1))
+
+
+def test_the_live_book_holds_on_the_same_days_as_the_backtester():
+    """Live trades what was tested (trading_strategy.md §8.1)."""
+    entry = _d(20)
+    days = [entry + timedelta(days=k) for k in range(20)]
+    live = [d for d in days if "A" in open_positions([_fire("A", 20)], d)]
+    opened, _ = bt.target_book(entry, [bt.Fire("A", "L1", 1, True)], {}, {"A"})
+    tested = [d for d in days if "A" in bt.target_book(d, [], opened, {"A"})[0]]
+    assert live == tested == days[:HOLD_DAYS + 1]
 
 
 def test_a_new_episode_restarts_the_clock():
@@ -163,8 +174,8 @@ def test_future_fires_are_ignored():
 
 
 def test_build_book_reads_crypto_only_back_far_enough_for_yesterday(monkeypatch):
-    """Yesterday's oldest position entered HOLD_DAYS - 1 days before it, and telling
-    that fire from a re-fire needs the day before: HOLD_DAYS + 1 days back."""
+    """Yesterday's oldest position entered HOLD_DAYS days before it, and telling
+    that fire from a re-fire needs the day before: HOLD_DAYS + 2 days back."""
     seen: dict[str, list[date]] = {}
 
     def fake(symbol, df, cfg, days):
@@ -175,12 +186,12 @@ def test_build_book_reads_crypto_only_back_far_enough_for_yesterday(monkeypatch)
     flat = _candles([100.0] * 5)
     build_book({"SOL": flat, "xyz:TSLA": flat}, AppConfig(), TODAY)
     assert list(seen) == ["SOL"]
-    assert seen["SOL"] == [_d(k) for k in range(HOLD_DAYS + 1, -1, -1)]
+    assert seen["SOL"] == [_d(k) for k in range(HOLD_DAYS + 2, -1, -1)]
 
 
 def test_build_book_exits_are_today_s_expiries_not_flips(monkeypatch):
     canned = {
-        "OLD": [_fire("OLD", HOLD_DAYS)],                                     # expires today
+        "OLD": [_fire("OLD", HOLD_DAYS + 1)],                                 # expires today
         "NEW": [_fire("NEW", 0)],
         "FLIP": [_fire("FLIP", 5, "bullish", 10.0), _fire("FLIP", 0, "bearish", 10.0)],
     }

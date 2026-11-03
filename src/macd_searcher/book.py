@@ -27,8 +27,9 @@ Leg = Literal["L1", "L2", "S1", "S2"]
 LEGS: tuple[Leg, ...] = ("L1", "L2", "S1", "S2")
 LONG_LEGS: tuple[Leg, ...] = ("L1", "L2")
 
-# Daily closes a position is held from entry; its exit is the rebalance after the
-# 14th close (trading_strategy.md §1.2).
+# A position exits at the close of fire day + HOLD_DAYS, the same rule as the
+# backtester (research/backtest.py). So the book holds it from the fire day to fire
+# day + HOLD_DAYS, and lists it as an exit on the day after (trading_strategy.md §1.2).
 HOLD_DAYS = 14
 
 # Bars fetched ahead of the oldest 200-bar window so MACD is warm there, as it was in
@@ -90,7 +91,7 @@ def history_days(cfg: AppConfig) -> int:
     """Days of candles `build_book` needs: a full window for every fire day it reads
     (today's book, yesterday's for the exits, and one more day to tell a first fire
     from a re-fire), plus MACD warm-up."""
-    return cfg.candles.lookback_days + HOLD_DAYS + 2 + MACD_WARMUP_BARS
+    return cfg.candles.lookback_days + HOLD_DAYS + 3 + MACD_WARMUP_BARS
 
 
 def closed_bar_fires(symbol: str, df: pd.DataFrame, cfg: AppConfig, days: list[date]) -> list[Fire]:
@@ -134,7 +135,7 @@ def open_positions(fires: list[Fire], day: date) -> dict[str, Position]:
         if leg is not None:
             assert f.peak_pct is not None
             held[f.symbol] = Position(f.symbol, leg, f.day, f.peak_pct)
-    return {s: p for s, p in held.items() if (day - p.entry).days < HOLD_DAYS}
+    return {s: p for s, p in held.items() if (day - p.entry).days <= HOLD_DAYS}
 
 
 def build_book(candles: dict[str, pd.DataFrame], cfg: AppConfig, day: date) -> Book:
@@ -145,7 +146,7 @@ def build_book(candles: dict[str, pd.DataFrame], cfg: AppConfig, day: date) -> B
     """
     # Fire days back to the day before yesterday's oldest position, which is
     # enough to tell its first fire from a re-fire.
-    days = [day - timedelta(days=k) for k in range(HOLD_DAYS + 1, -1, -1)]
+    days = [day - timedelta(days=k) for k in range(HOLD_DAYS + 2, -1, -1)]
     fires = [
         f
         for symbol, df in candles.items()

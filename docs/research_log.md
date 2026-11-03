@@ -81,6 +81,34 @@ is the same band before the histogram retraces 30%. These coin-days have a retra
 
 ---
 
+## 2026-10-30 — B3 position size, risk control and filters
+
+Question: can position size, book-level risk control, or a filter increase B3's gains
+or decrease its losses? The full results are in
+[book_experiments.md](book_experiments.md). The data and the baseline are the same as
+on 2026-10-27. Each variant is a paired bootstrap, split 2023–24 / 2025–26.
+
+- **A listing-age tilt is the one tangible result.** It gives 1.5× weight to longs
+  listed ≥ 2 years and to shorts listed < 1 year. It adds **+0.23 [+0.03, +0.42]**
+  Sharpe, positive in both halves. Same-state non-fires show the same effect, and a
+  book on age alone makes nothing (Sharpe 0.06). Thus age is a property of the coin
+  that the state makes larger. Mechanism (hypothesis): unlock supply meets strength.
+- **A filter on age fails.** It cuts the long side from 32 to 18 names, and 2025–26
+  becomes worse.
+- **Risk controls fail.** B3 earns most when trailing dispersion is high (Sharpe 1.01
+  / 1.58 / 1.70 by tercile). Its risk increases as fast as its return. Thus a
+  volatility target cuts exposure when the book earns most. Monthly autocorrelation is
+  −0.21, so an equity-curve filter only removes good months.
+- **No effect:** inverse-volatility weights, beta-neutral sides (both sides have beta
+  ≈ 0.99), cluster-day filters, re-fires after entry.
+- **Observation only:** L1 and L2 fires on a weekend decision day have about 0 alpha,
+  in both halves. S1 and the non-fires do not agree, so no mechanism explains it.
+
+Not registered: the live research frame has no listing age yet. book_experiments.md §4
+gives the two checks to register after the feature exists.
+
+---
+
 ## 2026-10-27 — exits for B3
 
 Question: does any exit beat B3's 14-day time exit? Full write-up in

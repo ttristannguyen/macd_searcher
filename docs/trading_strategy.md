@@ -257,6 +257,7 @@ one at a time.
 | hold S1 21 days instead of 14 | S1 | `crypto bearish peak_pct <= 25, first fires`, 14d exit → 21d (10-27) | hold S1 21 days |
 | hold S2 21 days instead of 14 | S2 | `crypto bullish 50 < peak_pct < 100, first fires`, 14d exit → 21d (10-27) | hold S2 21 days |
 | exit a long whose coin enters a deep dip (hist < 0, state `peak_pct ≥ 75`) | L2 | `crypto pullback, first fires, deep dip by day 13` (10-27) | add the exit; its history gain is mostly 2023–24 |
+| 1.5× weight on longs listed ≥ 2 years and shorts listed < 1 year ([book_experiments.md](book_experiments.md) §3) | all | not registered yet: the live frame needs listing age first | add the tilt. History: +0.23 [+0.03, +0.42] Sharpe, positive in both halves |
 | L2 only at 75 ≤ `peak_pct` < 100 | L2 | `crypto pullback 75 <= peak_pct < 100, first fires` against the rest of the pullback, 14d (10-28) | remove the 50–75 band and record peaks from L2 |
 | no record peaks in L2 | L2 | the same band against `crypto pullback peak_pct >= 75, first fires`, 14d (10-28) | remove record peaks from L2 |
 | pullback above SMA200 | L2 | `crypto pullback above SMA200` (10-19) | relevant only with a 7d L2 hold: the trend changes how fast the pullback pays, not how much |
@@ -297,6 +298,11 @@ baseline:
    turnover. It is a horizon found on this history, so it is adopted only if its live
    check agrees (§7)
 6. costs at the per-side figure paper trading measures
+7. the listing-age tilt at 1× and 1.5× (book_experiments.md §3)
+
+*2026-10-30 ([book_experiments.md](book_experiments.md) §1).* Variant 2: a 25% band cuts
+turnover by 17%, but the Sharpe change is noise (+0.09 [−0.23, +0.38]). Variant 4: the
+universe basket adds +0.05 [−0.08, +0.18], positive in both halves.
 
 Report for each: Sharpe with a 30-day block-bootstrap 95% interval, CAGR, max
 drawdown, years and half-years, turnover, average names per side, and cost and
@@ -355,6 +361,8 @@ legs are contradicted.
 | market timing (v2, BTC downtrend, signal clusters) | no timing hypothesis survived history | H4–H6, A4, C2 |
 | stops on longs, Bollinger and failed-cross exits | no alpha; the failed-cross exit gives up unpaid edge | C6, C6a |
 | stops, take-profits and trailing stops on alpha; zero-cross and opposite-fire exits | none helps in both halves of the history; take-profits flip sign with the market | exit_research.md §3 |
+| volatility targets, equity-curve filter, inverse-volatility weights, beta-neutral sides | none helps in both halves. B3 earns most when dispersion is high, and its risk is also high then | book_experiments.md §1 |
+| filters on same-day clusters, re-fires after entry, or listing age | no effect, or the filter cuts the breadth that the Sharpe needs | book_experiments.md §2, §3 |
 | sizing by sig/ATR | sig carries no selection information | confidence_v3_research.md §1 |
 | SMA filter on the pullback at 14d | the gap is gone by 14d | research log 2026-10-24 |
 | ATR expansion | timing, not selection | H7 |

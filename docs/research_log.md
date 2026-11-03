@@ -8,6 +8,32 @@ own docs ([confidence_v3_research.md](confidence_v3_research.md),
 
 ---
 
+## 2026-11-03 — the committed backtester; portfolio numbers re-anchored
+
+Question: why does B3's Sharpe differ across the docs (1.11 to 1.42) when the fires
+are the same? The scratch builds used different portfolio rules and did not record
+them. `research/backtest.py` (commit `9238751`) now pins each rule. With the bar cut of
+the 2026-10-27 build, it gives that build's Sharpe 1.4215 exactly. The pinned baseline
+is **Sharpe 1.50 [0.55, 2.56], CAGR +38.5%, max drawdown −18%** (2023-02-28 →
+2026-10-15). The portfolio tables of profit_strategies.md, trading_strategy.md,
+exit_research.md and book_experiments.md come from it now.
+
+- **The universe basket is expensive.** Its daily rebalance now pays costs. B2 goes
+  from 0.92 to 0.47 (0.98 with a free rebalance). Each universe-hedged book is weaker.
+- **Signs that changed:** "every leg 7 days" against 14 (+0.13 → −0.05), the B3 hold
+  order (7 > 14 > 21 → 7 < 14 < 21), B2 at 30 days, v3 bullish at 14d, and four cells
+  of the C6a table. None changes a decision.
+- **One comparison changed its conclusion.** S2 traded as the MACD state now scores
+  2.15 against 1.50 for S2 fires (+0.65 [−0.06, +1.31], both halves). The 2026-10-25
+  table below says "the same book" (1.06). The state book has a broader short side,
+  and it flips longs whose coin falls into a deep dip. It is not registered yet.
+- **Two intervals now include zero:** the 1.5× age tilt (+0.19 [−0.01, +0.40]) and S1
+  alone to 21 days (+0.14 [−0.02, +0.32]). Both stay positive in both halves.
+
+The 2026-10-25 portfolio table below is superseded.
+
+---
+
 ## 2026-10-28 — L2 and S2 by `peak_pct` band and histogram reduction
 
 Question: how do B3's L2 and S2 legs change with the `peak_pct` band and with the
@@ -230,6 +256,8 @@ same-side fire in the last 5 days. Everything here is in-sample.
   to add. The state already says "breakdown", and the histogram turning doesn't end it.
 
 **As portfolios.** Built as in profit_strategies.md: 14d hold, 0.10% a side, flat funding.
+*Superseded 2026-11-03: the committed backtester gives other values (entry of that
+date).*
 
 | book | CAGR | Sharpe [95%] | max DD | 2023 / 24 / 25 / 26 |
 |---|---|---|---|---|

@@ -15,17 +15,26 @@ first fire per episode, B3's four legs. The rerun reproduces
 out of sample. To limit the damage, every rule is reported on 2023–24 and 2025–26
 separately. A rule counts only if it helps in both.
 
+**Re-anchored 2026-11-03.** The portfolio numbers in the headline and in §4–6 now come
+from the committed backtester, `research/backtest.py` at commit `9238751`.
+`scripts/backtest_tables.py` prints each table. Superseded values are struck through,
+or kept in a "Superseded" block below their table. ⚠ marks a comparison whose sign
+changed. "Backtest" below gives the rules that moved the numbers. The per-trade
+results in §1–3 did not change.
+
 ## Headline
 
 1. **Hold the shorts (S1, S2) 21 days and keep the longs at 14.** Their alpha keeps
    accruing in week 3, positive every year in both legs, while the longs' alpha has
-   stopped by day 14. As a portfolio this adds **+0.27 [−0.05, +0.58] Sharpe** (paired),
-   +0.18 in 2023–24 and +0.37 in 2025–26. CAGR goes from +37% to +45%, and max
-   drawdown from −18% to −20%. Short holds of 21–30 days form a plateau, and the gain
+   stopped by day 14. As a portfolio this adds ~~+0.27 [−0.05, +0.58]~~
+   **+0.17 [−0.09, +0.40] Sharpe** (paired), ~~+0.18~~ +0.09 in 2023–24 and ~~+0.37~~
+   +0.25 in 2025–26. CAGR goes from ~~+37% to +45%~~ +38% to +43%, and max drawdown
+   from −18% to ~~−20%~~ −21%. Short holds of 21–30 days form a plateau, and the gain
    holds at every cost level tested. It is the one tangible result here, and it is
    in-sample.
 2. **No exit rule improves the longs.** Cutting L2 at 7 days (the §8.2 candidate) is
-   neutral: Sharpe 1.40 against 1.42, with 14% more turnover.
+   neutral: Sharpe ~~1.40 against 1.42, with 14%~~ 1.43 against 1.50, with 13% more
+   turnover.
 3. **Exits on the trade's path are noise or cost alpha.** That covers stops,
    take-profits and trailing stops on alpha, and exits on a zero-cross or an
    opposite fire. None helps in both periods. The good legs lean towards *reversal*
@@ -34,11 +43,13 @@ separately. A rule counts only if it helps in both.
 4. **One exit with a mechanism is still only a hypothesis.** Exit when the coin moves
    into a MACD state that keeps going against the trade: a long whose coin is now in a
    deep dip, or a short whose coin is now in a strong rally. In the portfolio it adds
-   +0.29 Sharpe, but +0.63 of that is 2023–24 and −0.03 is 2025–26.
+   ~~+0.29~~ +0.23 Sharpe, but ~~+0.63~~ +0.55 of that is 2023–24 and ~~−0.03~~ −0.06
+   is 2025–26.
 5. **The proposed short tail stop costs money and doesn't cut drawdown.** At +50% it
-   costs 0.11 [−0.33, +0.11] Sharpe. Squeezed shorts partly revert: 63% of the shorts
-   that touch +50% end the 14 days better than the stop would have. Keep it only as
-   insurance against what daily bars can't show, and set it wide (+100% costs 0.06).
+   costs ~~0.11 [−0.33, +0.11]~~ 0.16 [−0.38, +0.06] Sharpe. Squeezed shorts partly
+   revert: 63% of the shorts that touch +50% end the 14 days better than the stop would
+   have. Keep it only as insurance against what daily bars can't show, and set it wide
+   (+100% costs ~~0.06~~ 0.08).
 
 ## Backtest
 
@@ -48,12 +59,27 @@ the thinner side)), equal weight within a side. Costs are 0.10% a side on all tu
 including the daily re-equalisation of drifted weights. Funding is a flat 9% APR paid
 on longs and 6.5% APR received on shorts. Returns run 2023-03-02 → 2026-10-15.
 
-**Calibration.** This build scores Sharpe **1.42 [0.50, 2.51]**, CAGR +37%, max
-drawdown −18%. The earlier scratch builds of the same book scored 1.22–1.29. The fires
-and per-trade alpha match exactly, so the gap comes from construction rules those
-scripts didn't record (§8.1 already calls for this). Every comparison below is paired
-against this one baseline, so the gap doesn't move the differences. It does show why
-§8.1's committed backtester comes first.
+**Calibration (scratch build, superseded).** This build scores Sharpe ~~**1.42 [0.50,
+2.51]**~~, CAGR ~~+37%~~, max drawdown ~~−18%~~. The earlier scratch builds of the same
+book scored 1.22–1.29. The fires and per-trade alpha match exactly, so the gap comes
+from construction rules those scripts didn't record (§8.1 already calls for this).
+Every comparison below is paired against this one baseline, so the gap doesn't move
+the differences. It does show why §8.1's committed backtester comes first.
+
+**The committed backtester (2026-11-03, `9238751`).** It pins each rule as a constant
+in `research/backtest.py`. With the bar cut of this scratch build, it gives the same
+numbers to four decimals: Sharpe 1.4215, CAGR +36.85%, max drawdown −17.87%. Its
+baseline is different in three rules:
+
+| rule, in the order applied | scratch build | committed backtester | Sharpe |
+|---|---|---|---|
+| the last bar of a delisted coin | read | not read: a newest cached bar can be a forming bar | 1.42 → 1.43 |
+| exit | the 14th close after entry (14 daily returns) | the close of fire day + 14, the exit bar of `alpha_14d` (15 daily returns) | 1.43 → 1.50 |
+| window | fires 2023-03-02 → 10-08, returns 2023-03-02 → 10-15 | fires and returns 2023-02-28 → 2026-10-15 | 1.50 → 1.50 |
+
+The baseline is now **Sharpe 1.50 [0.55, 2.56], CAGR +38.5%, max drawdown −18%**. The
+window ends on 2026-10-15 because the candle cache has no later bars for 30 live
+coins. The book would treat them as delisted.
 
 ## 1. Where each leg's alpha accrues
 
@@ -159,7 +185,29 @@ of price).
 ## 4. As portfolios
 
 Sharpe difference against the baseline, using paired 30-day block bootstraps (the same
-blocks for both books):
+blocks for both books). *Backtester `9238751`, 2026-11-03.* Turnover is the change
+against the baseline's 129x a year.
+
+| book | Sharpe | Δ vs baseline [95%] | Δ 2023–24 | Δ 2025–26 | CAGR | max DD | turnover |
+|---|---|---|---|---|---|---|---|
+| **baseline: every leg 14 days** | 1.50 | — | — | — | +38.5% | −18% | — |
+| every leg 7 days ⚠ | 1.45 | −0.05 [−0.86, +0.65] | +0.20 | −0.44 | +41.9% | −21% | +31% |
+| every leg 21 days ⚠ | 1.54 | +0.04 [−0.39, +0.42] | +0.25 | −0.15 | +36.3% | −20% | −18% |
+| L2 7 days, rest 14 | 1.43 | −0.07 [−0.58, +0.39] | +0.10 | −0.19 | +38.6% | −22% | +13% |
+| **shorts 21 days, longs 14** | **1.66** | **+0.17 [−0.09, +0.40]** | **+0.09** | **+0.25** | +42.8% | −21% | −7% |
+| L2 7, L1 14, shorts 21 | 1.59 | +0.09 [−0.50, +0.63] | +0.18 | +0.06 | +43.4% | −23% | +7% |
+| + adverse-state exit (L2, S2) | 1.73 | +0.23 [−0.23, +0.66] | +0.55 | −0.06 | +48.4% | −21% | +2% |
+| + adverse-state exit (all legs) | 1.62 | +0.13 [−0.34, +0.56] | +0.40 | −0.13 | +44.6% | −23% | +2% |
+| shorts 21 + adverse-state exit (all legs) | 1.75 | +0.25 [−0.24, +0.71] | +0.44 | +0.12 | +48.6% | −24% | −4% |
+| + short tail stop at +30% | 1.23 | −0.26 [−0.59, +0.04] | −0.09 | −0.43 | +29.4% | −21% | +1% |
+| + short tail stop at +50% | 1.33 | −0.16 [−0.38, +0.06] | +0.08 | −0.41 | +33.0% | −21% | +0% |
+| + short tail stop at +100% | 1.41 | −0.08 [−0.19, +0.01] | +0.04 | −0.21 | +35.7% | −18% | +0% |
+
+⚠ Two signs changed. "Every leg 7 days" was +0.13 against the baseline and is now
+−0.05. "Every leg 21 days" was +0.05 in 2025–26 and is now −0.15. Neither changes a
+conclusion: the holds that every leg shares stay indistinguishable.
+
+<details><summary>Superseded: the scratch build of 2026-10-27</summary>
 
 | book | Sharpe | Δ vs baseline [95%] | Δ 2023–24 | Δ 2025–26 | CAGR | max DD |
 |---|---|---|---|---|---|---|
@@ -176,12 +224,32 @@ blocks for both books):
 | + short tail stop at +50% | 1.32 | −0.11 [−0.33, +0.11] | +0.12 | −0.34 | +33.1% | −20% |
 | + short tail stop at +100% | 1.36 | | +0.06 | −0.18 | +34.9% | −18% |
 
-Blank Δ cells were not bootstrapped. With 3.6 years, one Sharpe has a standard error of
-about ±0.5. Hold lengths shared by every leg (7, 14, 21) are indistinguishable. Only
-the short extension improves on the baseline in both periods with a paired interval
-that nearly clears zero.
+Blank Δ cells were not bootstrapped.
+
+</details>
+
+With 3.6 years, one Sharpe has a standard error of about ±0.5. Hold lengths shared by
+every leg (7, 14, 21) are indistinguishable. Only the short extension improves on the
+baseline in both periods with a paired interval that nearly clears zero.
 
 ## 5. Holding the shorts 21 days
+
+*Backtester `9238751`, 2026-11-03.*
+
+| check | baseline | shorts 21 | Δ [95% paired] |
+|---|---|---|---|
+| short hold 10 / 14 / 17 / 21 / 25 / 30 days | | 1.17 / 1.50 / 1.54 / 1.66 / 1.75 / 1.61 | −0.33 / 0 / +0.04 / +0.17 / +0.26 / +0.11 |
+| cost 0.05% a side | 1.77 | 1.92 | +0.15 [−0.10, +0.39] |
+| cost 0.20% a side | 0.95 | 1.14 | +0.19 [−0.06, +0.42] |
+| all fires (re-fires restart the clock) | 1.40 | 1.58 | +0.18 [−0.06, +0.41] |
+| S1 alone to 21 days | 1.50 | 1.64 | +0.14 [−0.02, +0.32] |
+| S2 alone to 21 days | 1.50 | 1.55 | +0.06 [−0.14, +0.24] |
+| half-years 2023H1 → 2026H2 (return, pts) ⚠ | | | +0.8 / +6.3 / −4.7 / +1.4 / +10.1 / −8.4 / +1.1 / +6.4 |
+
+⚠ One half-year changed sign: 2026H1 was −1.5 points and is now +1.1. The S1-alone
+interval now includes zero (it was +0.01 at its lower end).
+
+<details><summary>Superseded: the scratch build of 2026-10-27</summary>
 
 | check | baseline | shorts 21 | Δ [95% paired] |
 |---|---|---|---|
@@ -193,17 +261,23 @@ that nearly clears zero.
 | S2 alone to 21 days | 1.42 | 1.54 | +0.12 [−0.12, +0.39] |
 | half-years 2023H1 → 2026H2 (return, pts) | | | +2.8 / +7.7 / −3.1 / +0.3 / +17.6 / −5.9 / −1.5 / +6.9 |
 
+</details>
+
 - **Not a knife edge.** Sharpe rises from 10 to 21 days and stays flat to 30. Chosen on
-  2023–24 alone, the grid would have picked 25 days (+0.35). In 2025–26, 25 days adds
-  +0.20 and 21 days +0.37. 21 is a round three weeks inside the plateau.
-- **Not more exposure.** Average gross goes from 0.83 to 0.85, and book volatility
-  falls slightly (24.1% → 23.4%). Longer holds widen the short side (27 → 32 names on
-  average). Short returns are right-skewed, so a broader short side is also harder to
-  squeeze (profit_strategies.md §3, the random-20 basket).
+  2023–24 alone, the grid would have picked 25 days (~~+0.35~~ +0.33). In 2025–26, 25
+  days adds +0.20 and 21 days ~~+0.37~~ +0.25. 21 is a round three weeks inside the
+  plateau. *2026-11-03:* the top of the grid is now 25 days (1.75), and 30 days falls
+  back to 1.61.
+- **Not more exposure.** Average gross goes from ~~0.83 to 0.85~~ 0.84 to 0.86, and book
+  volatility falls slightly (~~24.1% → 23.4%~~ 23.6% → 23.0%). Longer holds widen the
+  short side (~~27 → 32~~ 28 → 33 names on average). Short returns are right-skewed, so a
+  broader short side is also harder to squeeze (profit_strategies.md §3, the random-20
+  basket).
 - **Not a bear-market effect.** Week-3 short alpha was largest in 2023 and 2024, the
   years alts rallied.
-- **What it doesn't fix.** The portfolio gain is uneven: 5 of 8 half-years, with +17.6
-  points from 2025H1. Max drawdown is slightly deeper (−20% vs −18%).
+- **What it doesn't fix.** The portfolio gain is uneven: ~~5~~ 6 of 8 half-years, with
+  ~~+17.6~~ +10.1 points from 2025H1. Max drawdown is slightly deeper (~~−20%~~ −21% vs
+  −18%).
 
 ## 6. The short tail stop
 
@@ -215,8 +289,8 @@ the same states behave the same way (5.0%, −45%). So this is how squeezes in a
 behave, not anything specific to the signals.
 
 The stop is still insurance against what a daily-close backtest can't show, such as a
-5x move within a day or a forced liquidation. If it stays, set it wide: +100% costs 0.06
-Sharpe, against 0.11 at +50% and 0.15 at +30%.
+5x move within a day or a forced liquidation. If it stays, set it wide: +100% costs
+~~0.06~~ 0.08 Sharpe, against ~~0.11~~ 0.16 at +50% and ~~0.15~~ 0.26 at +30%.
 
 ## 7. What to change
 
@@ -260,3 +334,9 @@ Scratch scripts, not committed, as for earlier passes. Inputs:
 `state/research_cache/history/*.csv` extended with `state/research_cache/candles/`
 (bars 2026-10-16 → 10-24). The panel reruns `signals._check_histogram_flattening` and
 `_peak_vs_history` on every coin-day. The book follows "Backtest" above.
+
+*2026-11-03:* the portfolio numbers (headline, §4–6) come from the committed
+backtester. Run `uv run python scripts/backtest_tables.py` at commit `9238751`. The
+frozen panel is `state/research_cache/backtest_panel.pkl`, and
+`uv run python -m macd_searcher.research.backtest --rebuild` builds it again. The
+per-trade numbers (§1–3 and the counts in §6) still come from the scratch scripts.

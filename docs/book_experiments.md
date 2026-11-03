@@ -10,33 +10,69 @@ exit_research.md:
 - Fires: 2023-03-02 → 2026-10-08, first fire per episode.
 - Candles: to 2026-10-24.
 - Book: both sides sized to the thinner side, 0.10% a side, flat funding.
-- Baseline: every leg held 14 days. Sharpe 1.42, CAGR +36.9%, max drawdown −18%.
+- Baseline: every leg held 14 days. Sharpe ~~1.42~~ 1.50, CAGR ~~+36.9%~~ +38.5%, max
+  drawdown −18%.
 
 Each variant has a paired 30-day block bootstrap against the baseline. It also has the
 Sharpe change in 2023–24 and in 2025–26. A variant counts only if it helps in both
 halves. The legs come from this same history, so all results are in-sample.
+
+**Re-anchored 2026-11-03.** The portfolio numbers in the headline, §1 and §3 now come
+from the committed backtester, `research/backtest.py` at commit `9238751`.
+`scripts/backtest_tables.py` prints each table. The backtester ends a hold at the close
+of fire day + 14, and runs fires and returns from 2023-02-28 to 2026-10-15
+(exit_research.md, "Backtest"). Superseded values are struck through, or kept in a
+"Superseded" block below their table. ⚠ marks a comparison whose sign changed. The
+per-trade results in §2 and §3 did not change.
 
 ## Headline
 
 1. **Listing age is the one tangible result.** Give 1.5× weight to longs in coins
    that Hyperliquid listed 2 or more years ago. Give 1.5× weight to shorts in coins
    that it listed less than 1 year ago. Keep all other names at 1×. Sharpe goes from
-   1.42 to 1.65 (**+0.23 [+0.03, +0.42]**), positive in both halves (+0.29 / +0.15).
-   Max drawdown does not change. The probable mechanism is token supply (§3).
-2. **A filter on listing age does not work, but a tilt does.** The filter removes 45%
-   of the longs. The book then loses the breadth that its Sharpe needs, and 2025–26
-   becomes worse.
+   ~~1.42 to 1.65 (+0.23 [+0.03, +0.42])~~ 1.50 to 1.69 (**+0.19 [−0.01, +0.40]**),
+   positive in both halves (~~+0.29~~ +0.23 / +0.15). The interval now includes zero.
+   Max drawdown ~~does not change~~ goes from −18% to −20%. The probable mechanism is
+   token supply (§3).
+2. **A filter on listing age does not work, but a tilt does.** The filter removes
+   ~~45%~~ 42% of the longs. The book then loses the breadth that its Sharpe needs, and
+   2025–26 becomes worse.
 3. **Book-level risk controls do not help.** Volatility targets, an equity-curve
    filter, inverse-volatility weights, and beta-neutral sides do not improve both
    halves. B3 earns most when cross-sectional dispersion is high, and its risk also
    increases then. A volatility target cuts exposure exactly when the book earns most.
 4. **Two execution variants give small or uncertain gains.**
-   - A universe basket on the thin side: +0.05 Sharpe, positive in both halves.
-   - A 25% drift band: 17% less turnover, but the Sharpe change is noise.
+   - A universe basket on the thin side: ~~+0.05~~ +0.01 Sharpe, positive in both
+     halves. The committed backtester charges the daily rebalance of the basket.
+   - A 25% drift band: ~~17%~~ 18% less turnover, but the Sharpe change is noise.
 5. **These entry filters do not help:** same-day fire clusters and re-fires after
    entry. Weekend fires show a pattern, but it has no consistent mechanism.
 
 ## 1. Position size and risk control
+
+*Backtester `9238751`, 2026-11-03.* Turnover is the change against the baseline's
+129x a year.
+
+| variant | Sharpe | Δ vs baseline [95%] | Δ 2023–24 | Δ 2025–26 | CAGR | max DD | turnover |
+|---|---|---|---|---|---|---|---|
+| **baseline** | 1.50 | — | — | — | +38.5% | −18% | — |
+| weights ∝ 1 / 20-day volatility | 1.33 | −0.17 [−0.58, +0.28] | −0.14 | −0.14 | +29.7% | −22% | +1% |
+| weights ∝ 1 / √(20-day volatility) ⚠ | 1.46 | −0.04 [−0.24, +0.20] | −0.02 | +0.01 | +34.2% | −18% | +0% |
+| beta-neutral sides (60-day beta to the universe) | 1.36 | −0.13 [−0.51, +0.22] | −0.02 | −0.19 | +33.9% | −27% | +3% |
+| volatility target, 30 days, leverage cap 2 | 1.54 | +0.04 [−0.34, +0.40] | −0.08 | −0.15 | +34.5% | −21% | −8% |
+| volatility target, 30 days, leverage cap 1 | 1.57 | +0.08 [−0.20, +0.36] | −0.06 | −0.07 | +31.8% | −18% | −18% |
+| volatility target, 60 days, leverage cap 2 | 1.50 | +0.00 [−0.24, +0.21] | −0.07 | −0.18 | +33.4% | −17% | −12% |
+| equity-curve filter (on only if the last 60 days > 0) | 1.04 | −0.46 [−0.96, +0.04] | −1.03 | −0.21 | +21.0% | −28% | −13% |
+| thin side filled with the universe basket | 1.50 | +0.01 [−0.10, +0.11] | +0.06 | +0.01 | +39.9% | −19% | +10% |
+| drift band 25% ⚠ | 1.53 | +0.03 [−0.28, +0.35] | +0.04 | +0.03 | +41.6% | −20% | −18% |
+| drift band 50% | 1.27 | −0.22 [−0.83, +0.39] | +0.40 | −0.88 | +37.1% | −25% | −29% |
+
+⚠ Two half-year signs changed, and no full-period sign changed. The 1/√(volatility)
+weights were +0.02 in 2023–24 and are now −0.02. The 25% band was −0.01 in 2023–24 and
+is now +0.04, so it is now positive in both halves. Its interval is still wide, so it
+stays noise.
+
+<details><summary>Superseded: the scratch build of 2026-10-30</summary>
 
 | variant | Sharpe | Δ vs baseline [95%] | Δ 2023–24 | Δ 2025–26 | CAGR | max DD |
 |---|---|---|---|---|---|---|
@@ -52,12 +88,22 @@ halves. The legs come from this same history, so all results are in-sample.
 | drift band 25% | 1.51 | +0.09 [−0.23, +0.38] | −0.01 | +0.19 | +41.5% | −22% |
 | drift band 50% | 1.25 | −0.17 [−0.81, +0.50] | +0.25 | −0.64 | +36.7% | −26% |
 
+</details>
+
 All weights use only data from the close before the trade day. The volatility target
 uses the trailing volatility of the book without the target, and an expanding median
 as its level. A resize of the book also pays costs.
 
 **Why volatility does not help here.** Split the days into terciles by trailing
-30-day cross-sectional dispersion:
+30-day cross-sectional dispersion (*backtester `9238751`*):
+
+| trailing dispersion | B3 mean a day | B3 volatility a day | Sharpe | mean ÷ variance |
+|---|---|---|---|---|
+| low | +5.9 bp | 103 bp | 1.10 | 5.6 |
+| middle | +8.8 bp | 124 bp | 1.35 | 5.7 |
+| high | +15.4 bp | 144 bp | 2.04 | 7.4 |
+
+<details><summary>Superseded: the scratch build of 2026-10-30</summary>
 
 | trailing dispersion | B3 mean a day | B3 volatility a day | Sharpe |
 |---|---|---|---|
@@ -65,12 +111,19 @@ as its level. A resize of the book also pays costs.
 | middle | +10.3 bp | 125 bp | 1.58 |
 | high | +13.4 bp | 150 bp | 1.70 |
 
+</details>
+
 The return increases as fast as the variance, so mean ÷ variance is almost constant
-(5.1, 6.6 and 6.0 × 10⁻⁴). The best weight in a mean-variance sense is mean ÷
-variance. B3 is therefore already near its best exposure over time. A volatility target
-decreases exposure when dispersion is high, and that is when B3 earns most. The
+(~~5.1, 6.6 and 6.0 × 10⁻⁴~~). The best weight in a mean-variance sense is mean ÷
+variance. ~~B3 is therefore already near its best exposure over time.~~ A volatility
+target decreases exposure when dispersion is high, and that is when B3 earns most. The
 `peak_pct` legs sort coins against each other, and that sort has more to work with
 when coins move apart.
+
+*2026-11-03:* mean ÷ variance (daily returns) is now 5.6, 5.7 and 7.4. It is constant
+in the low and middle terciles, and 30% higher in the high tercile. Thus the best
+exposure is the same or higher when dispersion is high. A volatility target does the
+opposite, so the conclusion does not change.
 
 **Why inverse-volatility weights fail.** High-volatility coins do badly as longs and
 well as shorts. Fires and non-fires show the same pattern, so this is the generic
@@ -79,13 +132,16 @@ and hurt the shorts. Beta-neutral sides have no beta to remove. The mean beta is
 on the long side and 0.98 on the short side. A beta match only adds the noise of the
 60-day beta estimates.
 
-**No strategy momentum.** B3's monthly returns have autocorrelation −0.21, and its
-weekly returns about 0. Thus the equity-curve filter only removes good months.
+**No strategy momentum.** B3's monthly returns have autocorrelation ~~−0.21~~ −0.15,
+and its weekly returns ~~about 0~~ −0.05. Thus the equity-curve filter only removes good
+months.
 
 **The universe basket on the thin side** uses capital that is otherwise in cash. It
 adds the thick side's alpha at full size. The gain is small because both sides often
-have 10 or more names, and then nothing changes. The backtest does not charge for the
-daily rebalance of the basket, the same as profit_strategies.md B2.
+have 10 or more names, and then nothing changes. ~~The backtest does not charge for the
+daily rebalance of the basket, the same as profit_strategies.md B2.~~ The committed
+backtester charges the daily rebalance of the basket, at 0.10% a side. The basket adds
+10% to turnover, and the gain decreases from +0.05 to +0.01.
 
 ## 2. Entry filters
 
@@ -133,10 +189,29 @@ the shorts pay most on young coins, in both halves.
   [−1.69, +0.10] (< 1 year), −0.66 (1–2 years), +0.54 [+0.17, +0.91] (> 2 years).
   In 2023, young coins did better (+0.35 vs −0.13).
 - *A book on age alone* (long coins > 2 years, short coins < 1 year, no signals) has
-  Sharpe 0.06. It lost 21% in 2023 and 19% in 2024. A short basket of young coins
-  sometimes holds a coin that goes up 5x.
+  Sharpe ~~0.06~~ 0.16. It lost ~~21%~~ 17% in 2023 and 19% in 2024. A short basket of
+  young coins sometimes holds a coin that goes up 5x. *2026-11-03:* the committed
+  backtester holds each day every eligible coin in the two age groups, with the B3
+  sizing rules.
 
-**As a portfolio:**
+**As a portfolio** (*backtester `9238751`, 2026-11-03*):
+
+| variant | Sharpe | Δ vs baseline [95%] | Δ 2023–24 | Δ 2025–26 | CAGR | max DD | names L / S |
+|---|---|---|---|---|---|---|---|
+| longs only if listed ≥ 2 years (filter) | 1.79 | +0.30 [−0.30, +0.91] | +0.89 | −0.31 | +51.2% | −21% | 19 / 29 |
+| longs only if listed ≥ 1 year (filter) | 1.75 | +0.25 [−0.08, +0.59] | +0.58 | −0.12 | +47.3% | −20% | 28 / 28 |
+| **tilt 1.5×: old longs, young shorts** | **1.69** | **+0.19 [−0.01, +0.40]** | **+0.23** | **+0.15** | +45.7% | −20% | 33 / 28 |
+| tilt 2×: old longs, young shorts | 1.79 | +0.30 [−0.04, +0.65] | +0.44 | +0.16 | +51.4% | −20% | 33 / 28 |
+| tilt 1.5×, pre-2021 listings not given more weight | 1.61 | +0.11 [−0.06, +0.29] | +0.10 | +0.13 | +43.2% | −21% | 33 / 28 |
+| tilt 1.5×, longs only | 1.62 | +0.12 [−0.01, +0.26] | +0.18 | +0.07 | +42.5% | −19% | 33 / 28 |
+| tilt 1.5×, shorts only | 1.57 | +0.07 [−0.05, +0.20] | +0.06 | +0.09 | +41.6% | −19% | 33 / 28 |
+| shorts 21 days (exit_research.md) | 1.66 | +0.17 [−0.09, +0.40] | +0.09 | +0.25 | +42.8% | −21% | 33 / 33 |
+| shorts 21 days + tilt 1.5× | 1.81 | +0.15 [−0.06, +0.36] vs shorts 21 | +0.17 | +0.13 | +49.0% | −21% | 33 / 33 |
+
+No sign changed. The 1.5× tilt lost its clear interval: its lower end moved from +0.03
+to −0.01. It is still positive in both halves. The baseline holds 33 / 28 names.
+
+<details><summary>Superseded: the scratch build of 2026-10-30</summary>
 
 | variant | Sharpe | Δ vs baseline [95%] | Δ 2023–24 | Δ 2025–26 | CAGR | names L / S |
 |---|---|---|---|---|---|---|
@@ -150,12 +225,14 @@ the shorts pay most on young coins, in both halves.
 | shorts 21 days (exit_research.md) | 1.70 | | | | +44.6% | 32 / 32 |
 | shorts 21 days + tilt 1.5× | 1.86 | +0.17 [−0.06, +0.37] vs shorts 21 | +0.22 | +0.10 | +51.4% | 32 / 32 |
 
+</details>
+
 - **The tilt keeps all names, and the filter does not.** The filter cuts the long
-  side from 32 to 18 names, and the thin-side rule then makes the whole book smaller.
-  The tilt moves weight inside each side, so the book keeps its breadth.
+  side from ~~32 to 18~~ 33 to 19 names, and the thin-side rule then makes the whole
+  book smaller. The tilt moves weight inside each side, so the book keeps its breadth.
 - **Each half of the tilt helps alone, in both halves of the history.**
 - **It is not only "majors beat alts".** If the pre-2021 listings get no extra weight,
-  the gain decreases to +0.13, and it stays positive in both halves.
+  the gain decreases to ~~+0.13~~ +0.11, and it stays positive in both halves.
 - *Mechanism (hypothesis):* young tokens have a low float and scheduled unlocks.
   Holders sell into strength. Thus a strong trend in a young coin fails (L2), and a
   pullback does not recover (L1). Weakness in a young coin has no buyer support. Thus
@@ -170,7 +247,7 @@ the shorts pay most on young coins, in both halves.
   circulation, but this repo has no data for it.
 - The cuts (1 year and 2 years) are round numbers. But we selected the preferred
   bucket for each side after we saw the per-trade table.
-- The 2025–26 gain is about half the 2023–24 gain.
+- The 2025–26 gain is about ~~half~~ two-thirds of the 2023–24 gain.
 
 ## 4. What to do
 
@@ -184,7 +261,8 @@ the shorts pay most on young coins, in both halves.
      alpha > 0.
 - **Add the tilt to the backtester as an execution variant** (trading_strategy.md
   §8.2), with the weights 1× and 1.5×. Do not use 2×. Its interval is wider and it
-  increases concentration.
+  increases concentration. *Done 2026-11-03:* the `tilt` argument of
+  `research/backtest.py`. `scripts/backtest_tables.py` has the age tilt.
 - **Do not add** volatility targets, equity-curve filters, inverse-volatility weights,
   beta-neutral sides, or cluster filters.
 - **Keep the universe basket on the thin side as a §8.2 variant.** Its gain is small,
@@ -199,3 +277,7 @@ Inputs:
 - The coin-day panel from exit_research.md.
 
 The listing age comes from the first row of each history CSV.
+
+*2026-11-03:* the portfolio numbers (headline, §1 and §3) come from the committed
+backtester. Run `uv run python scripts/backtest_tables.py` at commit `9238751`. The
+per-trade numbers in §2 and §3 still come from the scratch scripts.

@@ -83,6 +83,13 @@ coins. The book would treat them as delisted.
 
 ## 1. Where each leg's alpha accrues
 
+**Day convention in §1–3.** These per-trade tables come from the scratch build, not
+from the committed backtester. In them, "day k" and "bar k" are the k-th daily close
+after entry, the close of fire day + k − 1. Thus "day 14" here is one close before the
+exit of `alpha_14d` and of the backtester. Each table compares its rules with a hold
+that uses the same count, so the differences and the conclusions do not change. §7
+gives the shorts check in the pipeline's convention.
+
 Alpha in the trade's direction, gained within each window of days after entry. The
 first row of each leg is first fires, with years positive (out of 4) in brackets. The
 second row is same-state non-fires: eligible coins in the leg's MACD state with no

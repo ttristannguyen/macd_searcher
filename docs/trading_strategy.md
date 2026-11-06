@@ -284,7 +284,7 @@ one at a time.
 | hold S1 21 days instead of 14 | S1 | `crypto bearish peak_pct <= 25, first fires`, 14d exit → 21d (10-27) | hold S1 21 days |
 | hold S2 21 days instead of 14 | S2 | `crypto bullish 50 < peak_pct < 100, first fires`, 14d exit → 21d (10-27) | hold S2 21 days |
 | exit a long whose coin enters a deep dip (hist < 0, state `peak_pct ≥ 75`) | L2 | `crypto pullback, first fires, deep dip by day 13` (10-27) | add the exit; its history gain is mostly 2023–24 |
-| 1.5× weight on longs listed ≥ 2 years and shorts listed < 1 year ([book_experiments.md](book_experiments.md) §3) | all | not registered yet: the live frame needs listing age first | add the tilt. History: ~~+0.23 [+0.03, +0.42]~~ +0.19 [−0.01, +0.40] Sharpe, positive in both halves |
+| 1.5× weight on longs listed ≥ 2 years and shorts listed < 1 year ([book_experiments.md](book_experiments.md) §3) | all | not registered yet: the live frame needs listing age first | add the tilt. History: ~~+0.23 [+0.03, +0.42]~~ ~~+0.19 [−0.01, +0.40]~~ +0.17 [−0.01, +0.35] Sharpe, positive in both halves |
 | L2 only at 75 ≤ `peak_pct` < 100 | L2 | `crypto pullback 75 <= peak_pct < 100, first fires` against the rest of the pullback, 14d (10-28) | remove the 50–75 band and record peaks from L2 |
 | no record peaks in L2 | L2 | the same band against `crypto pullback peak_pct >= 75, first fires`, 14d (10-28) | remove record peaks from L2 |
 | pullback above SMA200 | L2 | `crypto pullback above SMA200` (10-19) | relevant only with a 7d L2 hold: the trend changes how fast the pullback pays, not how much |
@@ -349,7 +349,9 @@ turnover by ~~17%~~ 18%, but the Sharpe change is noise (~~+0.09 [−0.23, +0.38
 `research/backtest.simulate`: `first_only`, `band`, `short_stop`, `basket`, `holds`,
 `cost` and `tilt`. Variant 1: first fires 1.50, all fires 1.40. Variant 3: the tail
 stop costs 0.16 at +50% and 0.08 at +100%. Variant 6: 2.04 / 1.77 / 1.50 / 0.95 at 0 /
-0.05 / 0.10 / 0.20% a side. Variant 7: the 1.5× age tilt adds +0.19 [−0.01, +0.40].
+0.05 / 0.10 / 0.20% a side. Variant 7: the 1.5× age tilt adds ~~+0.19 [−0.01, +0.40]~~
++0.17 [−0.01, +0.35]. *2026-11-04:* the weight above the 10% cap now stays in its side
+(book_experiments.md, "Fixed 2026-11-04").
 
 Report for each: Sharpe with a 30-day block-bootstrap 95% interval, CAGR, max
 drawdown, years and half-years, turnover, average names per side, and cost and
@@ -408,7 +410,7 @@ legs are contradicted.
 | market timing (v2, BTC downtrend, signal clusters) | no timing hypothesis survived history | H4–H6, A4, C2 |
 | stops on longs, Bollinger and failed-cross exits | no alpha; the failed-cross exit gives up unpaid edge | C6, C6a |
 | stops, take-profits and trailing stops on alpha; zero-cross and opposite-fire exits | none helps in both halves of the history; take-profits flip sign with the market | exit_research.md §3 |
-| volatility targets, equity-curve filter, inverse-volatility weights, beta-neutral sides | none helps in both halves. B3 earns most when dispersion is high, and its risk is also high then | book_experiments.md §1 |
+| volatility targets, equity-curve filter, inverse-volatility weights, beta-neutral sides | none helps in both halves, except 1/√volatility weights at +0.00 overall. B3 earns most when dispersion is high, and its risk is also high then | book_experiments.md §1 |
 | filters on same-day clusters, re-fires after entry, or listing age | no effect, or the filter cuts the breadth that the Sharpe needs | book_experiments.md §2, §3 |
 | sizing by sig/ATR | sig carries no selection information | confidence_v3_research.md §1 |
 | SMA filter on the pullback at 14d | the gap is gone by 14d | research log 2026-10-24 |

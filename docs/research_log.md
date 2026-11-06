@@ -8,6 +8,33 @@ own docs ([confidence_v3_research.md](confidence_v3_research.md),
 
 ---
 
+## 2026-11-04 — the tilt cap fix
+
+Question: does a tilt keep B3 dollar-neutral? It did not. A tilt pushed some names
+above the 10% cap. `_weights` cut them to 10%, and the excess went to cash. Thus the
+tilted side was smaller than the other side. Now the excess moves to the other names
+of the same side. The baseline does not change, because equal weights never go above
+the cap. Only the 8 rows with a tilt change (book_experiments.md §1 and §3).
+
+- **The 1.5× age tilt changes little:** +0.19 [−0.01, +0.40] → +0.17 [−0.01, +0.35],
+  positive in both halves (+0.16 / +0.18). Before the fix, it was net long or net
+  short on 27% of days, by up to 10%.
+- **Most of the 1/volatility penalty was the error.** It goes from −0.17 to −0.07
+  [−0.39, +0.31]. Before the fix, that book was net long or net short on 64% of days,
+  by up to 30%. The 1/√(volatility) weights go from −0.04 to +0.00.
+- **A tilt cannot act on a thin side of 10 names or fewer**, because each name is at
+  the cap. The short side is at the cap on 30% of days in 2023–24, and on 6% in
+  2025–26.
+- **The short half of the age tilt does not help in 2023–24** (+0.06 → −0.01). The
+  long half alone has the only interval above zero: +0.13 [+0.01, +0.26].
+- **In 2023–24, the gain needs the pre-2021 listings.** Without their extra weight,
+  +0.01 of +0.16 stays. They are 62% of the old long first fires in 2023–24, and 31%
+  in 2025–26. In 2025–26, +0.15 of +0.18 stays.
+
+Nothing registered: the live frame still has no listing age.
+
+---
+
 ## 2026-11-03 — the committed backtester; portfolio numbers re-anchored
 
 Question: why does B3's Sharpe differ across the docs (1.11 to 1.42) when the fires

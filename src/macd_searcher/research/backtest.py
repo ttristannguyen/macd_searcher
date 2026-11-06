@@ -147,13 +147,29 @@ def _weights(day: date, book: dict[str, Position], tilt, basket) -> dict[str, fl
             continue
         side_gross = min(gross, MAX_WEIGHT * len(side))      # a thin side can hold only 10% a name
         factor = np.array([tilt(day, p) if tilt else 1.0 for p in side])
-        w = np.minimum(side_gross * factor / factor.sum(), MAX_WEIGHT)
-        weights.update({p.symbol: sign * x for p, x in zip(side, w)})
+        weights.update({p.symbol: sign * x for p, x in zip(side, _capped(side_gross, factor))})
     gap = sum(weights.values())          # the net exposure: the basket takes the other side
     if basket and gap:
         for s in basket:
             weights[s] = weights.get(s, 0.0) - gap / len(basket)
     return weights
+
+
+def _capped(total: float, factor: np.ndarray) -> np.ndarray:
+    """Weights in proportion to ``factor``, with a sum of ``total`` and none above
+    MAX_WEIGHT. The weight above the cap moves to the names below the cap. Thus the side
+    keeps its gross, and the book stays dollar-neutral. On a thinner side of 10 names or
+    fewer, each name is at the cap, so a tilt has no effect there."""
+    w = np.zeros(len(factor))
+    free = np.ones(len(factor), dtype=bool)
+    while free.any():
+        w[free] = (total - w[~free].sum()) * factor[free] / factor[free].sum()
+        over = free & (w > MAX_WEIGHT)
+        if not over.any():
+            break
+        w[over] = MAX_WEIGHT
+        free &= ~over
+    return w
 
 
 # ---------------------------------------------------------------- simulation

@@ -101,12 +101,23 @@ def test_side_gross_is_at_most_100_percent():
     assert sum(x for x in w.values() if x < 0) == pytest.approx(-1.0)
 
 
-def test_a_tilt_moves_weight_inside_a_side_and_the_cap_holds():
+def test_a_tilt_moves_weight_inside_a_side_and_the_side_keeps_its_gross():
+    fires = [_fire(f"L{i}", "L1") for i in range(11)] + [_fire(f"S{i}", "S1") for i in range(11)]
+    tilt = lambda day, p: {"L0": 3.0, "L1": 1.2}.get(p.symbol, 1.0)  # noqa: E731
+    _, w = target_book(D0, fires, {}, {f.symbol for f in fires}, tilt=tilt)
+    # L0 gets 3 / 13.2 = 23% and stops at 10%. Its excess moves L1 from 9.1% to 10.6%,
+    # so L1 also stops at 10%. The other 9 longs share the remaining 80%.
+    assert w["L0"] == pytest.approx(0.10) and w["L1"] == pytest.approx(0.10)
+    assert w["L2"] == pytest.approx(0.80 / 9) and w["S0"] == pytest.approx(-1 / 11)
+    assert sum(w.values()) == pytest.approx(0)
+
+
+def test_a_tilt_has_no_effect_on_a_thin_side_of_10_names_or_fewer():
     fires = [_fire(f"L{i}", "L1") for i in range(3)] + [_fire(f"S{i}", "S1") for i in range(20)]
     tilt = lambda day, p: 2.0 if p.symbol == "L0" else 1.0  # noqa: E731
     _, w = target_book(D0, fires, {}, {f.symbol for f in fires}, tilt=tilt)
-    assert w["L0"] == pytest.approx(0.10)            # 0.3 x 2/4 = 0.15, capped at 10%
-    assert w["L1"] == pytest.approx(0.075) and w["S0"] == pytest.approx(-0.015)
+    assert [w[f"L{i}"] for i in range(3)] == pytest.approx([0.10] * 3)     # each long is at the cap
+    assert w["S0"] == pytest.approx(-0.015) and sum(w.values()) == pytest.approx(0)
 
 
 def test_the_basket_fills_the_thin_side_and_nets_per_coin():

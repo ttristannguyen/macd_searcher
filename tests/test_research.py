@@ -236,6 +236,14 @@ def test_first_deep_dip_finds_the_close_where_the_dip_reaches_the_top_quarter():
     assert got.iloc[1:].isna().all()                       # never deep; not yet known; bullish fires skipped
 
 
+def test_first_deep_dip_with_s2_band_skips_a_record_dip():
+    band = _dip_hist([-0.5, -3.5, -4.5] + [-4.0] * 11)     # 0th, 75th, then 100th percentile
+    record = _dip_hist([-0.5, -4.5] + [-4.0] * 12)         # 0th, then a record: never in the band
+    sig = pd.DataFrame({"symbol": ["BAND", "RECORD"], "day": band.index[200], "direction": "bearish"})
+    got = dataset.first_deep_dip(sig, {"BAND": band, "RECORD": record}, in_state=dataset.in_s2_band)
+    assert got.iloc[0] == 2 and np.isnan(got.iloc[1])
+
+
 # ---------------------------------------------------------------- statistics
 
 def test_block_ci_collapses_on_constant_data():

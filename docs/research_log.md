@@ -8,6 +8,213 @@ own docs ([confidence_v3_research.md](confidence_v3_research.md),
 
 ---
 
+## 2026-11-07 — the live bot's execution, and new exits
+
+Questions:
+1. Does the execution of the bot (docs/trading_bot.md) keep B3's edge?
+2. What is the smallest account that trades the tested book?
+3. Does an exit that exit_research.md did not test help?
+
+**Data.** The prod snapshot was synced on 2026-11-07. Its last run is 2026-11-06 20:00
+UTC. The portfolio numbers come from the committed backtester on the frozen panel,
+2023-02-28 → 2026-10-15 (`scripts/backtest_tables.py`, `live_execution()` and
+`new_exits()`). The per-trade numbers come from scratch scripts in the backtester's
+convention. The exits are in [exit_research.md](exit_research.md) §8.
+
+### Watchlist (snapshot 2026-11-06 20:00 UTC)
+
+**No leg check has 30 episodes, so no leg is confirmed or contradicted.** No leg is
+dropped (trading_strategy.md §5). Bearish alpha is short-side, so a bad L2 long reads
+positive.
+
+| check | leg | registered | measure | episodes | value | verdict |
+|---|---|---|---|---|---|---|
+| `bullish peak_pct <= 25` | L1 | 10-16 | alpha 7d | 4 | +7.45 [+4.07, +11.20] | pending |
+| `bullish peak_pct <= 25` | L1 | 10-18 | alpha 14d | 1 | −1.20 | pending |
+| `bearish pullback (peak_pct >= 50)` | L2 | 10-16 | alpha 7d | 20 | +4.74 [−3.74, +12.52] | pending |
+| `bearish pullback (peak_pct >= 50)` | L2 | 10-16 | alpha 14d (`--horizon 14`) | 11 | +13.39 (no interval) | pending |
+| `v3 bearish (shadow)` | S1 | 10-14 | alpha 7d | 15 | +3.94 [+2.88, +5.99] | pending |
+| `v3 bearish (shadow)` | S1 | 10-18 | alpha 14d | 5 | +5.29 | pending |
+| S1 and S2 21-day holds | S1, S2 | 10-27 | `alpha_from_14d_21d` | 0 | — | pending |
+| L2 deep-dip exit | L2 | 10-27 | `alpha_from_dip_14d` | 0 | — | pending |
+| uncrossed at bar 3 | S2 | 10-23 | `alpha_from_bar3_14d` | 0 | — | pending |
+
+- **Two checks outside B3 have a verdict.** The record-peak warning is contradicted:
+  record-peak bullish fires beat their class (+1.39 [+0.49, +4.20] at 7d, 86 ep). v2
+  is confirmed: +2.04 [+0.06, +3.12] at 7d, 54 ep.
+- **The L2 long is the leg to watch.** Its 11 episodes at 14d lost 13.4 points of
+  alpha. The 21-day checks need fires from 10-27 with a 21-day outcome, so they wait
+  until about 11-18.
+- *Orientation, not evidence* (out of sample from 2026-09-19, partly seen before
+  registration): S1 earns +5.39 [+1.73, +7.08] at 14d (46 ep). L2 loses 0.55 at 14d
+  (216 ep). Crypto S2 first fires lose 0.35 as a short (131 ep).
+
+### B1. Resting post-only limit orders
+
+`simulate(fill="limit")`: each order is a post-only limit order at the close before the
+bar. A buy fills if the bar's low is below it, and a sell if the high is above it. The
+next rebalance sends a new order. A filled order pays 0.015%. A stop and a delisting
+cross the spread at 0.10%.
+
+| book | Sharpe | Δ vs baseline [95%] | Δ 2023–24 | Δ 2025–26 | CAGR | max DD | costs a year | orders filled |
+|---|---|---|---|---|---|---|---|---|
+| **baseline: every order fills at the close, 0.10% a side** | 1.50 | — | — | — | +38.5% | −18% | 12.9% | 100% |
+| 0.015% a side, every order fills at the close | 1.96 | +0.47 [+0.42, +0.52] | +0.41 | +0.53 | +54.5% | −16% | 1.9% | 100% |
+| resting limit order, a new one each day (the bot) | 1.53 | +0.03 [−0.08, +0.13] | +0.05 | +0.04 | +39.6% | −20% | 1.9% | 98.7% |
+| resting limit order for one day, then cross | 1.53 | +0.04 [−0.07, +0.13] | +0.06 | +0.04 | +39.8% | −20% | 2.2% | 98.7% |
+| drift band 25%, fills at the close | 1.53 | +0.03 [−0.28, +0.35] | +0.04 | +0.03 | +41.6% | −20% | 10.6% | 100% |
+| resting limit order + drift band 25% | 1.54 | +0.04 [−0.27, +0.36] | +0.09 | +0.02 | +42.0% | −20% | 1.6% | 98.7% |
+
+- **The limit orders keep the edge, but they do not add to it.** Costs fall from 12.9%
+  to 1.9% a year. The gross return falls from 50.4% to 40.2% a year. Thus the 1.3% of
+  orders that do not fill cost about as much as the fee saves.
+- *Mechanism:* a buy at the close before the bar does not fill only if the bar never
+  trades below its open, so the price goes up all day. A sell does not fill only if the
+  price goes down all day. Each order that does not fill misses a large move in the
+  trade's direction, or holds a position through a large move against it.
+- **Fill rate and days to fill.** 99.4% of the first-fire entries fill on the fire day.
+  The mean time to fill is 0.01 days.
+- **"Limit for one day, then cross" adds nothing,** because 99% of the orders fill on
+  the first day.
+
+Adverse selection of the entry order, first fires, 14-day alpha:
+
+| leg | not filled on day 1: fires / same state | 14d alpha filled → not filled, fires | same state | bot − backtest alpha when not filled, fires | same state |
+|---|---|---|---|---|---|
+| L1 | 2.0% / 1.3% | +1.58 → +8.94 | +0.23 → +9.74 | −3.55 [−5.59, −2.05] | −8.85 |
+| L2 | 0.8% / 0.8% | +0.98 → +2.43 | +0.86 → +8.19 | −1.70 [−3.33, −0.27] | −3.96 |
+| S1 | 2.3% / 1.1% | +1.21 → +3.55 | −0.16 → +4.44 | −2.55 [−4.50, −1.37] | −2.23 |
+| S2 | 0.6% / 1.1% | +0.94 → +4.51 | +0.62 → +3.53 | −3.10 [−4.80, −1.73] | −1.42 |
+
+- **The orders that do not fill are the best trades.** Same-state coins show the same
+  split, so this is how a daily bar works, not a property of the fires.
+- L1 and S1 fires do not fill a little more often than their state (2.0% against 1.3%,
+  2.3% against 1.1%). Over all the trades of a leg, the cost is −0.07 (L1), −0.01
+  (L2), −0.06 (S1) and −0.02 (S2) points a trade.
+- *Limit of the model:* the bot sends its orders at 00:10 UTC at the touch, not at the
+  close. The touch can be some ticks from the close.
+
+### B2. The stop gap
+
+A short that a resting order opens gets its +100% stop at the next daily run. Of 3,725
+S1 and S2 first fires, none traded +100% above its entry within its first bar. One
+did within bars 1–2: APE (S1, 2026-04-23), +174% in bar 2, where the bot has its stop.
+
+| leg | group | n | ≥ +100%: bar 1 / bars 1–2 | ≥ +50%: bar 1 / bars 1–2 | 14d return when ≥ +50% in bars 1–2 |
+|---|---|---|---|---|---|
+| S1 | fires | 1,554 | 0 / 1 | 1 / 3 | +59% |
+| S1 | same state | 4,343 | 1 / 4 | 6 / 16 | +21% |
+| S2 | fires | 2,171 | 0 / 0 | 2 / 8 | +58% |
+| S2 | same state | 4,991 | 0 / 0 | 3 / 12 | +52% |
+
+- **The gap keeps the edge.** The +100% stop from the next day (`stop_delay=1`) scores
+  the same as the stop from the fire day: 1.41, −0.08 [−0.19, +0.01] against the
+  baseline. The bot's full execution (limit orders and the late stop) scores 1.44,
+  −0.05 [−0.19, +0.07].
+- A short that trades +50% in its first two bars loses about 58% by day 14. At a weight
+  of about 3%, that is about 1.7% of equity. It occurs on 0.3% of the shorts.
+- The one same-state coin at +100% in bar 1 was a wick: ZEREBRO on 2025-10-10, high
+  +232%, close −37%. A stop on that bar would have closed a short that ended the day in
+  profit.
+
+### B3. Small accounts and the $10 minimum order
+
+`simulate(equity=...)`: the equity in USD is the same each day. An order below $10
+does not go, and a full close always goes. If the planned book is more than ±10% net,
+only the closes go. All rows use the bot's execution (limit orders, stop from the next
+day).
+
+| book | Sharpe | Δ vs baseline [95%] | Δ 2023–24 | Δ 2025–26 | CAGR | max DD | days with only the closes | max \|net\| | correlation with the baseline |
+|---|---|---|---|---|---|---|---|---|---|
+| band 25%, $500 | 0.65 | −0.85 [−2.08, +0.24] | −0.34 | −1.37 | +13.1% | −31% | 69% | 60% | 0.53 |
+| band 25%, $1,000 | 0.92 | −0.58 [−1.39, +0.29] | +0.43 | −1.62 | +22.1% | −19% | 51% | 60% | 0.78 |
+| band 25%, $2,000 | 1.24 | −0.25 [−0.69, +0.26] | −0.20 | −0.41 | +32.5% | −22% | 38% | 49% | 0.87 |
+| band 25%, $5,000 | 1.36 | −0.14 [−0.48, +0.29] | −0.15 | −0.16 | +36.0% | −21% | 32% | 43% | 0.91 |
+| band 25%, $10,000 | 1.36 | −0.13 [−0.48, +0.31] | −0.19 | −0.11 | +36.1% | −21% | 33% | 43% | 0.91 |
+| band 25%, no minimum | 1.45 | −0.05 [−0.38, +0.27] | +0.13 | −0.21 | +38.7% | −20% | 0% | 29% | 0.94 |
+| band 0%, $500 | 0.63 | −0.86 [−2.13, +0.22] | −0.33 | −1.40 | +12.8% | −33% | 68% | 53% | 0.53 |
+| band 0%, $1,000 | 0.83 | −0.66 [−1.39, +0.15] | +0.52 | −1.85 | +19.4% | −21% | 47% | 60% | 0.80 |
+| band 0%, $2,000 | 1.28 | −0.22 [−0.59, +0.21] | +0.01 | −0.50 | +32.7% | −22% | 19% | 45% | 0.92 |
+| band 0%, $3,000 | 1.45 | −0.04 [−0.27, +0.19] | +0.13 | −0.22 | +37.9% | −18% | 7% | 44% | 0.97 |
+| **band 0%, $5,000** | 1.49 | −0.00 [−0.16, +0.15] | +0.21 | −0.18 | +38.4% | −17% | 0% | 22% | 0.98 |
+| band 0%, $10,000 | 1.46 | −0.03 [−0.17, +0.08] | +0.11 | −0.16 | +37.4% | −18% | 0% | 21% | 0.99 |
+| band 0%, no minimum | 1.44 | −0.05 [−0.19, +0.07] | +0.09 | −0.18 | +36.7% | −19% | 0% | 21% | 0.99 |
+
+The table in `backtest_tables.py` also has band 25% at $3,000.
+
+- **With the bot's 25% drift band, no account size trades the tested book.** The band
+  lets the held weights drift, and the drift makes the book net. Then the planned-net
+  rule sends only the closes on about a third of the days, at every size. The closes
+  can all be on one side, so the net goes up to 43%, against 29% with no rule.
+- **With no band, $5,000 is the smallest tested account that trades the tested book.**
+  No day sends only the closes, and the returns have a correlation of 0.98 with the
+  baseline. At $3,000, 7% of the days send only the closes.
+- *Mechanism below $5,000:* at $2,000, a name is about $60. When a name opens or
+  closes, each other name of that side changes by $2–3, below the minimum. Those
+  resizes do not go, the side drifts, and the planned net goes above 10%. Then the
+  bot opens nothing until enough positions close.
+- **At the maker fee, the band saves little:** 1.9% → 1.6% of costs a year.
+
+### B4. Funding by leg
+
+Live funding (`state/research_cache/funding/`, hourly), first fires 2026-05-15 →
+2026-10-15, mean funding over the 15 days of the hold. Plus means that longs pay. One
+regime only, so this is orientation.
+
+| leg | fires (n) | same state (n) | the leg pays a year (+) or receives (−), fires | backtest |
+|---|---|---|---|---|
+| L1 | +5.4% [−0.5, +9.6] (119) | +5.5% [+3.0, +8.4] (462) | +5.4% | +9.0% |
+| L2 | −1.1% [−9.0, +4.2] (500) | +3.2% [−2.6, +7.1] (1,557) | −1.1% | +9.0% |
+| S1 | +3.6% [−0.4, +6.7] (244) | +5.3% [+1.6, +9.2] (913) | −3.6% | −6.5% |
+| S2 | +1.7% [−4.8, +7.7] (357) | +4.7% [−2.3, +10.1] (974) | −1.7% | −6.5% |
+
+The universe pays +3.3% [+0.2, +6.1].
+
+- **The longs are not crowded.** L1 pays what its state pays. L2 pays less than its
+  state and less than the universe.
+- *Mechanism:* an L2 fire is a pullback. The longs leave, and funding falls. L2's
+  funding in the 7 days before the fire is −0.6% APR, against +6.2% for its state.
+- **The shorts receive less than the backtest assumes.** Net, the book received about
+  2.3% a year of side gross. The backtest charges it about 2.5%.
+
+### Exits (exit_research.md §8)
+
+- **No new exit helps in both halves per trade:** an exit when the edge is paid,
+  take-profits and a give-back in ATR units, a rank exit, a scale-out, and same-leg
+  restarts. As portfolios, the edge-paid exit costs −0.49 [−1.03, −0.01], and the
+  rank exit costs −0.25. The others, except the S2-band exit below, are within ±0.08.
+- **Why S2 as the MACD state scores 2.15:** it flips the longs whose coin falls into
+  S2's band to shorts. Without those flips it scores 1.27. If the book closes those
+  longs and does not short them, it scores 1.76 (+0.26 [−0.12, +0.62], +0.48 / +0.03).
+- Per trade, the flip is an L2 effect. 45% of L2 first fires enter S2's band by day
+  13. As a short for 14 days from that close, they earn +1.71 [+0.05, +3.62] in
+  2023–24 and +0.24 in 2025–26 (same state +1.28 / −1.20).
+
+**Plumbing check** of the new column on the 2026-11-07 snapshot: 53% of the live
+crypto pullback first fires enter S2's band by day 13 (history: 45%). Their live
+`alpha_from_band_14d` is +3.50 [+1.14, +7.25], 261 ep. Those fires were seen before
+registration, so this is orientation.
+
+### Tooling
+
+- `backtest.simulate` has four new variants: `fill` ("close", "limit",
+  "limit_then_cross"), `stop_delay`, `equity` and `restart_same_leg`. `account` has
+  `equity`, `fills` and `cross`. The constants are `MAKER_COST`, `MIN_ORDER_USD` and
+  `MAX_PLANNED_NET`.
+- `backtest.with_low` adds the bar lows to the frozen panel from the candle CSVs. It
+  stops if a close is not the panel's close. `Run` has `sent`, `filled` and
+  `closes_only`. The baseline does not change (the golden test passes).
+- `dataset.first_deep_dip` takes `in_state`. `attach_band_flip` adds `s2_band_day` and
+  `alpha_from_band_14d`.
+
+### Registered this pass
+
+- `crypto pullback, first fires, S2 band by day 13` (`rules.AFTER_FIRE_RULES`, metric
+  `alpha_from_band_14d`): a pullback long whose coin enters S2's band is a good short
+  for 14 days from that close (> 0 short-side).
+
+---
+
 ## 2026-11-04 — the tilt cap fix
 
 Question: does a tilt keep B3 dollar-neutral? It did not. A tilt pushed some names

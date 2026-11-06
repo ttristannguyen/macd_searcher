@@ -50,6 +50,11 @@ results in §1–3 did not change.
    revert: 63% of the shorts that touch +50% end the 14 days better than the stop would
    have. Keep it only as insurance against what daily bars can't show, and set it wide
    (+100% costs ~~0.06~~ 0.08).
+6. **The new exits of 2026-11-07 do not help either (§8).** That includes an exit when
+   the edge is paid, take-profits in ATR units, a give-back, a rank exit, a scale-out
+   and same-leg restarts. The "S2 as the MACD state" book gains because it flips L2
+   longs whose coin falls into S2's band to shorts. That flip is registered, not
+   adopted.
 
 ## Backtest
 
@@ -324,6 +329,134 @@ The stop is still insurance against what a daily-close backtest can't show, such
 - **The short tail stop is insurance with a small cost, not a free control.** Set it at
   +100%, not +50%.
 
+## 8. New exits (2026-11-07)
+
+This section tests exits that §1–7 did not test. It also finds why "S2 as the MACD
+state" scores 2.15 against 1.50 (research_log.md 2026-11-03). Nothing here is adopted.
+
+**Method.**
+- The per-trade numbers come from scratch scripts, in the convention of the
+  backtester. A first fire on decision day D enters at the close of D − 1. The hold
+  exits at the close of D + 14.
+- An exit rule decides on decision day D' from bars closed through D' − 1, and exits
+  at the close of D' − 1. Thus no rule reads a bar after its exit.
+- Alpha is the trade's return minus the mean return of the universe coins of day D,
+  over the same bars, in the trade's direction. Each first fire is one episode.
+  Intervals resample fire weeks.
+- The counterfactual (rule 4) is the same exit on non-firing coins in the leg's MACD
+  state on the leg's fire days. A non-firing coin has no fire in the same direction in
+  the last 5 days.
+- The portfolio numbers come from the committed backtester
+  (`scripts/backtest_tables.py`, section "new exits").
+
+### 8.1 Per trade
+
+Exit alpha minus 14-day-hold alpha, first fires, 2023–24 / 2025–26. Bold: the 95%
+interval excludes zero. The share is the trades that the rule exits before day 14.
+
+| rule | L1 | L2 | S1 | S2 | share exited (L1 / L2 / S1 / S2) |
+|---|---|---|---|---|---|
+| adverse state (§3, for reference) | −0.20 / −0.02 | **+0.68** / +0.10 | **−0.69** / −0.07 | +0.21 / +0.10 | 4 / 30 / 6 / 14% |
+| opposite band: a long in S2's band, a short in L2's band | −0.01 / −0.01 | **+0.80** / −0.04 | **−0.94** / −0.12 | −0.41 / −0.08 | 13 / 47 / 16 / 35% |
+| edge paid: the trade-side histogram rose above 0 and now shrinks | +0.55 / **−1.03** | −0.45 / −0.15 | −0.41 / +0.08 | −0.36 / −0.19 | 78 / 58 / 69 / 55% |
+| take profit at 3 ATR of price | **+1.14** / −0.28 | −0.56 / **+0.58** | −0.07 / +0.01 | −0.02 / +0.05 | 20 / 19 / 12 / 14% |
+| take profit at 5 ATR of price | +0.71 / +0.01 | −0.20 / **+0.77** | −0.00 / **+0.01** | +0.01 / +0.01 | 8 / 9 / 1 / 2% |
+| give back 2 ATR after 2 ATR of profit | +0.35 / −0.37 | −0.17 / **+0.23** | −0.04 / **+0.06** | −0.15 / +0.03 | 14 / 12 / 4 / 4% |
+| rank: best decile of the universe since entry | +1.48 / **−0.81** | −0.47 / +0.24 | **−0.41** / −0.10 | −0.13 / −0.18 | 33 / 37 / 27 / 29% |
+| scale out: half at day 7 (shorts: the rest at 21) | +0.34 / −0.37 | −0.03 / +0.03 | **−0.84** / −0.25 | **−0.88** / −0.29 | all |
+
+The same exits on non-firing coins in the same state:
+
+| rule | L1 | L2 | S1 | S2 |
+|---|---|---|---|---|
+| adverse state | −0.06 / **+0.23** | **+0.30** / −0.20 | +0.07 / −0.12 | +0.34 / −0.08 |
+| opposite band | +0.27 / **+0.22** | **+0.42** / **−0.31** | **−0.76** / −0.29 | +0.07 / −0.24 |
+| edge paid | +0.03 / −0.25 | −0.65 / **−0.84** | −0.01 / **+0.31** | −0.33 / **−0.52** |
+| take profit at 3 ATR | +0.51 / −0.08 | **−1.69** / **+0.48** | −0.05 / +0.16 | +0.07 / +0.05 |
+| take profit at 5 ATR | +0.36 / +0.11 | **−1.25** / **+0.54** | +0.00 / −0.00 | **+0.01** / +0.01 |
+| give back 2 ATR | +0.15 / +0.07 | **−0.57** / −0.08 | +0.02 / −0.02 | −0.01 / **−0.05** |
+| rank | −0.02 / −0.17 | **−1.08** / +0.12 | −0.24 / −0.06 | −0.47 / −0.17 |
+| scale out | +0.11 / −0.03 | **−0.42** / **−0.44** | −0.33 / −0.14 | −0.22 / **−0.52** |
+
+The adverse-state row gives the §3 values again (§3: L2 +0.65 / +0.13, S1 −0.55 /
+−0.08). Thus the scratch code of this section agrees with the earlier one.
+
+### 8.2 As portfolios
+
+*Backtester, frozen panel, 2023-02-28 → 2026-10-15.*
+
+| book | Sharpe | Δ vs baseline [95%] | Δ 2023–24 | Δ 2025–26 | CAGR | max DD | turnover |
+|---|---|---|---|---|---|---|---|
+| **baseline: every leg 14 days** | 1.50 | — | — | — | +38.5% | −18% | — |
+| longs close in S2's band (hist < 0, 50 < `peak_pct` < 100) | 1.76 | +0.26 [−0.12, +0.62] | +0.48 | +0.03 | +50.0% | −21% | +3% |
+| edge paid | 1.00 | −0.49 [−1.03, −0.01] | −0.49 | −0.63 | +24.7% | −30% | +42% |
+| take profit at 3 ATR | 1.43 | −0.06 [−0.43, +0.28] | −0.17 | +0.08 | +36.3% | −23% | +13% |
+| take profit at 5 ATR | 1.57 | +0.07 [−0.16, +0.29] | −0.12 | +0.28 | +40.5% | −19% | +3% |
+| give back 2 ATR after 2 ATR of profit | 1.53 | +0.03 [−0.06, +0.12] | +0.01 | +0.07 | +39.4% | −19% | +1% |
+| rank: best decile of the universe since entry | 1.24 | −0.25 [−0.80, +0.27] | −0.20 | −0.23 | +29.6% | −26% | +28% |
+| scale out: half at day 7, the rest at day 14 | 1.57 | +0.08 [−0.37, +0.46] | +0.14 | −0.08 | +41.4% | −19% | +11% |
+| a same-leg re-fire restarts the clock | 1.48 | −0.02 [−0.20, +0.16] | +0.01 | −0.05 | +37.1% | −20% | −4% |
+
+The scale-out book is the mean of the weights of the 7-day book and the baseline.
+
+- **The edge-paid exit sells the move before it is paid.** It exits 55–78% of the
+  trades, most in the first week. The legs earn through day 14, and the shorts through
+  day 21 (§1). This is the zero-cross exit of §3 with one more bar. Both halves lose,
+  and the interval excludes zero.
+- **Take-profits and the give-back in ATR units change with the market,** as the
+  take-profits on alpha did (§3). On L2, the same-state coins change sign in the same
+  way (3 ATR: −1.69 / +0.48). That is reversal in 2025–26, not a property of the fire.
+- **The rank exit is a relative take-profit.** It sells L1's winners in 2025–26
+  (−0.81) and S1's in 2023–24 (−0.41).
+- **Scale-out costs the shorts their week-3 alpha** (§1), and the long half is noise.
+- **A same-leg re-fire is the same setup.** A restart changes nothing (−0.02). That
+  agrees with H9 for bearish re-fires.
+
+### 8.3 Why S2 as the MACD state scores higher
+
+The state book shorts each eligible coin on its first day in S2's band. It does not
+wait for an S2 fire. Three books separate its parts:
+
+| book | Sharpe | Δ vs baseline [95%] | Δ 2023–24 | Δ 2025–26 | CAGR | max DD | names L / S |
+|---|---|---|---|---|---|---|---|
+| S2 as the MACD state (trading_strategy.md) | 2.15 | +0.65 [−0.06, +1.31] | +1.09 | +0.26 | +64.4% | −20% | 27 / 35 |
+| S2 as the MACD state, no trigger on a coin held long | 1.27 | −0.22 [−0.86, +0.43] | −0.55 | +0.08 | +31.0% | −31% | 35 / 23 |
+| S2 fires, longs close in S2's band | 1.76 | +0.26 [−0.12, +0.62] | +0.48 | +0.03 | +50.0% | −21% | 27 / 28 |
+
+"No trigger on a coin held long" drops each trigger on a coin with a long first fire
+in the last 14 days.
+
+- **The broader short side does not cause the gain.** Without the triggers on coins
+  held long, the state book scores 1.27. Most of its shorts are longs that it flips:
+  35 − 23 = 12 names on an average day.
+- **The gain comes from the longs whose coin falls into S2's band.** To close them adds
+  +0.26. To close them and hold them short adds +0.65.
+- **Per trade, the flip is an L2 effect.** 45% of L2 first fires enter S2's band by day
+  13. As a short from that close for 14 days, they earn **+1.71** [+0.05, +3.62] in
+  2023–24 and +0.24 [−0.97, +1.49] in 2025–26. Same-state coins earn +1.28 / −1.20.
+  Only 13% of L1 fires enter the band, and their short earns −0.85 / +1.29.
+- *Mechanism (hypothesis):* an L2 long is a bet that the pullback of a leader ends.
+  When the coin falls into a dip larger than half of its own prior dips, the pullback
+  has become a trend change. Deep dips continue to drift down (research_log.md
+  2026-10-25). The state book trades that change at the first close in the band. An
+  S2 fire waits for the dip to flatten, which comes later or never.
+- **What it does not show.** The gain is in-sample, and most of it is in 2023–24. In
+  2025–26, the same-state coins lose as a short (−1.20), so the state effect itself
+  changed sign. The fires did better (+0.24) than the state.
+
+### 8.4 What was registered
+
+- `crypto pullback, first fires, S2 band by day 13` (`rules.AFTER_FIRE_RULES`, metric
+  `alpha_from_band_14d`): short-side alpha from the first close in S2's band to 14 days
+  later, expected > 0. The dataset column `s2_band_day` gives that close. If the check
+  is confirmed, the candidate rule is: flip an L2 long to an S2 short when its coin
+  enters S2's band.
+- Nothing else. No other exit helps in both halves per trade.
+- **Not tested: a funding-spike exit for longs.** The live funding data starts on
+  2026-05-15, so it covers one regime. In that data, L1 and L2 longs pay less funding
+  than the universe (research_log.md 2026-11-07, check B4). Thus a funding spike has
+  little to act on. It stays an idea, not a check.
+
 ## Caveats
 
 - **In-sample.** The legs, the 14-day baseline and now the 21-day short hold were all
@@ -347,3 +480,6 @@ backtester. Run `uv run python scripts/backtest_tables.py` at commit `9238751`. 
 frozen panel is `state/research_cache/backtest_panel.pkl`, and
 `uv run python -m macd_searcher.research.backtest --rebuild` builds it again. The
 per-trade numbers (§1–3 and the counts in §6) still come from the scratch scripts.
+
+*2026-11-07:* the portfolio numbers of §8 come from `new_exits()` in
+`scripts/backtest_tables.py`. The per-trade numbers of §8 come from scratch scripts.

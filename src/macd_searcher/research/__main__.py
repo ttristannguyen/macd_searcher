@@ -31,9 +31,9 @@ MIN_EPISODES = 30   # below this a watchlist verdict is "pending", not a result
 
 # Columns that are outcomes, ids or raw inputs — never features. carry_7d is a
 # FORWARD quantity (funding paid during the hold); scanning it would be look-ahead, and
-# so would crossed_by_bar3 and deep_dip_day (bars after the fire).
+# so would crossed_by_bar3, deep_dip_day and s2_band_day (bars after the fire).
 _NOT_FEATURES = {"fire_close", "fire_macd", "fire_hist", "fire_hist_peak", "atr", "oos", "episode_start",
-                 "crossed_by_bar3", "deep_dip_day"}
+                 "crossed_by_bar3", "deep_dip_day", "s2_band_day"}
 _OUTCOME_PREFIXES = ("r_", "market_", "alpha_", "bench_", "px_", "ret_", "carry_")
 
 

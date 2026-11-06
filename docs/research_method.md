@@ -16,6 +16,14 @@ uv run python -m macd_searcher.research --scan       # also scan every feature (
 uv run python -m macd_searcher.research --out report.md
 ```
 
+Portfolio numbers come from the committed B3 backtester:
+
+```
+uv run python -m macd_searcher.research.backtest             # the baseline
+uv run python -m macd_searcher.research.backtest --rebuild   # rebuild the frozen panel first
+uv run python scripts/backtest_tables.py > tables.md         # the portfolio tables of the docs
+```
+
 Reads `state/prod_snapshot.sqlite3` (synced daily by `scripts/sync_prod_db.ps1`)
 read-only. Candles and hourly funding are cached under `state/research_cache/` and
 topped up incrementally. The first run's funding fetch takes ~45 minutes because the
@@ -119,3 +127,12 @@ the so-called bearish "blow-ups" were under 3 ATR — ordinary noise.
 
 **9. Explain the mechanism before recommending.** A pattern with no mechanism and no
 counterfactual check is a hypothesis for the watchlist, not a rule change.
+
+**10. Test portfolio claims only with the committed backtester.** Do not use a scratch
+book. Use `research/backtest.py` for each Sharpe, CAGR or drawdown in the docs. Give
+each variant as a keyword argument that names the rule it changes. Compare it with the
+baseline by `sharpe_diff_ci`, with the same 30-day blocks for both books. Report
+2023–24 and 2025–26 separately. Keep a variant only if it helps in both halves. Add
+its table to `scripts/backtest_tables.py`. *Why:* two scratch builds of the same B3
+book gave Sharpe 1.22–1.29 and 1.42. Their construction rules were not recorded, so
+nobody could find the cause.

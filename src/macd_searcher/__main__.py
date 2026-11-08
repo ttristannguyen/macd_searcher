@@ -43,8 +43,9 @@ def _now_iso() -> str:
 
 
 def _config_snapshot(cfg: AppConfig) -> tuple[str, str]:
-    """Return (config_json, config_hash), excluding telegram secrets."""
-    dump = cfg.model_dump(mode="json", exclude={"telegram"})
+    """Return (config_json, config_hash), excluding telegram secrets. The trader
+    section is not scanner config, so it does not change the scanner's hash."""
+    dump = cfg.model_dump(mode="json", exclude={"telegram", "trader"})
     config_json = json.dumps(dump, sort_keys=True, default=str)
     config_hash = hashlib.sha256(config_json.encode("utf-8")).hexdigest()[:16]
     return config_json, config_hash

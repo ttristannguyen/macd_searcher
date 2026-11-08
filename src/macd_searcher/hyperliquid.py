@@ -282,17 +282,54 @@ async def fetch_funding_history(
 _DAY_MS = 86_400_000
 
 
+@dataclass(frozen=True)
+class PerpSpec:
+    """A core perp as the trading bot sees it: no liquidity filter. The bot applies
+    the volume floor to closed bars, as the backtest does (docs/trading_strategy.md
+    §1.2)."""
+
+    name: str
+    sz_decimals: int      # an order size has at most this many decimals
+    max_leverage: int
+    mid_px: float
+
+
+async def fetch_core_perps(client: httpx.AsyncClient, cfg: AppConfig) -> list[PerpSpec]:
+    """Every core perp that is not delisted. HIP-3 DEXes are not included: B3 was
+    backtested on crypto perps only."""
+    universe, asset_ctxs = await _fetch_meta_and_ctxs(client, cfg, None)
+    out = []
+    for u, ctx in zip(universe, asset_ctxs):
+        px = ctx.get("midPx") or ctx.get("markPx")
+        if u.get("isDelisted") or px is None:
+            continue
+        out.append(PerpSpec(u["name"], int(u["szDecimals"]), int(u["maxLeverage"]), float(px)))
+    return out
+
+
+async def fetch_l2_book(
+    client: httpx.AsyncClient, coin: str, cfg: AppConfig
+) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
+    """The order book of one coin as ``(bids, asks)``. Each level is ``(px, size)``.
+    The best price is first on each side."""
+    raw = await _post_info(client, {"type": "l2Book", "coin": coin}, cfg)
+    if not (isinstance(raw, dict) and len(raw.get("levels", [])) == 2):
+        raise HyperliquidError(f"l2Book for {coin} returned an unexpected shape")
+    bids, asks = ([(float(lv["px"]), float(lv["sz"])) for lv in side] for side in raw["levels"])
+    return bids, asks
+
+
 async def fetch_all_candles(
     client: httpx.AsyncClient,
-    assets: list[AssetMeta],
+    coins: list[str],
     cfg: AppConfig,
     lookback_days: int | None = None,
     end_ms: int | None = None,
 ) -> dict[str, pd.DataFrame]:
-    """Fetch 1D candles for every asset concurrently, `lookback_days` back from
+    """Fetch 1D candles for every coin concurrently, `lookback_days` back from
     `end_ms` (defaults: the configured lookback, ending now).
 
-    Assets whose fetch fails are logged and dropped from the result.
+    Coins whose fetch fails are logged and dropped from the result.
     """
     end_ms = end_ms if end_ms is not None else int(time.time() * 1000)
     start_ms = end_ms - (lookback_days or cfg.candles.lookback_days) * _DAY_MS
@@ -308,9 +345,9 @@ async def fetch_all_candles(
                 log.warning("Candle fetch failed for %s: %s", coin, exc)
                 return coin, None
 
-    results = await asyncio.gather(*(_bounded(a.name) for a in assets))
+    results = await asyncio.gather(*(_bounded(coin) for coin in coins))
     out = {coin: df for coin, df in results if df is not None}
-    log.info("Fetched candles for %d / %d assets", len(out), len(assets))
+    log.info("Fetched candles for %d / %d assets", len(out), len(coins))
     return out
 
 
@@ -342,5 +379,5 @@ async def fetch_universe_and_candles(
     """
     async with httpx.AsyncClient() as client:
         assets, universe_total = await fetch_universe(client, cfg)
-        candles = await fetch_all_candles(client, assets, cfg, lookback_days, end_ms)
+        candles = await fetch_all_candles(client, [a.name for a in assets], cfg, lookback_days, end_ms)
     return assets, candles, universe_total

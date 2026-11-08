@@ -106,6 +106,19 @@ class OutcomesConfig(BaseModel):
     horizon_days: int = Field(14, ge=1)
 
 
+class TraderConfig(BaseModel):
+    """The trading bot (docs/trading_bot.md). It keeps its own ledger, so that the
+    bot cannot write to the scanner's database."""
+
+    db_path: str = "state/trader.sqlite3"
+    # The equity of the paper account on its first day.
+    paper_equity_usd: float = Field(10_000, gt=0)
+    # The live bot has its own ledger, and it sends orders to this exchange. The
+    # default is the testnet, so a live run with real money needs a deliberate edit.
+    live_db_path: str = "state/trader_live.sqlite3"
+    live_url: str = "https://api.hyperliquid-testnet.xyz"
+
+
 class TelegramSecrets(BaseModel):
     bot_token: str = ""
     chat_id: str = ""
@@ -124,6 +137,7 @@ class AppConfig(BaseModel):
     notify: NotifyConfig = NotifyConfig()
     database: DatabaseConfig = DatabaseConfig()
     outcomes: OutcomesConfig = OutcomesConfig()
+    trader: TraderConfig = TraderConfig()
     telegram: TelegramSecrets = TelegramSecrets()
     log_level: str = "INFO"
 

@@ -320,7 +320,9 @@ frozen panel (`state/research_cache/backtest_panel.pkl`).
   as `stats.py` → `web/perf.py`. The rules §1.2 leaves open (side conflicts, thin
   sides) are pinned here, with tests. *2026-11-03:* this is `target_book`. The live
   bot does not call it yet. `book.py` has its own copy of the rules, with the same
-  exit day (§1.2). A test keeps the two holds equal.
+  exit day (§1.2). A test keeps the two holds equal. *2026-11-06:* the paper bot
+  calls it (`trader/plan.py`). A test checks that the bot's replay gives the
+  backtest's book on each day.
 
 ### 8.2 Execution variants only
 
@@ -361,6 +363,12 @@ funding drag.
 
 The live bot runs against real order books, with simulated fills logged to a new table
 next to a backtest replay of the same days.
+
+*2026-11-06:* the bot is `trader/` ([trading_bot.md](trading_bot.md)). It calls
+`target_book`, and it sends one post-only limit order a coin a day. It has a paper
+broker and a live broker. The backtest replay of the traded days is not built yet.
+trading_bot.md §2 gives the decisions of 2026-11-06, and §7 gives the capital that
+the $10 minimum order needs.
 
 **It measures:**
 - **Real costs per side:** spread, slippage, maker fill rate, adverse selection. This

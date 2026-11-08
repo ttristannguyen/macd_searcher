@@ -4,6 +4,7 @@ data. A golden test on the frozen panel pins the baseline numbers."""
 from __future__ import annotations
 
 import pickle
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -194,6 +195,97 @@ def test_a_short_stop_fills_at_the_stop_and_closes_the_short(tmp_path):
     col = panel.symbols.index("B")
     assert run.ret[2, col] == pytest.approx(0.5)                # decision day 2 earns bar 3
     assert run.shorts[2] == 1 and run.shorts[3] == 0
+
+
+def test_a_same_leg_refire_restarts_the_clock_and_another_refire_does_not():
+    book = _book(_fire("A", "L1"))
+    after, _ = target_book(_d(3), [_fire("A", "L1", first=False)], book, {"A"}, restart_same_leg=True)
+    assert (after["A"].entry, after["A"].last) == (_d(3), _d(17))
+    after, _ = target_book(_d(3), [_fire("A", "L2", first=False)], book, {"A"}, restart_same_leg=True)
+    assert after == book
+
+
+def test_the_stop_starts_stop_delay_days_after_the_fire_day(tmp_path):
+    highs = {("B", 1): 250.0}                                    # the fire day's bar trades up to +150%
+    panel = _panel(tmp_path, {"A": [100.0] * 20, "B": [100.0] * 20},
+                   fires=[("A", 0, "bullish", 10.0), ("B", 0, "bearish", 10.0)], highs=highs)
+    fires = bt.book_fires(panel)
+    assert bt.simulate(panel, fires, short_stop=1.0).shorts[1] == 0
+    late = bt.simulate(panel, fires, short_stop=1.0, stop_delay=1)
+    assert late.shorts[1] == 1 and late.ret[0, panel.symbols.index("B")] == 0.0
+
+
+# ---------------------------------------------------------------- the live bot's execution
+
+NO = np.zeros((2, 2), dtype=bool)
+YES = np.ones((2, 2), dtype=bool)
+
+
+def test_a_resting_order_fills_only_on_a_bar_that_trades_through_it():
+    weights = np.array([[0.1, -0.1], [0.1, -0.1]])
+    ret = np.array([[0.05, 0.0], [0.02, 0.0]])
+    buy = np.array([[False, False], [True, True]])               # bar 0 never trades below the buy
+    out = account(weights, ret, fills=(buy, YES, NO))
+    assert out["weights"].tolist() == [[0.0, -0.1], [0.1, -0.1]]
+    assert out["gross"][0] == 0.0 and out["gross"][1] == pytest.approx(0.1 * 0.02)
+    assert out["sent"][0].tolist() == [True, True] and out["filled"][0].tolist() == [False, True]
+    assert out["cost"][0] == pytest.approx(0.1 * bt.MAKER_COST)  # the filled sell pays the maker fee
+
+
+def test_an_order_that_did_not_fill_crosses_the_spread_at_the_next_rebalance():
+    weights = np.array([[0.1, -0.1], [0.1, -0.1]])
+    out = account(weights, np.zeros((2, 2)), fills=(NO, YES, NO), cross=True)
+    assert out["weights"][1].tolist() == [0.1, -0.1]
+    assert out["cost"][1] == pytest.approx(0.1 * bt.COST_PER_SIDE)
+
+
+def test_a_forced_trade_does_not_wait_and_pays_the_taker_cost():
+    weights = np.array([[0.1, -0.1], [0.1, -0.1]])
+    forced = np.array([[True, False], [False, False]])
+    out = account(weights, np.zeros((2, 2)), fills=(NO, YES, forced))
+    assert out["weights"][0].tolist() == [0.1, -0.1]
+    assert out["cost"][0] == pytest.approx(0.1 * bt.COST_PER_SIDE + 0.1 * bt.MAKER_COST)
+
+
+def test_orders_under_10_usd_do_not_go_and_an_unhedged_book_sends_only_the_closes():
+    weights = np.array([[0.2, -0.2, 0.0], [0.25, -0.25, 0.0], [0.0, -0.25, 0.35]])
+    out = account(weights, np.zeros((3, 3)), equity=100.0)
+    assert out["weights"][1].tolist() == [0.2, -0.2, 0.0]        # $5 resizes do not go
+    # A closes ($20), B's $5 resize does not go, and C's $35 open would leave the book
+    # 15% net long. So only the close goes.
+    assert out["weights"][2].tolist() == [0.0, -0.2, 0.0]
+    assert out["closes_only"].tolist() == [False, False, True]
+
+
+def test_simulate_fills_resting_orders_from_the_bar_lows_and_highs(tmp_path):
+    panel = _panel(tmp_path, {"A": [100.0] * 20, "B": [100.0] * 20},
+                   fires=[("A", 0, "bullish", 10.0), ("B", 0, "bearish", 10.0)])
+    with pytest.raises(ValueError, match="bar lows"):
+        bt.simulate(panel, bt.book_fires(panel), fill="limit")
+    low = panel.prev_close * 0.99
+    low[0, panel.symbols.index("A")] = 100.0                     # the fire day's bar never trades below the buy
+    panel = replace(panel, low=low, high=panel.prev_close * 1.01)
+    run = bt.simulate(panel, bt.book_fires(panel), fill="limit")
+    a, b = panel.symbols.index("A"), panel.symbols.index("B")
+    assert run.weights[0, a] == 0.0 and run.weights[0, b] < 0
+    assert run.weights[1, a] > 0
+
+
+def _bars_csv(path: Path, days: list[str], close: float, low: float) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"ts": [f"{d} 00:00:00+00:00" for d in days], "open": close, "high": close, "low": low,
+                  "close": close, "volume": 1.0}).to_csv(path, index=False)
+
+
+def test_with_low_adds_the_lows_of_the_panel_bars_and_stops_on_other_bars(tmp_path):
+    n = 6
+    panel = _panel(tmp_path, {"A": [100.0] * n})
+    days = [(D0 + timedelta(days=k - 1)).isoformat() for k in range(n + 1)]    # + the newest bar, never read
+    _bars_csv(tmp_path / "bars" / "history" / "A.csv", days, 100.0, 90.0)
+    assert np.nanmax(bt.with_low(panel, tmp_path / "bars").low) == 90.0
+    _bars_csv(tmp_path / "other" / "history" / "A.csv", days, 101.0, 90.0)
+    with pytest.raises(ValueError, match="not the bars"):
+        bt.with_low(panel, tmp_path / "other")
 
 
 # ---------------------------------------------------------------- accounting

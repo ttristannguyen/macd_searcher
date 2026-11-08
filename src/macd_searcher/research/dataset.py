@@ -9,6 +9,7 @@ unit-tested without a database (tests/test_research.py).
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 
 import numpy as np
 import pandas as pd
@@ -390,11 +391,25 @@ DEEP_DIP_PCT = 75
 STATE_LOOKBACK = 200
 
 
-def first_deep_dip(sig: pd.DataFrame, hist: dict[str, pd.Series], last: int = 13) -> pd.Series:
+def _is_deep_dip(pct: float) -> bool:
+    return pct >= DEEP_DIP_PCT
+
+
+# S2's band: a dip in the upper half of the coin's own dips, below a record
+# (``book.leg_of``). The S2 state book of trading_strategy.md shorts each coin that
+# enters it. Most of that book's gain comes from the L2 longs that it flips to shorts
+# (docs/exit_research.md §8).
+def in_s2_band(pct: float) -> bool:
+    return 50 < pct < 100
+
+
+def first_deep_dip(sig: pd.DataFrame, hist: dict[str, pd.Series], last: int = 13,
+                   in_state: Callable[[float], bool] = _is_deep_dip) -> pd.Series:
     """Days after the fire (0 = the fire day's own close) of the first daily close on
     which the coin is in a deep dip, up to ``fire_day + last`` (the bar before the 14d
     exit); NaN if there was none or the close hasn't happened. ``hist`` maps symbol ->
-    closed-bar histogram indexed by 'YYYY-MM-DD'.
+    closed-bar histogram indexed by 'YYYY-MM-DD'. ``in_state`` tests the state peak_pct
+    of the dip: the default is a deep dip, and ``in_s2_band`` is S2's band.
 
     Bearish fires only: they start in a rally, so a deep dip is a transition. A bullish
     fire is already in a dip. A FORWARD quantity, like ``crossed_by_bar3``: use it only
@@ -414,7 +429,7 @@ def first_deep_dip(sig: pd.DataFrame, hist: dict[str, pd.Series], last: int = 13
                 pct = None
                 if h.iloc[i] < 0:
                     _, pct, _ = _peak_vs_history(h.iloc[i + 1 - STATE_LOOKBACK:i + 1], "bullish")
-                state[i] = pct is not None and pct >= DEEP_DIP_PCT
+                state[i] = pct is not None and in_state(pct)
             return state[i]
 
         for ix in idx:
@@ -439,6 +454,19 @@ def attach_dip_exit(sig: pd.DataFrame, snaps: pd.DataFrame, closed: dict[str, pd
     for k, idx in dip.dropna().groupby(dip.dropna()).groups.items():
         alpha[idx] = _late_alpha(sig.loc[idx], snaps, close_of, int(k), 14)
     return sig.assign(deep_dip_day=dip, alpha_from_dip_14d=alpha)
+
+
+def attach_band_flip(sig: pd.DataFrame, snaps: pd.DataFrame, closed: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """``s2_band_day`` (``first_deep_dip`` with ``in_s2_band``) and ``alpha_from_band_14d``:
+    the alpha from the close of that day to 14 days later. That is the S2 short that the
+    S2 state book makes of a long whose coin enters S2's band (docs/exit_research.md §8).
+    From closed candles only."""
+    band = first_deep_dip(sig, {s: _closed_bar_hist(c) for s, c in closed.items()}, in_state=in_s2_band)
+    close_of = candle_closes(closed)
+    alpha = pd.Series(np.nan, index=sig.index)
+    for k, idx in band.dropna().groupby(band.dropna()).groups.items():
+        alpha[idx] = _late_alpha(sig.loc[idx], snaps, close_of, int(k), int(k) + 14)
+    return sig.assign(s2_band_day=band, alpha_from_band_14d=alpha)
 
 
 def _closed_bar_hist(candles: pd.DataFrame) -> pd.Series:
@@ -469,6 +497,7 @@ def build(conn: sqlite3.Connection, candles: dict | None = None, funding: dict |
         df["crossed_by_bar3"] = crossed_by_bar3(df, {s: _closed_bar_hist(c) for s, c in candles.items()})
         df = attach_extension(df, snaps, closed)
         df = attach_dip_exit(df, snaps, closed)
+        df = attach_band_flip(df, snaps, closed)
     if funding:
         df = attach_funding(df, funding)
     df["oos"] = df["fired_at"] >= pd.Timestamp(oos_from, tz="UTC") if oos_from else False

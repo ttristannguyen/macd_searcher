@@ -148,10 +148,14 @@ AFTER_FIRE_RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
     # 2026-10-27 (exit_research.md): a pullback long whose coin then falls into a deep dip.
     "crypto pullback, first fires, deep dip by day 13": lambda d: _crypto_pullback(d) & _first(d)
         & _col(d, "deep_dip_day").notna(),
+    # 2026-11-07 (exit_research.md §8): a pullback long whose coin then enters S2's band.
+    "crypto pullback, first fires, S2 band by day 13": lambda d: _crypto_pullback(d) & _first(d)
+        & _col(d, "s2_band_day").notna(),
 }
 AFTER_FIRE_METRIC = {
     "bullish 50 < peak_pct < 100, uncrossed at bar 3": "alpha_from_bar3",
     "crypto pullback, first fires, deep dip by day 13": "alpha_from_dip",
+    "crypto pullback, first fires, S2 band by day 13": "alpha_from_band",
 }
 
 
@@ -291,4 +295,12 @@ WATCHLIST: tuple[Check, ...] = (
           "band - records at 14d +2.36 [-0.33, +5.07])", -1,
           "drop record peaks from L2", versus="crypto pullback peak_pct >= 75, first fires",
           registered="2026-10-28", horizon=14),
+    # Added 2026-11-07 (docs/exit_research.md §8): why S2 as the MACD state scores 2.15
+    # against 1.50. Short-side alpha from the first close in S2's band to 14 days later.
+    Check("crypto pullback, first fires, S2 band by day 13", "Is a pullback LONG whose coin then enters "
+          "S2's band (hist < 0, 50 < peak_pct < 100) a good SHORT for 14 days from that close? (history, "
+          "short-side: 2023-24 +1.71 [+0.05, +3.62], 2025-26 +0.24 [-0.97, +1.49]; same-state coins +1.28 / "
+          "-1.20; in the book, the flips give the state book its +0.65)", +1,
+          "flip L2 longs to S2 shorts when their coin enters S2's band", registered="2026-11-07",
+          metric="alpha_from_band", horizon=14),
 )

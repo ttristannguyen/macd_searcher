@@ -558,6 +558,171 @@ def book_experiments() -> None:
           f"{bt.sharpe(age_only.net):.2f}, 2023 {pct(y['2023'], 0)}, 2024 {pct(y['2024'], 0)}")
 
 
+# ---------------------------------------------------------------- the live bot's execution (research_log.md 2026-11-07)
+
+LIVE = bt.with_low(PANEL, Path("state/research_cache"))       # a resting buy needs the bar lows
+BOT = dict(fill="limit", short_stop=1.0, stop_delay=1)       # the execution of docs/trading_bot.md
+
+
+def live(fires: pd.DataFrame = FIRES, **kw) -> bt.Run:
+    return bt.simulate(LIVE, fires, **kw)
+
+
+def entry_fills(v: bt.Run) -> tuple[float, float]:
+    """(share of first-fire entries whose order filled on the fire day, mean days to fill).
+    An entry that never fills in its hold counts as the hold's length."""
+    first = FIRES[FIRES["first"] & FIRES["leg"].notna()]
+    days = []
+    for r in first.itertuples():
+        t0, j = ROW[date.fromisoformat(r.day)], COL[r.symbol]
+        held = np.sign(v.weights[t0:t0 + bt.HOLD_DAYS + 1, j]) == r.side
+        if BASE.weights[t0, j] * r.side > 0:            # the backtest opened it on its fire day
+            days.append(held.argmax() if held.any() else bt.HOLD_DAYS + 1)
+    days = np.array(days)
+    return float((days == 0).mean()), float(days.mean())
+
+
+def live_execution() -> None:
+    print("\n## research_log.md 2026-11-07: the live bot's execution")
+    header("fills", "book", "Sharpe", "Δ vs baseline [95%]", "Δ 2023–24", "Δ 2025–26", "CAGR", "max DD",
+           "costs a year", "orders filled")
+    print(f"| **baseline: every order fills at the close, 0.10% a side** | {num(bt.sharpe(BASE.net), '.2f')} | — | — | — "
+          f"| {pct(bt.cagr(BASE.net))} | {pct(bt.max_drawdown(BASE.net), 0)} | {pct(BASE.cost.mean() * 365)} | 100% |")
+    rows = [("0.015% a side at the close (the maker fee, every order fills)", dict(cost=bt.MAKER_COST)),
+            ("resting limit order for one day, then a new one (the bot)", dict(fill="limit")),
+            ("resting limit order for one day, then cross the spread", dict(fill="limit_then_cross")),
+            ("drift band 25%, fills at the close (the bot's band)", dict(band=0.25)),
+            ("resting limit order + drift band 25%", dict(fill="limit", band=0.25))]
+    runs = {}
+    for name, kw in rows:
+        v = runs[name] = live(**kw)
+        fill = v.filled.sum() / v.sent.sum()
+        print(variant_row(name, BASE, v, f"{pct(v.cost.mean() * 365)} | {fill * 100:.1f}%"))
+    limit = runs["resting limit order for one day, then a new one (the bot)"]
+    fee = runs["0.015% a side at the close (the maker fee, every order fills)"]
+    share, days = entry_fills(limit)
+    print(f"\nlimit orders: gross a year {pct(limit.gross.mean() * 365)} against {pct(fee.gross.mean() * 365)} with "
+          f"every order filled; costs a year {pct(limit.cost.mean() * 365)} against {pct(BASE.cost.mean() * 365)}")
+    print(f"first-fire entries filled on the fire day: {share * 100:.1f}%; mean days to fill {days:.2f}")
+
+    header("the short tail stop at +100%", "book", "Sharpe", "Δ vs baseline [95%]", "Δ 2023–24", "Δ 2025–26",
+           "CAGR", "max DD")
+    day1 = live(short_stop=1.0)
+    for name, v in (("stop from the fire day (the backtest)", day1),
+                    ("stop from the next day (the bot)", live(short_stop=1.0, stop_delay=1)),
+                    ("the bot: limit orders + stop from the next day", live(**BOT))):
+        print(variant_row(name, BASE, v))
+
+    header("the $10 minimum order, with the bot's execution (limit orders, stop from the next day)", "book",
+           "Sharpe", "Δ vs baseline [95%]", "Δ 2023–24", "Δ 2025–26", "CAGR", "max DD",
+           "days with only the closes", "max \\|net\\|", "correlation with the baseline")
+    for band in (0.25, 0.0):
+        for equity in (500, 1000, 2000, 3000, 5000, 10000, None):
+            v = live(**BOT, band=band, equity=equity)
+            size = f"${equity:,}" if equity else "no minimum"
+            print(variant_row(f"band {band:.0%}, {size}", BASE, v,
+                              f"{v.closes_only.mean() * 100:.0f}% | {np.abs(v.weights.sum(axis=1)).max() * 100:.0f}% "
+                              f"| {np.corrcoef(BASE.net, v.net)[0, 1]:.2f}"))
+
+
+# ---------------------------------------------------------------- new exits (exit_research.md §8)
+
+HIST = coin_matrix("hist")
+PCT_STATE = coin_matrix("state_pct")
+S2_BAND = (HIST < 0) & (PCT_STATE > 50) & (PCT_STATE < 100)
+TRUE_RANGE = np.fmax(LIVE.high - LIVE.low, np.fmax(np.abs(LIVE.high - LIVE.prev_close),
+                                                    np.abs(LIVE.low - LIVE.prev_close)))
+ATR = pd.DataFrame(TRUE_RANGE).ewm(alpha=1 / 14, adjust=False, ignore_na=True).mean().to_numpy()
+
+
+def long_in_s2_band(day: date, p: bt.Position) -> bool:
+    """Close a long when its coin is in S2's band: a dip that continues to go down."""
+    return p.side > 0 and bool(S2_BAND[ROW[day], COL[p.symbol]])
+
+
+def edge_paid(day: date, p: bt.Position) -> bool:
+    """Close when the histogram, signed in the trade's direction, has risen since the
+    entry, is above zero, and now shrinks: the move that the leg traded is over."""
+    t, t0, j = ROW[day], ROW[p.entry], COL[p.symbol]
+    x = p.side * HIST[t0:t + 1, j]
+    if len(x) < 3 or not (x[-1] > 0 and x[-1] < x[-2]):
+        return False
+    return bool((np.diff(x[:-1]) > 0).any())
+
+
+def _move(day: date, p: bt.Position) -> tuple[float, float]:
+    """(the trade's return since entry, the coin's ATR at entry as a fraction of price)."""
+    t, t0, j = ROW[day], ROW[p.entry], COL[p.symbol]
+    entry = PANEL.prev_close[t0, j]
+    return p.side * (PANEL.prev_close[t, j] / entry - 1), ATR[max(t0 - 1, 0), j] / entry
+
+
+def take_profit(k: float):
+    def rule(day: date, p: bt.Position) -> bool:
+        move, atr = _move(day, p)
+        return move >= k * atr
+    return rule
+
+
+def give_back(k: float):
+    """Close when the trade has been k ATR in profit and has since lost k ATR."""
+    def rule(day: date, p: bt.Position) -> bool:
+        t0, t, j = ROW[p.entry], ROW[day], COL[p.symbol]
+        entry = PANEL.prev_close[t0, j]
+        path = p.side * (PANEL.prev_close[t0 + 1:t + 1, j] / entry - 1)
+        atr = ATR[max(t0 - 1, 0), j] / entry
+        return bool(len(path) and path.max() >= k * atr and path[-1] <= path.max() - k * atr)
+    return rule
+
+
+def rank_exit(day: date, p: bt.Position) -> bool:
+    """Close when the trade's move since entry is in the best decile of the entry day's
+    universe over the same days (top for a long, bottom for a short)."""
+    t, t0, j = ROW[day], ROW[p.entry], COL[p.symbol]
+    moves = np.where(UNIVERSE[t0], PANEL.prev_close[t] / PANEL.prev_close[t0] - 1, np.nan)
+    mine = moves[j] if UNIVERSE[t0, j] else PANEL.prev_close[t, j] / PANEL.prev_close[t0, j] - 1
+    return bool(mine >= np.nanpercentile(moves, 90) if p.side > 0 else mine <= np.nanpercentile(moves, 10))
+
+
+def without_flips(triggers: pd.DataFrame) -> pd.DataFrame:
+    """The triggers on coins with no long first fire in the last HOLD_DAYS days: a trigger
+    that would flip a long is dropped."""
+    longs = FIRES[FIRES["first"] & FIRES["leg"].isin(("L1", "L2"))]
+    last_long = {}
+    for r in longs.itertuples():
+        last_long.setdefault(r.symbol, []).append(date.fromisoformat(r.day))
+    keep = [not any(0 <= (date.fromisoformat(r.day) - d).days <= bt.HOLD_DAYS for d in last_long.get(r.symbol, ()))
+            for r in triggers.itertuples()]
+    return triggers[keep]
+
+
+def new_exits() -> None:
+    print("\n## exit_research.md §8: new exits")
+    header("as portfolios", "book", "Sharpe", "Δ vs baseline [95%]", "Δ 2023–24", "Δ 2025–26", "CAGR", "max DD",
+           "turnover")
+    holds_7 = run(holds={leg: 7 for leg in LEGS})
+    rows = [("longs close in S2's band (hist < 0, 50 < `peak_pct` < 100)", run(exit_rule=long_in_s2_band)),
+            ("edge paid: the trade-side histogram rose above 0 and now shrinks", run(exit_rule=edge_paid)),
+            ("take profit at 3 ATR", run(exit_rule=take_profit(3))),
+            ("take profit at 5 ATR", run(exit_rule=take_profit(5))),
+            ("give back 2 ATR after 2 ATR of profit", run(exit_rule=give_back(2))),
+            ("rank: best decile of the universe since entry", run(exit_rule=rank_exit)),
+            ("scale out: half at day 7, the rest at day 14", reweighted(0.5 * (holds_7.weights + BASE.weights))),
+            ("a same-leg re-fire restarts the clock", run(restart_same_leg=True))]
+    for name, v in rows:
+        print(variant_row(name, BASE, v, turnover_change(BASE, v)))
+
+    header("why S2 as the MACD state scores higher", "book", "Sharpe", "Δ vs baseline [95%]", "Δ 2023–24",
+           "Δ 2025–26", "CAGR", "max DD", "names L / S")
+    cd = PANEL.coin_days
+    triggers = state_triggers("S2", -1, (cd["hist"] < 0) & (cd["state_pct"] > 50) & (cd["state_pct"] < 100))
+    no_s2 = legs("L1", "L2", "S1")
+    for name, v in (("S2 as the MACD state (trading_strategy.md)", run(pd.concat([no_s2, triggers]))),
+                    ("S2 as the MACD state, no trigger on a coin held long", run(pd.concat([no_s2, without_flips(triggers)]))),
+                    ("S2 fires, longs close in S2's band", run(exit_rule=long_in_s2_band))):
+        print(variant_row(name, BASE, v, names(v)))
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")         # the tables use −, → and Δ
     print(f"# Portfolio tables — panel built {PANEL.meta['built']}, window {DAYS[0]} → {DAYS[-1]}")
@@ -565,3 +730,5 @@ if __name__ == "__main__":
     trading_strategy()
     exit_research()
     book_experiments()
+    live_execution()
+    new_exits()

@@ -23,9 +23,10 @@ import argparse
 import pickle
 import sys
 from collections.abc import Callable, Collection, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -59,6 +60,17 @@ MAX_WEIGHT = 0.10
 # slippage (docs/profit_strategies.md). It applies to all turnover. That includes the
 # trades that bring drifted weights back to target, and the universe basket.
 COST_PER_SIDE = 0.001
+
+# The live bot (docs/trading_bot.md) sends post-only limit orders at the touch. A
+# filled limit order pays Hyperliquid's base maker fee and no slippage. The price that
+# a resting order does not get is in the fill rule of ``account``, not in this fee.
+MAKER_COST = 0.00015
+
+# Hyperliquid refuses an order below $10 of notional. The bot drops such an order, but
+# it always sends a full close. If the dropped orders make the planned book more than
+# ±10% net, the bot sends only the closes (docs/trading_bot.md §4, step 8).
+MIN_ORDER_USD = 10.0
+MAX_PLANNED_NET = 0.10
 
 # Flat funding from the live measurements (docs/confidence_v3_research.md §8): longs
 # pay 9% APR and shorts receive 6.5% APR.
@@ -112,8 +124,8 @@ class Position:
 def target_book(day: date, fires: Iterable[Fire], positions: dict[str, Position], listed: Collection[str],
                 exits: Collection[str] = (), *, holds: dict[str, int] | None = None,
                 tilt: Callable[[date, Position], float] | None = None,
-                basket: Sequence[str] | None = None,
-                first_only: bool = FIRST_FIRES_ONLY) -> tuple[dict[str, Position], dict[str, float]]:
+                basket: Sequence[str] | None = None, first_only: bool = FIRST_FIRES_ONLY,
+                restart_same_leg: bool = False) -> tuple[dict[str, Position], dict[str, float]]:
     """Today's positions and target weights (a fraction of equity: + long, - short).
 
     ``positions`` is the book after the last rebalance. A position closes when its hold
@@ -123,11 +135,16 @@ def target_book(day: date, fires: Iterable[Fire], positions: dict[str, Position]
 
     The variants are off by default: ``holds`` gives a hold per leg, ``tilt`` gives a
     weight factor per position, and ``basket`` fills the thin side with an equal-weight
-    basket of these coins (docs/trading_strategy.md §8.2).
+    basket of these coins (docs/trading_strategy.md §8.2). With ``restart_same_leg``, a
+    re-fire in the leg of the open position restarts that position. Other re-fires
+    still do nothing.
     """
     book = {s: p for s, p in positions.items() if p.last >= day and s in listed and s not in exits}
     for f in fires:
-        if f.leg is None or (first_only and not f.first) or f.symbol not in listed:
+        if f.leg is None or f.symbol not in listed:
+            continue
+        same_leg = f.symbol in book and book[f.symbol].leg == f.leg
+        if first_only and not f.first and not (restart_same_leg and same_leg):
             continue
         hold = (holds or {}).get(f.leg, HOLD_DAYS)
         book[f.symbol] = Position(f.symbol, f.leg, f.side, day, day + timedelta(days=hold))
@@ -190,6 +207,7 @@ class Panel:
     prev_close: np.ndarray   # the close of bar t - 1, the price at the rebalance of day t
     eligible: np.ndarray     # in the universe: 200+ closed bars and prior-day notional >= the floor
     first_bar: dict[str, date]
+    low: np.ndarray | None = None    # the frozen panel has no lows: ``with_low`` adds them
 
     @property
     def listed(self) -> np.ndarray:
@@ -222,50 +240,110 @@ class Run:
     turnover: np.ndarray    # the sum of |trade| as a fraction of equity
     longs: np.ndarray       # names per side in the book; the basket is not counted
     shorts: np.ndarray
+    sent: np.ndarray | None = None         # day x coin: an order went to the coin
+    filled: np.ndarray | None = None       # day x coin: that order filled
+    closes_only: np.ndarray | None = None  # a day on which the $10 minimum let only the closes go
 
 
-def account(weights: np.ndarray, ret: np.ndarray, *, cost: float = COST_PER_SIDE,
-            band: float = 0.0) -> dict[str, np.ndarray]:
+def account(weights: np.ndarray, ret: np.ndarray, *, cost: float = COST_PER_SIDE, band: float = 0.0,
+            equity: float | None = None, fills: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+            cross: bool = False) -> dict[str, np.ndarray]:
     """Daily returns of a book that trades to ``weights`` at each close.
 
     Weights drift with prices between rebalances. Each trade from the drifted weight to
     the target pays ``cost`` per side. With a ``band`` > 0, the book keeps a drifted
     weight that is within ``band`` x |target| of the target (§8.2 variant 2).
+
+    The live bot's rules are off by default (docs/trading_bot.md):
+
+    * ``equity`` is the account size in USD, the same each day. An order below
+      MIN_ORDER_USD does not go, and the held weight stays (``_min_orders``).
+    * ``fills`` = (buy, sell, forced), day x coin masks, makes each order a resting
+      limit order at the close before the bar. A buy fills on a bar where ``buy`` is
+      True, a sell where ``sell`` is True, and a ``forced`` trade does not wait (a stop
+      fill or a delisting). An order that does not fill keeps the held weight, and the
+      next rebalance sends a new order. A filled limit order pays MAKER_COST.
+    * With ``cross``, an order that did not fill on the bar before crosses the spread
+      at this rebalance. Forced and crossed trades pay ``cost``.
     """
-    held = np.zeros(weights.shape[1])
-    out = {k: np.zeros(len(weights)) for k in ("net", "gross", "cost", "funding", "turnover")}
+    n_days, n_coins = weights.shape
+    held = np.zeros(n_coins)
+    waited = np.zeros(n_coins, dtype=bool)        # the order on the last bar did not fill
+    out = {k: np.zeros(n_days) for k in ("net", "gross", "cost", "funding", "turnover")}
+    out["closes_only"] = np.zeros(n_days, dtype=bool)
+    out["sent"], out["filled"] = np.zeros(weights.shape, dtype=bool), np.zeros(weights.shape, dtype=bool)
     traded = weights.copy()
-    for t in range(len(weights)):
-        w = weights[t]
+    for t in range(n_days):
+        target = w = weights[t]
         if band:
             keep = (w != 0) & (np.sign(w) == np.sign(held)) & (np.abs(w - held) <= band * np.abs(w))
-            w = traded[t] = np.where(keep, held, w)
+            w = np.where(keep, held, w)
+        if equity is not None:
+            w, out["closes_only"][t] = _min_orders(target, w, held, equity)
+        sent = w != held
+        taker = sent
+        if fills is not None:
+            buy, sell, forced = (m[t] for m in fills)
+            taker = sent & (forced | (waited & cross))
+            done = taker | (sent & (w > held) & buy) | (sent & (w < held) & sell)
+            waited = sent & ~done
+            w = np.where(done, w, held)
+        out["sent"][t], out["filled"][t] = sent, w != held
+        traded[t] = w
         assert not np.isnan(ret[t][w != 0]).any(), "the book holds a coin with no bar"
         r = np.where(w != 0, ret[t], 0.0)
         gross = float(w @ r)
-        turnover = float(np.abs(w - held).sum())
+        delta = np.abs(w - held)
+        turnover = float(delta.sum())
+        fee = cost * turnover if fills is None else cost * delta[taker].sum() + MAKER_COST * delta[~taker].sum()
         funding = (w[w > 0].sum() * FUNDING_LONG_APR + w[w < 0].sum() * FUNDING_SHORT_APR) / 365
         out["gross"][t], out["turnover"][t] = gross, turnover
-        out["cost"][t], out["funding"][t] = cost * turnover, funding
-        out["net"][t] = gross - cost * turnover - funding
+        out["cost"][t], out["funding"][t] = fee, funding
+        out["net"][t] = gross - fee - funding
         held = w * (1 + r) / (1 + gross)
     out["weights"] = traded
     return out
 
 
+def _min_orders(target: np.ndarray, w: np.ndarray, held: np.ndarray, equity: float) -> tuple[np.ndarray, bool]:
+    """The bot's $10 rules (docs/trading_bot.md §4, step 8). A full close always goes.
+    Another order below MIN_ORDER_USD does not go. If the orders that remain make the
+    planned book more than MAX_PLANNED_NET net, only the closes go: the bot does not
+    open an unhedged book. Returns the weights after the orders, and True if only the
+    closes went."""
+    close = (target == 0) & (held != 0)
+    w = np.where(~close & (np.abs(w - held) * equity < MIN_ORDER_USD), held, w)
+    if abs(w.sum()) > MAX_PLANNED_NET:
+        return np.where(close, 0.0, held), True
+    return w, False
+
+
 def simulate(panel: Panel, fires: pd.DataFrame, *, holds: dict[str, int] | None = None,
              tilt: Callable[[date, Position], float] | None = None, basket: np.ndarray | None = None,
-             first_only: bool = FIRST_FIRES_ONLY, short_stop: float | None = None,
+             first_only: bool = FIRST_FIRES_ONLY, restart_same_leg: bool = False,
+             short_stop: float | None = None, stop_delay: int = 0,
              exit_rule: Callable[[date, Position], bool] | None = None,
-             cost: float = COST_PER_SIDE, band: float = 0.0) -> Run:
+             cost: float = COST_PER_SIDE, band: float = 0.0,
+             fill: Literal["close", "limit", "limit_then_cross"] = "close", equity: float | None = None) -> Run:
     """Run ``target_book`` once a day over the panel, then ``account`` for the returns.
 
     ``fires`` is ``book_fires(panel)`` or a subset of it. ``basket`` is a day x coin mask
     of the basket members, for example ``panel.universe``. ``short_stop`` closes a short
     when the bar's high reaches entry x (1 + short_stop). The fill is at that price, or
-    at the open if the bar opens above it (§8.2 variant 3). ``exit_rule`` closes a
-    position at a rebalance when it returns True.
+    at the open if the bar opens above it (§8.2 variant 3). The stop starts
+    ``stop_delay`` days after the fire day: the live bot places the stop of a new short
+    at the next daily run. ``exit_rule`` closes a position at a rebalance when it
+    returns True.
+
+    ``fill`` is how the orders fill. "close" is the backtest's rule: at the close, at
+    ``cost``. "limit" is the live bot's rule: a post-only limit order at the close
+    before the bar, which rests for one bar. A buy fills if the bar's low is below that
+    price, and a sell if the high is above it. "limit_then_cross" crosses the spread
+    one day later if the limit order did not fill. Both need ``panel.low``
+    (``with_low``). ``equity`` (USD) adds the bot's $10 rules (``account``).
     """
+    if fill != "close" and panel.low is None:
+        raise ValueError(f"fill={fill!r} needs the bar lows: use with_low(panel, root)")
     col = {s: j for j, s in enumerate(panel.symbols)}
     row = {d: t for t, d in enumerate(panel.days)}
     by_day = {date.fromisoformat(d): [Fire(r.symbol, r.leg if pd.notna(r.leg) else None, r.side, r.first)
@@ -277,12 +355,13 @@ def simulate(panel: Panel, fires: pd.DataFrame, *, holds: dict[str, int] | None 
     listed_mask = panel.listed
     book: dict[str, Position] = {}
     stopped: set[str] = set()
+    forced = np.isnan(panel.ret)          # a delisted coin closes at its last close
     for t, day in enumerate(panel.days):
         listed = {panel.symbols[j] for j in np.flatnonzero(listed_mask[t])}
         exits = stopped | {s for s, p in book.items() if exit_rule and exit_rule(day, p)}
         members = [panel.symbols[j] for j in np.flatnonzero(basket[t])] if basket is not None else None
         book, target = target_book(day, by_day.get(day, ()), book, listed, exits, holds=holds, tilt=tilt,
-                                   basket=members, first_only=first_only)
+                                   basket=members, first_only=first_only, restart_same_leg=restart_same_leg)
         for s, w in target.items():
             weights[t, col[s]] = w
         longs[t] = sum(p.side > 0 for p in book.values())
@@ -291,16 +370,21 @@ def simulate(panel: Panel, fires: pd.DataFrame, *, holds: dict[str, int] | None 
         if short_stop is None:
             continue
         for s, p in book.items():
-            if p.side > 0:
+            if p.side > 0 or (day - p.entry).days < stop_delay:
                 continue
             j = col[s]
             stop = panel.prev_close[row[p.entry], j] * (1 + short_stop)
             if panel.high[t, j] >= stop:
                 ret[t, j] = max(stop, panel.open[t, j]) / panel.prev_close[t, j] - 1
                 stopped.add(s)
-    acc = account(weights, ret, cost=cost, band=band)
+                forced[min(t + 1, len(panel.days) - 1), j] = True      # the stop fill does not wait
+    fills = None
+    if fill != "close":
+        fills = (panel.low < panel.prev_close, panel.high > panel.prev_close, forced)
+    acc = account(weights, ret, cost=cost, band=band, equity=equity, fills=fills, cross=fill == "limit_then_cross")
     return Run(days=panel.days, weights=acc["weights"], ret=ret, net=acc["net"], gross=acc["gross"],
-               cost=acc["cost"], funding=acc["funding"], turnover=acc["turnover"], longs=longs, shorts=shorts)
+               cost=acc["cost"], funding=acc["funding"], turnover=acc["turnover"], longs=longs, shorts=shorts,
+               sent=acc["sent"], filled=acc["filled"], closes_only=acc["closes_only"])
 
 
 # ---------------------------------------------------------------- statistics (pure)
@@ -437,6 +521,24 @@ def load_panel(path: Path) -> Panel:
                  days=[date.fromisoformat(d) for d in window], ret=at(close / close.shift(1) - 1),
                  open=at(wide["open"]), high=at(wide["high"]), prev_close=at(close.shift(1)), eligible=eligible,
                  first_bar={s: date.fromisoformat(d) for s, d in prices.groupby("symbol")["day"].min().items()})
+
+
+def with_low(panel: Panel, root: Path) -> Panel:
+    """The panel with the low of each bar, from the CSVs of ``load_bars``. The frozen
+    panel has no lows, and a resting buy order needs them.
+
+    Stop if a close in the window is not the panel's close. Then the CSVs are not the
+    bars of the panel, and the lows would come from other bars."""
+    bars = load_bars(root)
+    wide = {k: pd.DataFrame({s: df.set_index(df["ts"].dt.strftime("%Y-%m-%d"))[k] for s, df in bars.items()})
+            for k in ("low", "close")}
+    window = [d.isoformat() for d in panel.days]
+    close = wide["close"].reindex(index=window, columns=panel.symbols).to_numpy()
+    frozen = panel.close.loc[window].to_numpy()
+    known = ~np.isnan(frozen)
+    if not np.allclose(close[known], frozen[known], rtol=1e-9):
+        raise ValueError(f"the bars in {root} are not the bars of the frozen panel")
+    return replace(panel, low=wide["low"].reindex(index=window, columns=panel.symbols).to_numpy())
 
 
 # ---------------------------------------------------------------- report

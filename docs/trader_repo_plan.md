@@ -1,6 +1,6 @@
 # Plan: move the trading bot to its own repository
 
-Status: not started (2026-11-08). Tick each item when it is complete.
+Status: Phase A is complete (2026-11-08). Tick each item when it is complete.
 
 ## The design
 
@@ -44,13 +44,13 @@ trade, then a small real-money check of the live broker, then the live book.
 
 ## Phase A: land the current work
 
-- [ ] **A1. Commit the bot** on a branch, then merge it to `main`.
+- [x] **A1. Commit the bot** on a branch, then merge it to `main`.
   *Done when:* `git status` is clean and the tests pass.
-- [ ] **A2. Merge the research branch**
+- [x] **A2. Merge the research branch**
   `refs/heads/claude/research-live-checks-exits-15f25c`. It changes no file that the
   bot work changes (checked 2026-11-08).
   *Done when:* the bot tests and the new backtester tests pass together.
-- [ ] **A3. Remove the junction, then archive the research session.** The worktree has
+- [x] **A3. Remove the junction, then archive the research session.** The worktree has
   a junction, `state`, to the main `state/` folder. Run `cmd /c rmdir state` in the
   worktree before anything removes that worktree. A recursive delete could go through
   the junction and delete the live data.

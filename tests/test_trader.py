@@ -130,10 +130,11 @@ def test_orders_open_close_and_flip_with_one_net_order_per_coin():
     assert orders == [plan.Order("A", 10.0, 0.10), plan.Order("B", -15.0, -0.10), plan.Order("C", -3.0, 0.0)]
 
 
-def test_a_weight_inside_the_drift_band_is_not_traded():
+def test_a_drifted_weight_trades_back_to_its_target():
     mids = {"A": 100.0}
-    assert plan.rebalance_orders({"A": 0.10}, {"A": 8.0}, 10_000, mids, SZ) == []          # 8% vs 10%
-    assert plan.rebalance_orders({"A": 0.10}, {"A": 7.0}, 10_000, mids, SZ) == [plan.Order("A", 3.0, 0.10)]
+    assert plan.rebalance_orders({"A": 0.10}, {"A": 8.0}, 10_000, mids, SZ) == [plan.Order("A", 2.0, 0.10)]
+    assert plan.rebalance_orders({"A": 0.10}, {"A": 12.0}, 10_000, mids, SZ) == [plan.Order("A", -2.0, 0.10)]
+    assert plan.rebalance_orders({"A": 0.10}, {"A": 9.95}, 10_000, mids, SZ) == []         # a $5 resize
 
 
 def test_an_order_below_10_dollars_is_not_sent_but_a_close_is():
@@ -199,8 +200,8 @@ def test_alerts_for_net_gross_margin_and_a_bad_day():
     assert risk.alerts(book, 10_000, 10_000, margin=1_000) == ["net exposure +20.0% is more than ±10%"]
     big = {"A": 13_000.0, "B": -13_000.0}
     assert len(risk.alerts(big, 10_000, None, margin=12_000)) == 2         # gross and margin
-    drifted = {"A": 12_000.0, "B": -12_000.0}                              # inside the drift band
-    assert risk.alerts(drifted, 10_000, None, margin=0) == []
+    rounded = {"A": 10_020.0, "B": -10_000.0}                              # order sizes are rounded
+    assert risk.alerts(rounded, 10_000, None, margin=0) == []
     assert risk.alerts({}, 9_400, 10_000, margin=0) == ["day -6.0%"]
 
 

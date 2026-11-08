@@ -7,17 +7,15 @@ sends a message: in the v2 tests, soft halts that blocked entries deadlocked the
 
 from __future__ import annotations
 
-from .plan import DRIFT_BAND
-
 # The account halt: 30% below the peak equity. This is a proposal (§10): about 1.6x
 # B3's −18% backtest drawdown.
 HALT_DRAWDOWN = 0.30
 
 # Alerts. The target book is dollar-neutral at 1x, so it holds at most 100% of equity
-# on each side (2x gross). The drift band lets each held weight go 25% above its
-# target, so the held book can reach 2.5x. A day worse than −5% sends an alert.
+# on each side (2x gross). The 0.05 above 2x is for the rounding of order sizes and for
+# resizes below the minimum order. A day worse than −5% sends an alert.
 MAX_NET = 0.10
-MAX_GROSS = 2.0 * (1 + DRIFT_BAND)
+MAX_GROSS = 2.05
 DAILY_LOSS_ALERT = 0.05
 
 

@@ -1,6 +1,6 @@
 # Plan: move the trading bot to its own repository
 
-Status: Phase A is complete (2026-11-08). Tick each item when it is complete.
+Status: Phases A and B are complete (2026-11-08). Tick each item when it is complete.
 
 ## The design
 
@@ -15,7 +15,7 @@ There is no HTTP endpoint between them.
 
 | stays in `macd_searcher` | moves to `b3_trader` |
 |---|---|
-| detector, `book.py`, `research/backtest.py` | orders, drift and minimum-order rules (`plan.py`) |
+| detector, `book.py`, `research/backtest.py` | orders and the minimum-order rule (`plan.py`) |
 | the new `target.py`: the book for a day | risk controls (`risk.py`) |
 | Hyperliquid info client, Telegram sender | ledger, paper broker, live broker, daily run |
 | detector settings in `config.yaml` | bot settings, `.env` keys, SDK dependency |
@@ -58,11 +58,11 @@ trade, then a small real-money check of the live broker, then the live book.
 
 ## Phase B: correct the bot with the research of 2026-11-07
 
-- [ ] **B1. Remove the drift band.** The band sends only closes on about a third of
+- [x] **B1. Remove the drift band.** The band sends only closes on about a third of
   days, at each account size. At the maker fee, it saves 0.3% a year. Keep a small
   rounding tolerance on the gross alert, because the alert uses the band now.
   *Done when:* a test shows that a drifted weight trades back to its target.
-- [ ] **B2. Correct `docs/trading_bot.md`.** In §7, without the band, $5,000 is the
+- [x] **B2. Correct `docs/trading_bot.md`.** In §7, without the band, $5,000 is the
   smallest tested account that trades the tested book. In §6, remove the testnet step.
   *Done when:* the doc has the table of the research log and no testnet step.
 

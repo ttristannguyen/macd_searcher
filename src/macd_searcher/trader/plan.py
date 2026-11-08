@@ -29,12 +29,6 @@ TRADED_LEGS = frozenset({"L1", "L2", "S1", "S2"})
 # first-fire flag of the oldest of those fires needs the day before it.
 FIRE_DAYS = bt.HOLD_DAYS + 3
 
-# The bot does not trade a coin whose held weight is within ±25% of its target, on
-# the same side. Equal weights spread again each time a name opens or closes. The
-# band stops those small trades on each name each day (docs/trading_strategy.md §3.2).
-# The backtest replay of the paper book must use the same band.
-DRIFT_BAND = 0.25
-
 # No position is more than 1% of its coin's prior-day notional volume (§3.3). At
 # $10k of equity this limit does not apply. It applies only at a larger size.
 MAX_VOLUME_SHARE = 0.01
@@ -122,8 +116,12 @@ def rebalance_orders(target: dict[str, float], held: dict[str, float], equity: f
     """One net order for each coin that takes the held book to the target book (§3.2).
 
     ``held`` is the signed size of each position, in coins. A coin that is not in the
-    target, or that has a target of 0, closes in full. A coin within DRIFT_BAND of its
-    target is not traded, and an order below MIN_ORDER_USD is not sent.
+    target, or that has a target of 0, closes in full. An order below MIN_ORDER_USD is
+    not sent.
+
+    There is no drift band. A band lets the held book go net, and then the planned-net
+    rule blocks the opening orders on about a third of days, at each account size. At
+    the maker fee, a band saves only 0.3% a year (research log, 2026-11-07).
     """
     orders = []
     for s in sorted(set(target) | set(held)):
@@ -133,9 +131,6 @@ def rebalance_orders(target: dict[str, float], held: dict[str, float], equity: f
                 orders.append(Order(s, -size, 0.0))
             continue
         px = mids[s]
-        w_held = size * px / equity
-        if w * w_held > 0 and abs(w - w_held) <= DRIFT_BAND * abs(w):
-            continue
         n = sz_decimals[s]
         delta = round(round(w * equity / px, n) - size, n)
         if abs(delta * px) >= MIN_ORDER_USD:

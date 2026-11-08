@@ -188,6 +188,9 @@ every position each day, a name is traded only when it is more than ±25% off it
 target weight. The band changes turnover, not selection. The backtester measures its
 cost against tracking error (§8.2).
 
+*2026-11-08:* the bot has no band. With maker fees, the band saves only 0.3% a year, and
+the held book goes net. See [trading_bot.md](trading_bot.md) §7.
+
 ### 3.3 Capacity
 
 Cap each position at about 1% of the coin's prior-day volume. At $10k equity a 10%

@@ -106,19 +106,6 @@ class OutcomesConfig(BaseModel):
     horizon_days: int = Field(14, ge=1)
 
 
-class TraderConfig(BaseModel):
-    """The trading bot (docs/trading_bot.md). It keeps its own ledger, so that the
-    bot cannot write to the scanner's database."""
-
-    db_path: str = "state/trader.sqlite3"
-    # The equity of the paper account on its first day.
-    paper_equity_usd: float = Field(10_000, gt=0)
-    # The live bot has its own ledger, and it sends orders to this exchange. The
-    # default is the testnet, so a live run with real money needs a deliberate edit.
-    live_db_path: str = "state/trader_live.sqlite3"
-    live_url: str = "https://api.hyperliquid-testnet.xyz"
-
-
 class TelegramSecrets(BaseModel):
     bot_token: str = ""
     chat_id: str = ""
@@ -137,7 +124,6 @@ class AppConfig(BaseModel):
     notify: NotifyConfig = NotifyConfig()
     database: DatabaseConfig = DatabaseConfig()
     outcomes: OutcomesConfig = OutcomesConfig()
-    trader: TraderConfig = TraderConfig()
     telegram: TelegramSecrets = TelegramSecrets()
     log_level: str = "INFO"
 
@@ -174,3 +160,15 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
         raw["log_level"] = lvl
 
     return AppConfig.model_validate(raw)
+
+
+def load_packaged() -> AppConfig:
+    """The ``config.yaml`` of this commit, with no secrets.
+
+    A project that installs this package uses it to get the detector settings of the
+    pinned commit. The code defaults are not the values of ``config.yaml``. The wheel
+    has the file next to this module. A source checkout has it in the project root.
+    """
+    packaged = Path(__file__).with_name("config.yaml")
+    path = packaged if packaged.is_file() else _project_root() / "config.yaml"
+    return AppConfig.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")) or {})

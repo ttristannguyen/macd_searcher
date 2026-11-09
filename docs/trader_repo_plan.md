@@ -1,6 +1,6 @@
 # Plan: move the trading bot to its own repository
 
-Status: Phases A and B are complete (2026-11-08). Tick each item when it is complete.
+Status: Phases A, B and C are complete (2026-11-09). Tick each item when it is complete.
 
 ## The design
 
@@ -68,22 +68,22 @@ trade, then a small real-money check of the live broker, then the live book.
 
 ## Phase C: make the boundary inside this repository
 
-- [ ] **C1. Add `target.py`.** Move `book_fires`, `target_on`, `listed_on`, `FIRE_DAYS`
+- [x] **C1. Add `target.py`.** Move `book_fires`, `target_on`, `listed_on`, `FIRE_DAYS`
   and `TRADED_LEGS` from `trader/plan.py`. Add `target_from_candles`. Re-export
   `Position` and the backtest cost constants. The replay test moves with them.
   *Done when:* the replay test passes from its new place.
-- [ ] **C2. Ship the detector settings in the package.** `config.yaml` is not in the
+- [x] **C2. Ship the detector settings in the package.** `config.yaml` is not in the
   wheel, and the code defaults are not its values (`shrink_lookback` 3 against 2, and
   a volume floor of $1M against $300k). Add it with `force-include`, and add
   `config.load_packaged()`.
   *Done when:* a built wheel has the file, and `load_packaged()` gives the
   `config.yaml` values.
-- [ ] **C3. Give the bot its own settings.** Move `TraderConfig` out of `AppConfig`, to
+- [x] **C3. Give the bot its own settings.** Move `TraderConfig` out of `AppConfig`, to
   `trader/settings.py`, with its own YAML file. Load `.env` from the bot's own root:
   `config._project_root()` is wrong for an installed package.
   *Done when:* `AppConfig` has no `trader` section, and the `_config_snapshot`
   exclusion is gone.
-- [ ] **C4. Narrow the imports.** The bot uses absolute imports of `target`, `config`,
+- [x] **C4. Narrow the imports.** The bot uses absolute imports of `target`, `config`,
   `hyperliquid` and `notify` only. Add a test that fails on any other import. Move the
   two Hyperliquid parser tests to `tests/test_hyperliquid.py`.
   *Done when:* the import test passes.
@@ -150,7 +150,7 @@ uses one liquid coin and one position of about $11, for less than a minute.
 
   *Done when:* the tests pass with the fake exchange.
 - [ ] **G2. You:** put about $30 in an account for the bot only, create an API wallet, add
-  the keys to `.env`, and set `trader.live_url` to `https://api.hyperliquid.xyz`.
+  the keys to `.env`, and set `live_url` in `trader.yaml` to `https://api.hyperliquid.xyz`.
 - [ ] **G3. You:** run `--live-check`, and send Claude the output.
 - [ ] **G4. Fix each defect, and run the check again.**
   *Done when:* each step passes, the account is flat, and `docs/trading_bot.md` has the

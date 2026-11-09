@@ -14,8 +14,9 @@ from datetime import date, datetime, time, timedelta, timezone
 import httpx
 import pandas as pd
 
-from ..config import AppConfig
-from ..hyperliquid import fetch_funding_history, fetch_l2_book
+from macd_searcher.config import AppConfig
+from macd_searcher.hyperliquid import fetch_funding_history, fetch_l2_book
+
 from . import ledger, plan
 
 Book = tuple[list[tuple[float, float]], list[tuple[float, float]]]

@@ -1,7 +1,7 @@
 """One rebalance of the B3 book a day (docs/trading_bot.md).
 
     uv run python -m macd_searcher.trader               # today's paper rebalance
-    uv run python -m macd_searcher.trader --live        # today's live rebalance (trader.live_url)
+    uv run python -m macd_searcher.trader --live        # today's live rebalance (live_url in trader.yaml)
     uv run python -m macd_searcher.trader --report      # the measurements (add --live for the live ledger)
     uv run python -m macd_searcher.trader --clear-halt  # restart after a halt
 
@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import os
 import sys
 import traceback
 from datetime import date, datetime, timedelta, timezone
@@ -27,12 +26,12 @@ from datetime import date, datetime, timedelta, timezone
 import httpx
 import pandas as pd
 
-from ..book import closed_bar_fires, history_days
-from ..config import AppConfig, load_config
-from ..hyperliquid import PerpSpec, fetch_all_candles, fetch_core_perps, fetch_l2_book
-from ..notify import send_raw_text
-from ..research import backtest as bt
-from . import ledger, plan, risk
+from macd_searcher.config import AppConfig
+from macd_searcher.hyperliquid import PerpSpec, fetch_all_candles, fetch_core_perps, fetch_l2_book
+from macd_searcher.notify import send_raw_text
+from macd_searcher.target import COST_PER_SIDE, FUNDING_LONG_APR, FUNDING_SHORT_APR, history_days, target_from_candles
+
+from . import ledger, plan, risk, settings
 from .paper import PaperBroker
 
 log = logging.getLogger("macd_searcher.trader")
@@ -95,11 +94,6 @@ async def rebalance(cfg: AppConfig, conn, day: date, broker, venue_url: str | No
         mids = {s: p.mid_px for s, p in venue.items()}
         sz_decimals = {s: p.sz_decimals for s, p in venue.items()}
 
-        fire_days = [day - timedelta(days=k) for k in range(plan.FIRE_DAYS - 1, -1, -1)]
-        fires = plan.book_fires(f for s, df in candles.items() for f in closed_bar_fires(s, df, cfg, fire_days))
-        listed = plan.listed_on(candles)
-        start = ledger.first_day(conn) or day
-
         await broker.sync(client, venue_cfg, day, candles, mids)
         held = broker.held()
         _value(held, mids)
@@ -117,11 +111,10 @@ async def rebalance(cfg: AppConfig, conn, day: date, broker, venue_url: str | No
             return "\n".join([f"🛑 B3 {broker.name} · {day} · HALT", reason,
                               "The bot closed the book. Run --clear-halt to restart it.", *problems])
 
-        stopped = ledger.stopped(conn)
-        positions, weights = plan.target_on(day, fires, listed, stopped, start)
-        yesterday, _ = plan.target_on(day - timedelta(days=1), fires, listed, stopped, start)
-        problems = [f"{s}: not on the exchange" for s in sorted(weights) if s not in venue]
-        weights = plan.volume_capped({s: w for s, w in weights.items() if s in venue},
+        book = target_from_candles(day, candles, cfg, ledger.stopped(conn), ledger.first_day(conn) or day)
+        positions = book.positions
+        problems = [f"{s}: not on the exchange" for s in sorted(book.weights) if s not in venue]
+        weights = plan.volume_capped({s: w for s, w in book.weights.items() if s in venue},
                                      _prior_day_volume(candles, day), equity)
         ledger.record_targets(conn, day, positions, weights)
 
@@ -138,7 +131,7 @@ async def rebalance(cfg: AppConfig, conn, day: date, broker, venue_url: str | No
         problems += [f"{s}: the order book is empty" for s in thin]
         orders = [o for o in orders if o.symbol not in thin]
         problems += broker.place(day, orders, books)
-        stops = plan.stop_orders(held, weights, [*yesterday.values(), *positions.values()], candles)
+        stops = plan.stop_orders(held, weights, [*book.yesterday.values(), *positions.values()], candles)
         problems += broker.place_stops(day, stops, sz_decimals)
 
     planned = dict(held)
@@ -173,11 +166,11 @@ def report(conn) -> str:
     rate = ledger.limit_fill_rate(conn)
     lines.append("limit orders filled: " + (f"{rate:.0%} of the size" if rate is not None else "none yet"))
     costs = ledger.cost_per_side(conn)
-    lines.append(f"cost a side (backtest {bt.COST_PER_SIDE:.3%}):" + ("" if costs else " none yet"))
+    lines.append(f"cost a side (backtest {COST_PER_SIDE:.3%}):" + ("" if costs else " none yet"))
     for r in costs:
         lines.append(f"  {r['kind']}: {r['slippage'] + r['fee_rate']:.3%} = {r['slippage']:+.3%} from the mid "
                      f"+ {r['fee_rate']:.3%} fee ({r['fills']} fills, ${r['notional']:,.0f})")
-    assumed = {"long": bt.FUNDING_LONG_APR, "short": bt.FUNDING_SHORT_APR}
+    assumed = {"long": FUNDING_LONG_APR, "short": FUNDING_SHORT_APR}
     funding = ledger.funding_apr(conn)
     lines.append("funding APR, paid by longs and received by shorts:" + ("" if funding else " none yet"))
     for r in funding:
@@ -187,28 +180,22 @@ def report(conn) -> str:
 
 
 async def _send(cfg: AppConfig, text: str) -> None:
-    """Print the message, and send it to Telegram unless this is a dry run. The
-    trading messages go to ``TRADER_TELEGRAM_CHAT_ID`` when it is set, so that a halt
-    is not lost among the scanner's alerts."""
+    """Print the message, and send it to Telegram unless this is a dry run."""
     print(text)
-    if cfg.notify.dry_run:
-        return
-    chat = os.environ.get("TRADER_TELEGRAM_CHAT_ID")
-    if chat:
-        cfg = cfg.model_copy(update={"telegram": cfg.telegram.model_copy(update={"chat_id": chat})})
-    await send_raw_text(text, cfg)
+    if not cfg.notify.dry_run:
+        await send_raw_text(text, cfg)
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m macd_searcher.trader", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("-c", "--config", default=None)
-    ap.add_argument("--live", action="store_true", help="send real orders to trader.live_url")
+    ap.add_argument("-c", "--config", default=None, help="the bot's settings (default trader.yaml)")
+    ap.add_argument("--live", action="store_true", help="send real orders to live_url")
     ap.add_argument("--dry-run", action="store_true", help="print the message, do not send it to Telegram")
     ap.add_argument("--report", action="store_true", help="print the measurements and stop")
     ap.add_argument("--clear-halt", action="store_true", help="restart the bot after a halt")
     args = ap.parse_args(argv)
-    cfg = load_config(args.config)
+    cfg, trader = settings.load(args.config)
     if args.dry_run:
         cfg = cfg.model_copy(update={"notify": cfg.notify.model_copy(update={"dry_run": True})})
     logging.basicConfig(level=cfg.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -218,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
     except (AttributeError, ValueError):
         pass
 
-    conn = ledger.connect(cfg.trader.live_db_path if args.live else cfg.trader.db_path)
+    conn = ledger.connect(trader.live_db_path if args.live else trader.db_path)
     if args.report:
         print(report(conn))
         return 0
@@ -238,13 +225,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.live:
         from . import live
         try:
-            broker = live.connect(conn, cfg.trader.live_url)
+            broker = live.connect(conn, trader.live_url)
         except RuntimeError as exc:
             print(exc, file=sys.stderr)
             return 2
-        venue_url: str | None = cfg.trader.live_url
+        venue_url: str | None = trader.live_url
     else:
-        broker, venue_url = PaperBroker(conn, cfg.trader.paper_equity_usd), None
+        broker, venue_url = PaperBroker(conn, trader.paper_equity_usd), None
 
     ledger.start(conn, day, _now())
     try:

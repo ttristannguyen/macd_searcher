@@ -7,7 +7,7 @@ what it trades and why.
 
 | part | status |
 |---|---|
-| target book: closed-bar fires → `backtest.target_book`, from zero on day 1 | built, `trader/plan.py` |
+| target book: closed-bar fires → `backtest.target_book`, from zero on day 1 | built, `target.py` |
 | orders: one post-only limit order a coin, at the touch | built, `trader/plan.py` |
 | paper broker: the daily bars fill the resting orders | built, `trader/paper.py` |
 | live broker: Hyperliquid SDK, API agent wallet | built, `trader/live.py`; not run yet |
@@ -45,7 +45,7 @@ nothing.
 uv run python -m macd_searcher.trader --live --dry-run
 ```
 
-This command sends real orders to `trader.live_url`. It needs
+This command sends real orders to `live_url` in `trader.yaml`. It needs
 `HYPERLIQUID_AGENT_KEY` and `HYPERLIQUID_ACCOUNT` in `.env` (§6).
 
 ```bash
@@ -155,7 +155,7 @@ but it cannot withdraw. Do these steps to set it up:
 3. Put its private key in `.env` as `HYPERLIQUID_AGENT_KEY`, and the address of the
    main account as `HYPERLIQUID_ACCOUNT`.
 4. Run `uv sync --extra live` to install the SDK.
-5. Set `trader.live_url` to `https://api.hyperliquid.xyz`. The default is the testnet,
+5. Set `live_url` in `trader.yaml` to `https://api.hyperliquid.xyz`. The default is the testnet,
    so that a run with real money needs a deliberate edit.
 6. Run the check of phase G of [trader_repo_plan.md](trader_repo_plan.md). It uses one
    position of about $11, for less than a minute.
@@ -208,7 +208,7 @@ At $100, the daily run cannot hold the book. That amount pays for the check of �
    Each gap is a bug, a cost, an unfilled order, or the time between the close and
    the fill.
 2. **One source for the book rules.** `book.py` has its own copy of the rules for the
-   Telegram book. It can call `trader.plan.target_on`, and then the message shows
+   Telegram book. It can call `target.target_on`, and then the message shows
    the book that the bot trades.
 
 ## 9. Smoke runs (2026-11-06)

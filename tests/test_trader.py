@@ -3,34 +3,27 @@ brokers, and the daily run with the network replaced."""
 
 from __future__ import annotations
 
+import ast
 import asyncio
-import random
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
-import httpx
 import pandas as pd
 import pytest
 
+from macd_searcher import target
 from macd_searcher.book import Fire as BarFire
 from macd_searcher.config import AppConfig
-from macd_searcher.hyperliquid import PerpSpec, fetch_core_perps, fetch_l2_book
+from macd_searcher.hyperliquid import PerpSpec
 from macd_searcher.research import backtest as bt
 from macd_searcher.trader import __main__ as bot
-from macd_searcher.trader import ledger, live, paper, plan, risk
+from macd_searcher.trader import ledger, live, paper, plan, risk, settings
 
 D0 = date(2026, 11, 1)
 
 
 def _d(k: int) -> date:
     return D0 + timedelta(days=k)
-
-
-def _fire(symbol: str, k: int, direction: str = "bullish", peak_pct: float | None = 10.0) -> BarFire:
-    return BarFire(symbol, _d(k), direction, peak_pct)  # type: ignore[arg-type]
-
-
-def _everyone(symbols):
-    return lambda d: set(symbols)
 
 
 def _bars(closes: list[float], first: date, highs: dict[int, float] | None = None,
@@ -52,67 +45,7 @@ def conn():
     c.close()
 
 
-# ---------------------------------------------------------------- the target book
-
-def test_book_fires_gives_the_leg_the_side_and_the_first_flag():
-    fires = plan.book_fires([_fire("A", 0), _fire("A", 1), _fire("B", 1, "bearish", 80.0),
-                             _fire("C", 1, "bullish", 40.0)])
-    assert fires[_d(0)] == [bt.Fire("A", "L1", 1, True)]
-    assert set(fires[_d(1)]) == {bt.Fire("A", "L1", 1, False), bt.Fire("B", "L2", 1, True),
-                                 bt.Fire("C", None, 0, True)}
-
-
-def test_a_dropped_leg_has_no_leg(monkeypatch):
-    monkeypatch.setattr(plan, "TRADED_LEGS", frozenset({"L1", "L2", "S1"}))
-    assert plan.book_fires([_fire("A", 0, "bullish", 60.0)])[_d(0)] == [bt.Fire("A", None, 0, True)]
-
-
-def test_the_replay_gives_the_backtest_book_on_each_day():
-    """Live trades what was tested (docs/trading_strategy.md §8.1). The bot replays
-    15 days from an empty book. The backtest keeps its book from the first day."""
-    rng = random.Random(0)
-    symbols = [f"C{i}" for i in range(8)]
-    raw = [_fire(s, k, rng.choice(["bullish", "bearish"]), rng.choice([5.0, 20.0, 40.0, 60.0, 80.0, 100.0]))
-           for k in range(60) for s in symbols if rng.random() < 0.3]
-    fires = plan.book_fires(raw)
-    book: dict = {}
-    sizes = []
-    for k in range(60):
-        book, weights = bt.target_book(_d(k), fires.get(_d(k), ()), book, set(symbols))
-        assert plan.target_on(_d(k), fires, _everyone(symbols)) == (book, weights)
-        sizes.append(sum(w != 0 for w in weights.values()))
-    assert max(sizes) >= 5, "the random fires should build a book on both sides"
-
-
-def test_the_book_starts_from_zero_on_the_start_day():
-    fires = plan.book_fires([_fire("OLD", 0), _fire("REFIRE", 1), _fire("REFIRE", 2),
-                             _fire("NEW", 2), _fire("S", 2, "bearish", 10.0)])
-    positions, _ = plan.target_on(_d(3), fires, _everyone({"OLD", "REFIRE", "NEW", "S"}), start=_d(2))
-    # OLD fired before the start. REFIRE's fire on the start day is a re-fire of an
-    # episode that began before it, so it is not a first fire.
-    assert set(positions) == {"NEW", "S"}
-
-
-def test_a_stopped_short_leaves_the_book_and_a_new_first_fire_opens_it_again():
-    fires = plan.book_fires([_fire("S", 0, "bearish", 10.0), _fire("L", 0), _fire("L2", 0),
-                             _fire("S", 9, "bearish", 10.0)])
-    symbols = {"S", "L", "L2"}
-    positions, _ = plan.target_on(_d(5), fires, _everyone(symbols), stopped={("S", _d(0))})
-    assert set(positions) == {"L", "L2"}
-    positions, weights = plan.target_on(_d(9), fires, _everyone(symbols), stopped={("S", _d(0))})
-    assert positions["S"].entry == _d(9) and weights["S"] < 0
-
-
-def test_a_coin_that_is_not_listed_today_closes():
-    fires = plan.book_fires([_fire("A", 0), _fire("B", 0, "bearish", 10.0)])
-    positions, weights = plan.target_on(_d(3), fires, lambda d: {"A", "B"} if d < _d(3) else {"A"})
-    assert set(positions) == {"A"} and weights == {"A": 0.0}
-
-
-def test_listed_on_needs_the_bar_of_the_day_and_the_bar_before():
-    listed = plan.listed_on({"A": _bars([1.0] * 3, _d(0)), "B": _bars([1.0], _d(2))})
-    assert listed(_d(1)) == {"A"} and listed(_d(2)) == {"A"} and listed(_d(3)) == set()
-
+# ---------------------------------------------------------------- the volume cap
 
 def test_volume_cap_cuts_a_weight_to_1_percent_of_volume():
     w = plan.volume_capped({"A": 0.10, "B": -0.10}, {"A": 50_000, "B": 1e9}, equity=10_000)
@@ -385,28 +318,6 @@ def test_prices_are_rounded_as_hyperliquid_requires():
     assert live.round_px(0.000123456, 0) == 0.000123
 
 
-# ---------------------------------------------------------------- Hyperliquid parsers
-
-def _client(payload) -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(200, json=payload)))
-
-
-async def test_core_perps_drop_the_delisted_and_keep_the_illiquid():
-    payload = [{"universe": [{"name": "BTC", "szDecimals": 5, "maxLeverage": 40},
-                             {"name": "OLD", "szDecimals": 0, "maxLeverage": 3, "isDelisted": True},
-                             {"name": "TINY", "szDecimals": 0, "maxLeverage": 3}]},
-               [{"midPx": "60000.5", "dayNtlVlm": "1e9"}, {"midPx": "1"}, {"midPx": None, "markPx": "0.01"}]]
-    async with _client(payload) as client:
-        perps = await fetch_core_perps(client, AppConfig())
-    assert perps == [PerpSpec("BTC", 5, 40, 60000.5), PerpSpec("TINY", 0, 3, 0.01)]
-
-
-async def test_l2_book_parses_both_sides():
-    payload = {"coin": "BTC", "levels": [[{"px": "99", "sz": "2", "n": 1}], [{"px": "101", "sz": "3", "n": 2}]]}
-    async with _client(payload) as client:
-        assert await fetch_l2_book(client, "BTC", AppConfig()) == ([(99.0, 2.0)], [(101.0, 3.0)])
-
-
 # ---------------------------------------------------------------- the daily run on paper
 
 DAY = date(2026, 11, 6)
@@ -439,7 +350,7 @@ def market(monkeypatch):
     monkeypatch.setattr(bot, "fetch_all_candles", candles)
     monkeypatch.setattr(bot, "fetch_l2_book", book)
     monkeypatch.setattr(paper, "fetch_funding_history", funding)
-    monkeypatch.setattr(bot, "closed_bar_fires", lambda s, df, cfg, days: state["fires"].get(s, []))
+    monkeypatch.setattr(target, "closed_bar_fires", lambda s, df, cfg, days: state["fires"].get(s, []))
     return state
 
 
@@ -478,3 +389,58 @@ def test_a_failed_candle_fetch_stops_the_run_before_any_order(market, conn):
     with pytest.raises(RuntimeError, match="no candles for 1 coins: S"):
         _run(conn, DAY)
     assert ledger.open_orders(conn) == []
+
+
+# ---------------------------------------------------------------- the boundary with macd_searcher
+
+ALLOWED = {"macd_searcher.config", "macd_searcher.hyperliquid", "macd_searcher.notify", "macd_searcher.target"}
+
+
+def test_the_bot_imports_only_the_boundary_of_macd_searcher():
+    """The bot moves to its own repository (docs/trader_repo_plan.md). Then these
+    modules are all that it can use."""
+    for path in Path(plan.__file__).parent.glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom):
+                assert node.level <= 1, f"{path.name}: a relative import leaves the bot"
+                names = [node.module or ""] if node.level == 0 else []
+            elif isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            else:
+                continue
+            for name in names:
+                assert not name.startswith("macd_searcher") or name in ALLOWED, f"{path.name}: {name}"
+
+
+# ---------------------------------------------------------------- settings
+
+@pytest.fixture
+def bot_folder(monkeypatch, tmp_path):
+    """A working directory with a settings file. No test reads a real ``.env``."""
+    (tmp_path / "trader.yaml").write_text('db_path: "x.sqlite3"\npaper_equity_usd: 500\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(settings, "load_dotenv", lambda path, override: None)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "scanner")
+    monkeypatch.delenv("TRADER_TELEGRAM_CHAT_ID", raising=False)
+    return tmp_path
+
+
+def test_settings_come_from_the_bot_and_the_detector_from_the_package(bot_folder):
+    cfg, trader = settings.load()
+    assert trader.db_path == "x.sqlite3" and trader.paper_equity_usd == 500
+    assert cfg.universe_filter.min_24h_volume_usd == 300_000                # config.yaml, not the code default
+    assert cfg.telegram.bot_token == "token" and cfg.telegram.chat_id == "scanner"
+
+
+def test_the_bot_has_its_own_telegram_chat_when_it_is_set(bot_folder, monkeypatch):
+    monkeypatch.setenv("TRADER_TELEGRAM_CHAT_ID", "bot")
+    cfg, _ = settings.load()
+    assert cfg.telegram.chat_id == "bot"
+
+
+def test_env_is_read_from_the_working_directory(bot_folder, monkeypatch):
+    seen = []
+    monkeypatch.setattr(settings, "load_dotenv", lambda path, override: seen.append(path))
+    settings.load()
+    assert seen == [bot_folder / ".env"]

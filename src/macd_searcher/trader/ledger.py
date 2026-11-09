@@ -1,5 +1,5 @@
-"""The ledger of the trading bot: SQLite, in its own file (``trader.db_path`` on
-paper, ``trader.live_db_path`` live).
+"""The ledger of the trading bot: SQLite, in its own file (``db_path`` on paper,
+``live_db_path`` live, in ``trader.yaml``).
 
 The ledger has the orders that the bot sent and the fills that they got. On paper,
 the positions are the sum of the fills. Live, the exchange holds the positions, and
@@ -15,7 +15,7 @@ import sqlite3
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from ..research.backtest import Position
+from macd_searcher.target import Position
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS rebalances (

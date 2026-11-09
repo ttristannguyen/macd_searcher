@@ -24,7 +24,8 @@ from typing import Any
 import httpx
 import pandas as pd
 
-from ..config import AppConfig
+from macd_searcher.config import AppConfig
+
 from . import ledger, plan
 from .paper import Book
 

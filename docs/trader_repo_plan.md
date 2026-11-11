@@ -1,6 +1,6 @@
 # Plan: move the trading bot to its own repository
 
-Status: Phases A, B and C are complete (2026-11-09). Phase D needs D1 (2026-11-11).
+Status: Phases A, B, C and D are complete (2026-11-12).
 Tick each item when it is complete. From phase D, `docs/trading_bot.md` is in
 `b3_trader`.
 
@@ -92,14 +92,16 @@ trade, then a small real-money check of the live broker, then the live book.
 
 ## Phase D: move to the new repository
 
-- [ ] **D1. Tag `strategy-v1`** on `main`, and push it.
+- [x] **D1. Tag `strategy-v1`** on `main`, and push it. *2026-11-12:* the tag is on
+  `e85e527`. The bot commits were on the public `main` before the tag (2026-11-11), so
+  the bot code is in the public history of this repository. It has no secrets.
 - [x] **D2. You:** create the GitHub repository `b3_trader`. Make it private.
-- [ ] **D3. Set up the project.** Pin
+- [x] **D3. Set up the project.** Pin
   `macd-searcher @ git+https://github.com/ttristannguyen/macd_searcher.git@strategy-v1`.
   Make the SDK a normal dependency. Add a short `CLAUDE.md` with the same style rules.
   *Done when:* `uv sync` installs the tag, and `load_packaged()` works.
-  *2026-11-11:* all is done, except the pin. `uv` cannot read a `file://` git URL with
-  a Windows drive, so the pin is a `git archive` export of `637968e` until D1.
+  *2026-11-12:* `uv.lock` pins `e85e527`. The 34 tests pass, and the full book of
+  2026-10-10 is the same. `b3_trader` is on GitHub at `c3b871b`.
 - [x] **D4. Copy the bot, its tests, its doc and its `.env.example` keys.** A plain copy
   is enough, because the bot has few commits.
   *Done when:* `uv run pytest -q` passes in `b3_trader`. *2026-11-11:* 34 tests pass.

@@ -61,14 +61,14 @@ MAX_WEIGHT = 0.10
 # trades that bring drifted weights back to target, and the universe basket.
 COST_PER_SIDE = 0.001
 
-# The live bot (docs/trading_bot.md) sends post-only limit orders at the touch. A
+# The live bot (b3_trader, docs/trading_bot.md) sends post-only limit orders at the touch. A
 # filled limit order pays Hyperliquid's base maker fee and no slippage. The price that
 # a resting order does not get is in the fill rule of ``account``, not in this fee.
 MAKER_COST = 0.00015
 
 # Hyperliquid refuses an order below $10 of notional. The bot drops such an order, but
 # it always sends a full close. If the dropped orders make the planned book more than
-# ±10% net, the bot sends only the closes (docs/trading_bot.md §4, step 8).
+# ±10% net, the bot sends only the closes (b3_trader, docs/trading_bot.md §4, step 8).
 MIN_ORDER_USD = 10.0
 MAX_PLANNED_NET = 0.10
 
@@ -254,7 +254,7 @@ def account(weights: np.ndarray, ret: np.ndarray, *, cost: float = COST_PER_SIDE
     the target pays ``cost`` per side. With a ``band`` > 0, the book keeps a drifted
     weight that is within ``band`` x |target| of the target (§8.2 variant 2).
 
-    The live bot's rules are off by default (docs/trading_bot.md):
+    The live bot's rules are off by default (b3_trader, docs/trading_bot.md):
 
     * ``equity`` is the account size in USD, the same each day. An order below
       MIN_ORDER_USD does not go, and the held weight stays (``_min_orders``).
@@ -306,7 +306,7 @@ def account(weights: np.ndarray, ret: np.ndarray, *, cost: float = COST_PER_SIDE
 
 
 def _min_orders(target: np.ndarray, w: np.ndarray, held: np.ndarray, equity: float) -> tuple[np.ndarray, bool]:
-    """The bot's $10 rules (docs/trading_bot.md §4, step 8). A full close always goes.
+    """The bot's $10 rules (b3_trader, docs/trading_bot.md §4, step 8). A full close always goes.
     Another order below MIN_ORDER_USD does not go. If the orders that remain make the
     planned book more than MAX_PLANNED_NET net, only the closes go: the bot does not
     open an unhedged book. Returns the weights after the orders, and True if only the

@@ -189,7 +189,7 @@ target weight. The band changes turnover, not selection. The backtester measures
 cost against tracking error (§8.2).
 
 *2026-11-08:* the bot has no band. With maker fees, the band saves only 0.3% a year, and
-the held book goes net. See [trading_bot.md](trading_bot.md) §7.
+the held book goes net. See [trading_bot.md](https://github.com/ttristannguyen/b3_trader/blob/main/docs/trading_bot.md) §7.
 
 ### 3.3 Capacity
 
@@ -367,11 +367,16 @@ funding drag.
 The live bot runs against real order books, with simulated fills logged to a new table
 next to a backtest replay of the same days.
 
-*2026-11-06:* the bot is `trader/` ([trading_bot.md](trading_bot.md)). It calls
-`target_book`, and it sends one post-only limit order a coin a day. It has a paper
-broker and a live broker. The backtest replay of the traded days is not built yet.
-trading_bot.md §2 gives the decisions of 2026-11-06, and §7 gives the capital that
-the $10 minimum order needs.
+*2026-11-06:* the bot calls `target_book`, and it sends one post-only limit order a
+coin a day. It has a paper broker and a live broker. The backtest replay of the traded
+days is not built yet. trading_bot.md §2 gives the decisions of 2026-11-06, and §7
+gives the capital that the $10 minimum order needs.
+
+*2026-11-11:* the bot is in its own private repository,
+[b3_trader](https://github.com/ttristannguyen/b3_trader), with
+[trading_bot.md](https://github.com/ttristannguyen/b3_trader/blob/main/docs/trading_bot.md).
+It installs this repository, pinned to one commit, and reads the book through
+`target.target_from_candles` ([trader_repo_plan.md](trader_repo_plan.md)).
 
 **It measures:**
 - **Real costs per side:** spread, slippage, maker fill rate, adverse selection. This

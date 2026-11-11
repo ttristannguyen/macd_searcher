@@ -21,9 +21,6 @@ web = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
 ]
-live = [
-    "hyperliquid-python-sdk>=0.24.0",
-]
 
 [project.scripts]
 macd-searcher = "macd_searcher.__main__:main"

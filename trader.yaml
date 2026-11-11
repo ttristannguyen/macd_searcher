@@ -1,7 +1,0 @@
-# The settings of the trading bot (docs/trading_bot.md). Its keys go in .env.
-
-db_path: "state/trader.sqlite3"     # the bot's own ledger, apart from the scanner DB
-paper_equity_usd: 10000             # the equity of the paper account on its first day
-live_db_path: "state/trader_live.sqlite3"
-# --live sends real orders here. Change it to https://api.hyperliquid.xyz for real money.
-live_url: "https://api.hyperliquid-testnet.xyz"

@@ -1,6 +1,8 @@
 # Plan: move the trading bot to its own repository
 
-Status: Phases A, B and C are complete (2026-11-09). Tick each item when it is complete.
+Status: Phases A, B and C are complete (2026-11-09). Phase D needs D1 (2026-11-11).
+Tick each item when it is complete. From phase D, `docs/trading_bot.md` is in
+`b3_trader`.
 
 ## The design
 
@@ -91,17 +93,20 @@ trade, then a small real-money check of the live broker, then the live book.
 ## Phase D: move to the new repository
 
 - [ ] **D1. Tag `strategy-v1`** on `main`, and push it.
-- [ ] **D2. You:** create the GitHub repository `b3_trader`. Make it private.
+- [x] **D2. You:** create the GitHub repository `b3_trader`. Make it private.
 - [ ] **D3. Set up the project.** Pin
   `macd-searcher @ git+https://github.com/ttristannguyen/macd_searcher.git@strategy-v1`.
   Make the SDK a normal dependency. Add a short `CLAUDE.md` with the same style rules.
   *Done when:* `uv sync` installs the tag, and `load_packaged()` works.
-- [ ] **D4. Copy the bot, its tests, its doc and its `.env.example` keys.** A plain copy
+  *2026-11-11:* all is done, except the pin. `uv` cannot read a `file://` git URL with
+  a Windows drive, so the pin is a `git archive` export of `637968e` until D1.
+- [x] **D4. Copy the bot, its tests, its doc and its `.env.example` keys.** A plain copy
   is enough, because the bot has few commits.
-  *Done when:* `uv run pytest -q` passes in `b3_trader`.
-- [ ] **D5. Compare the two repositories.** Run a paper dry-run from each on the same day.
-  *Done when:* the target weights are equal.
-- [ ] **D6. Delete the bot from `macd_searcher`:** `trader/`, `tests/test_trader.py`, the
+  *Done when:* `uv run pytest -q` passes in `b3_trader`. *2026-11-11:* 34 tests pass.
+- [x] **D5. Compare the two repositories.** Run a paper dry-run from each on the same day.
+  *Done when:* the target weights are equal. *2026-11-11:* the 6 targets of the day
+  are equal. The full book of 2026-10-10 is also equal: 91 longs and 24 shorts.
+- [x] **D6. Delete the bot from `macd_searcher`:** `trader/`, `tests/test_trader.py`, the
   `live` extra, the `trader` config and the `.env.example` keys. Link to the new
   repository from `docs/trading_strategy.md`.
   *Done when:* the tests pass and `uv.lock` has no SDK.

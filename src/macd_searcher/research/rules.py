@@ -134,6 +134,14 @@ RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
     "crypto pullback peak_pct >= 75, first fires": lambda d: _crypto_pullback(d) & (d.peak_pct >= 75) & _first(d),
     "crypto pullback 75 <= peak_pct < 100, first fires": lambda d: _crypto_pullback(d) & (d.peak_pct >= 75)
         & (d.peak_pct < RECORD_PEAK_PCT) & _first(d),
+    # 2026-11-09 pass (docs/strategy_search.md): B3's legs by listing age. The age tilt
+    # helped on all 9 detector settings.
+    "crypto pullback, first fires, listed >= 2y": lambda d: _crypto_pullback(d) & _first(d)
+        & (_col(d, "listed_days") >= 730),
+    "crypto bearish peak_pct <= 25, first fires, listed < 1y": lambda d: _bear(d) & (d["asset_class"] == "crypto")
+        & (d.peak_pct <= 25) & _first(d) & (_col(d, "listed_days") < 365),
+    "crypto bullish 50 < peak_pct < 100, first fires, listed < 1y": lambda d: _bull_deep(d)
+        & (d["asset_class"] == "crypto") & _first(d) & (_col(d, "listed_days") < 365),
     "all bearish": _bear,
     "everything": lambda d: d["direction"].notna(),
 }
@@ -303,4 +311,19 @@ WATCHLIST: tuple[Check, ...] = (
           "-1.20; in the book, the flips give the state book its +0.65)", +1,
           "flip L2 longs to S2 shorts when their coin enters S2's band", registered="2026-11-07",
           metric="alpha_from_band", horizon=14),
+    # Added 2026-11-09 (docs/strategy_search.md, docs/book_experiments.md §4): the listing-age
+    # tilt, as three per-leg checks. Bearish alpha is short-side and bullish long-side, so a
+    # better LONG on a bearish fire reads negative and a better SHORT on a bullish fire too.
+    Check("crypto pullback, first fires, listed >= 2y", "Is L2 a better 14d LONG on coins listed for 2 years "
+          "or more? (history 2023-26, per trade: >= 2y +1.83, < 1y -0.67, 1-2y -0.27)", -1,
+          "give L2 longs on old coins more weight", versus="crypto pullback, first fires",
+          registered="2026-11-09", horizon=14),
+    Check("crypto bearish peak_pct <= 25, first fires, listed < 1y", "Is S1 a better 14d SHORT on coins listed "
+          "for less than 1 year? (history 2023-26, per trade: < 1y +3.31, 1-2y +0.69, >= 2y +0.74)", +1,
+          "give S1 shorts on young coins more weight", versus="crypto bearish peak_pct <= 25, first fires",
+          registered="2026-11-09", horizon=14),
+    Check("crypto bullish 50 < peak_pct < 100, first fires, listed < 1y", "Is S2 a better 14d SHORT on coins "
+          "listed for less than 1 year? (history 2023-26, per trade, short-side: < 1y +2.14, 1-2y +0.36, >= 2y "
+          "+0.24)", -1, "give S2 shorts on young coins more weight",
+          versus="crypto bullish 50 < peak_pct < 100, first fires", registered="2026-11-09", horizon=14),
 )

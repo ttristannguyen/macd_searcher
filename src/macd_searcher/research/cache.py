@@ -52,6 +52,16 @@ def read(root: Path, kind: str, symbol: str) -> pd.DataFrame | None:
     return df
 
 
+def first_bars(root: Path) -> dict[str, pd.Timestamp]:
+    """The first daily candle of each coin in the one-off ``history/`` fetch. The listing
+    age needs this fetch, because the ``candles/`` cache starts on 2025-08-01."""
+    out: dict[str, pd.Timestamp] = {}
+    for path in sorted((root / "history").glob("*.csv")):
+        first = pd.read_csv(path, usecols=["ts"], nrows=1)["ts"].iloc[0]
+        out[path.stem.replace("__", ":")] = pd.Timestamp(first)
+    return out
+
+
 def _write(root: Path, kind: str, symbol: str, df: pd.DataFrame) -> None:
     path = _path(root, kind, symbol)
     path.parent.mkdir(parents=True, exist_ok=True)

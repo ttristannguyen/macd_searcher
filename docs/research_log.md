@@ -8,6 +8,54 @@ own docs ([confidence_v3_research.md](confidence_v3_research.md),
 
 ---
 
+## 2026-11-09 — a search for books that do better than B3
+
+Question: does another method or strategy do better than B3? The full write-up is in
+[strategy_search.md](strategy_search.md). The pass tested about 100 books on the frozen
+panel, 2023-02-28 → 2026-10-15.
+
+**Watchlist (snapshot of 2026-11-09).** No leg check has 30 episodes, so no B3 leg has a
+verdict. The verdicts outside B3 do not change: the record-peak warning is contradicted
+(+1.68 [+0.78, +4.21], 107 ep), and v2 is confirmed (+1.81 [+0.06, +3.00], 75 ep).
+
+- **Two candidates do better than B3 in the backtester.** No candidate is confirmed.
+  - The stack (longs close in S2's band, shorts 21 days, age tilt 1.5×): Sharpe 2.04
+    against 1.50, +0.54 [+0.08, +0.97], +0.66 / +0.43 by half. With the bot's execution:
+    1.99 against 1.44.
+  - 75% stack + 25% quality sleeve, 2024-01 →: 2.87 against 1.82, +1.05 [+0.31, +1.78].
+- **B3's 1.50 is the best of 9 detector settings.** The others score from −0.04 to 1.32.
+  The ensembles of the settings score 1.27.
+- **The stack helps on the other settings:** Δ > 0 on 9 of 9, and in both halves on 7 of
+  9. The age tilt alone has both halves on 9 of 9.
+- **A walk-forward choice of the legs finds L1, L2, S1 and S2 by 2025-07,** and it scores
+  1.36 on 2024-01 →, against 1.82 for B3. This is the better estimate of B3's edge.
+- **The quality sleeve holds the edge in its quality features** (volatility, age, size,
+  MAX, illiquidity). The detector features alone score 0.05 walk-forward. 30 placebo runs
+  do not reach the real Sharpe of 1.44.
+- **These do not help:** 19 factor books, 18 trend sleeves, the taker and maker splits,
+  and the flips (negative in 2025–26 on 4 of 9 settings).
+- **Family-wise, nothing passes at 5%** (52 books, best p = 0.12). The flat funding rule
+  is good for the sleeve: its young shorts paid funding over the 154 live days. Its
+  Sharpe falls from about 1.3 to 0.85 with the live funding gap.
+
+### Tooling
+
+- `cache.first_bars` and `dataset.attach_listing_age` add `listed_days` to the live
+  frame. This closes the open item of book_experiments.md §4.
+- `backtest_tables.strategy_search` prints the tables of the stack and of the settings.
+- `scripts/quality_sleeve.py` is the walk-forward sleeve.
+
+### Registered this pass
+
+Three per-leg checks of the listing-age tilt, at 14 days:
+- L2 first fires on coins listed ≥ 2 years, against the rest of L2. A better long reads
+  negative.
+- S1 first fires on coins listed < 1 year, against the rest of S1 (> 0, short-side).
+- S2 first fires on coins listed < 1 year, against the rest of S2. A better short reads
+  negative.
+
+---
+
 ## 2026-11-07 — the live bot's execution, and new exits
 
 Questions:

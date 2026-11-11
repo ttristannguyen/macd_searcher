@@ -320,6 +320,9 @@ to −0.01. It is still positive in both halves. The baseline holds 33 / 28 name
      alpha > 0.
   2. S1 and S2 first fires on coins listed < 1 year minus older coins: short-side
      alpha > 0.
+
+  *Done 2026-11-09:* `dataset.attach_listing_age` adds `listed_days`. The watchlist has
+  three checks, one each for L2, S1 and S2 (strategy_search.md).
 - **Add the tilt to the backtester as an execution variant** (trading_strategy.md
   §8.2), with the weights 1× and 1.5×. Do not use 2×. Its interval is wider and it
   increases concentration. *Done 2026-11-03:* the `tilt` argument of

@@ -202,7 +202,8 @@ def main(argv: list[str] | None = None) -> int:
         log.warning("NO CANDLES CACHED — alpha will use snapshot exits, which are survivorship-"
                     "biased against bullish signals. Run without --offline to fill the cache.")
 
-    df = dataset.build(conn, candles, funding, gap_days=args.gap_days, oos_from=args.oos_from)
+    df = dataset.build(conn, candles, funding, gap_days=args.gap_days, oos_from=args.oos_from,
+                       first_bars=cache.first_bars(root))
     latest = conn.execute("SELECT MAX(started_at) FROM runs").fetchone()[0]
     h = args.horizon
     scored = df[df[f"alpha_{h}d"].notna()]

@@ -38,6 +38,10 @@ A1, A4 and the generic factors were not run again. They are not B3-type books, a
 committed backtester does not build them. Their numbers are from the scratch build of
 2026-10-19.
 
+**2026-11-09.** [strategy_search.md](strategy_search.md) tests about 100 other books.
+Two candidates do better than B3 in the backtester, and no candidate is confirmed. B3's
+1.50 is the best of 9 detector settings.
+
 ## Headline
 
 1. **Going long on the signals lost money over 2023–26, whatever the filter.** The

@@ -22,6 +22,7 @@ Portfolio numbers come from the committed B3 backtester:
 uv run python -m macd_searcher.research.backtest             # the baseline
 uv run python -m macd_searcher.research.backtest --rebuild   # rebuild the frozen panel first
 uv run python scripts/backtest_tables.py > tables.md         # the portfolio tables of the docs
+uv run --with scikit-learn python scripts/quality_sleeve.py  # the walk-forward sleeve of strategy_search.md
 ```
 
 Reads `state/prod_snapshot.sqlite3` (synced daily by `scripts/sync_prod_db.ps1`)

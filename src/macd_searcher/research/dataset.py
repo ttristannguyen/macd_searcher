@@ -469,6 +469,14 @@ def attach_band_flip(sig: pd.DataFrame, snaps: pd.DataFrame, closed: dict[str, p
     return sig.assign(s2_band_day=band, alpha_from_band_14d=alpha)
 
 
+def attach_listing_age(sig: pd.DataFrame, first_bars: dict[str, pd.Timestamp]) -> pd.DataFrame:
+    """``listed_days``: the days from the coin's first daily candle to the fire. A coin
+    with no history has NaN. The history starts on 2021-01-01, so an older listing shows
+    that date (docs/book_experiments.md §3)."""
+    first = pd.to_datetime(sig["symbol"].map(first_bars), utc=True)
+    return sig.assign(listed_days=(sig["fired_at"] - first).dt.days)
+
+
 def _closed_bar_hist(candles: pd.DataFrame) -> pd.Series:
     df = candles.sort_values("ts")
     return pd.Series(macd(df["close"])["hist"].to_numpy(), index=df["ts"].dt.strftime("%Y-%m-%d"))
@@ -477,9 +485,10 @@ def _closed_bar_hist(candles: pd.DataFrame) -> pd.Series:
 # ---------------------------------------------------------------- assembly
 
 def build(conn: sqlite3.Connection, candles: dict | None = None, funding: dict | None = None,
-          gap_days: int = 1, oos_from: str | None = None) -> pd.DataFrame:
-    """The full research frame. Indicator and funding columns are present only when
-    those caches are passed in, and 21-day outcomes are NaN without candles. Alpha
+          gap_days: int = 1, oos_from: str | None = None,
+          first_bars: dict[str, pd.Timestamp] | None = None) -> pd.DataFrame:
+    """The full research frame. Indicator, funding and listing-age columns are present
+    only when those caches are passed in, and 21-day outcomes are NaN without candles. Alpha
     works from the database alone, but carries a survivorship bias without candles
     (see ``benchmark``)."""
     sig = load_signals(conn)
@@ -500,5 +509,7 @@ def build(conn: sqlite3.Connection, candles: dict | None = None, funding: dict |
         df = attach_band_flip(df, snaps, closed)
     if funding:
         df = attach_funding(df, funding)
+    if first_bars:
+        df = attach_listing_age(df, first_bars)
     df["oos"] = df["fired_at"] >= pd.Timestamp(oos_from, tz="UTC") if oos_from else False
     return df

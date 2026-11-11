@@ -11,6 +11,7 @@ uses the same 30-day blocks for both books.
 
 from __future__ import annotations
 
+import pickle
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -19,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from macd_searcher.book import LEGS
+from macd_searcher.config import load_config
 from macd_searcher.research import backtest as bt
 from macd_searcher.research.dataset import DEEP_DIP_PCT
 from macd_searcher.signals import CONFIDENCE_V3_MAX_PEAK_PCT, CONFIDENCE_V3_MAX_REDUCTION
@@ -723,6 +725,86 @@ def new_exits() -> None:
         print(variant_row(name, BASE, v, names(v)))
 
 
+# ---------------------------------------------------------------- strategy search (docs/strategy_search.md)
+
+# (fast, slow, signal, min_reduction). The grid was fixed before the first look.
+NEIGHBOURS = ((8, 17, 9, 0.3), (10, 22, 9, 0.3), (15, 30, 9, 0.3), (19, 39, 9, 0.3),
+              (12, 26, 9, 0.2), (12, 26, 9, 0.4), (12, 26, 6, 0.3), (12, 26, 12, 0.3))
+
+
+def neighbour_panel(fast: int, slow: int, signal: int, reduction: float) -> bt.Panel:
+    """The frozen panel of a detector with other parameters. A build takes about one
+    minute, so the panel stays in the cache."""
+    path = Path("state/research_cache/neighbours") / f"p_{fast}_{slow}_{signal}_{int(reduction * 100)}.pkl"
+    if not path.exists():
+        cfg = load_config("config.yaml")
+        cfg.macd.fast, cfg.macd.slow, cfg.macd.signal = fast, slow, signal
+        cfg.signal.histogram_flattening.min_reduction_from_peak = reduction
+        path.parent.mkdir(exist_ok=True)
+        raw = bt.build_panel(bt.load_bars(Path("state/research_cache")), cfg)
+        path.write_bytes(pickle.dumps(raw | dict(source="neighbour panel", built=path.name)))
+    return bt.load_panel(path)
+
+
+def band_exit(panel: bt.Panel):
+    """``long_in_s2_band`` on the MACD state of another panel."""
+    def matrix(column: str) -> np.ndarray:
+        wide = panel.coin_days.pivot(index="day", columns="symbol", values=column)
+        return wide.reindex(index=[d.isoformat() for d in DAYS], columns=PANEL.symbols).to_numpy(dtype=float)
+    hist, state = matrix("hist"), matrix("state_pct")
+    band = (hist < 0) & (state > 50) & (state < 100)
+
+    def rule(day: date, p: bt.Position) -> bool:
+        return p.side > 0 and bool(band[ROW[day], COL[p.symbol]])
+    return rule
+
+
+STACK = dict(exit_rule=long_in_s2_band, holds=SHORTS_21, tilt=age_tilt(1.5))
+
+
+def strategy_search() -> None:
+    print("\n## strategy_search.md")
+    header("B3 and the stack", "book", "Sharpe", "Δ vs baseline [95%]", "Δ 2023–24", "Δ 2025–26", "CAGR", "max DD",
+           "turnover")
+    print(f"| **baseline** | {num(bt.sharpe(BASE.net), '.2f')} | — | — | — | {pct(bt.cagr(BASE.net))} "
+          f"| {pct(bt.max_drawdown(BASE.net), 0)} | — |")
+    for name, kw in (("longs close in S2's band", dict(exit_rule=long_in_s2_band)), ("shorts 21 days", dict(holds=SHORTS_21)),
+                     ("age tilt 1.5×", dict(tilt=age_tilt(1.5))), ("**the stack: all three**", STACK)):
+        v = run(**kw)
+        print(variant_row(name, BASE, v, turnover_change(BASE, v)))
+
+    bot_base = live(**BOT)
+    header("the stack with the bot's execution (limit orders, stop from the next day)", "book", "Sharpe",
+           "Δ vs the bot's B3 [95%]", "Δ 2023–24", "Δ 2025–26", "CAGR", "max DD")
+    print(f"| the bot's B3 | {num(bt.sharpe(bot_base.net), '.2f')} | — | — | — | {pct(bt.cagr(bot_base.net))} "
+          f"| {pct(bt.max_drawdown(bot_base.net), 0)} |")
+    for name, kw in (("the stack", {}), ("the stack, $5,000", dict(equity=5000)), ("the stack, $10,000", dict(equity=10000))):
+        print(variant_row(name, bot_base, live(**BOT, **STACK, **kw)))
+
+    header("each change on the 9 detector settings: Δ Sharpe (Δ 2023–24 / Δ 2025–26) against the same settings",
+           "fast / slow / signal / reduction", "Sharpe of B3", "longs close in S2's band", "shorts 21 days",
+           "age tilt 1.5×", "the stack")
+    settings = [("12 / 26 / 9 / 0.3", PANEL)] + [(" / ".join(map(str, n)), neighbour_panel(*n)) for n in NEIGHBOURS]
+    wins = {k: [0, 0] for k in ("band", "shorts", "tilt", "stack")}
+    for name, panel in settings:
+        fires = bt.book_fires(panel)
+        base = bt.simulate(panel, fires)
+        exit_ = band_exit(panel)
+        cells = []
+        for k, kw in (("band", dict(exit_rule=exit_)), ("shorts", dict(holds=SHORTS_21)),
+                      ("tilt", dict(tilt=age_tilt(1.5))),
+                      ("stack", dict(exit_rule=exit_, holds=SHORTS_21, tilt=age_tilt(1.5)))):
+            v = bt.simulate(panel, fires, **kw)
+            d = bt.sharpe(v.net) - bt.sharpe(base.net)
+            d1, d2 = (x - y for x, y in zip(half_sharpes(v.net), half_sharpes(base.net)))
+            wins[k][0] += d > 0
+            wins[k][1] += d1 > 0 and d2 > 0
+            cells.append(f"{num(d, '+.2f')} ({num(d1, '+.2f')} / {num(d2, '+.2f')})")
+        print(f"| {name} | {num(bt.sharpe(base.net), '.2f')} | " + " | ".join(cells) + " |")
+    print("\nsettings with Δ > 0, and with Δ > 0 in both halves, of 9: "
+          + ", ".join(f"{k} {a} and {b}" for k, (a, b) in wins.items()))
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")         # the tables use −, → and Δ
     print(f"# Portfolio tables — panel built {PANEL.meta['built']}, window {DAYS[0]} → {DAYS[-1]}")
@@ -732,3 +814,4 @@ if __name__ == "__main__":
     book_experiments()
     live_execution()
     new_exits()
+    strategy_search()

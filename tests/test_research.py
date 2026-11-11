@@ -244,6 +244,20 @@ def test_first_deep_dip_with_s2_band_skips_a_record_dip():
     assert got.iloc[0] == 2 and np.isnan(got.iloc[1])
 
 
+def test_listing_age_counts_days_from_the_first_bar_and_leaves_an_unknown_coin_empty():
+    sig = pd.DataFrame({"symbol": ["OLD", "NEW"], "fired_at": pd.Timestamp("2026-07-01T12:00:00", tz="UTC")})
+    got = dataset.attach_listing_age(sig, {"OLD": pd.Timestamp("2024-07-01", tz="UTC")})
+    assert got["listed_days"].iloc[0] == 730 and np.isnan(got["listed_days"].iloc[1])
+
+
+def test_first_bars_reads_the_first_row_and_restores_the_symbol(tmp_path):
+    from macd_searcher.research import cache
+    (tmp_path / "history").mkdir()
+    (tmp_path / "history" / "xyz__TSLA.csv").write_text(
+        "ts,close\n2025-01-02 00:00:00+00:00,1\n2025-01-03 00:00:00+00:00,2\n")
+    assert cache.first_bars(tmp_path) == {"xyz:TSLA": pd.Timestamp("2025-01-02", tz="UTC")}
+
+
 # ---------------------------------------------------------------- statistics
 
 def test_block_ci_collapses_on_constant_data():

@@ -4,6 +4,11 @@ Status: Phases A, B, C and D are complete (2026-11-12).
 Tick each item when it is complete. From phase D, `docs/trading_bot.md` is in
 `b3_trader`.
 
+**Phases E, G and H, and item F3, moved to `b3_trader` on 2026-11-12**
+([docs/plan.md](https://github.com/ttristannguyen/b3_trader/blob/main/docs/plan.md)).
+They are bot work, and a session in `b3_trader` must tick them. Items F1, F2 and F4
+stay here, because they are research work in this repository.
+
 ## The design
 
 `macd_searcher` tells what the book is. A new repository, `b3_trader`, tells how to
@@ -115,18 +120,7 @@ trade, then a small real-money check of the live broker, then the live book.
 
 ## Phase E: paper trade on the VPS
 
-Paper shows that the book agrees with the backtest, that the daily run is stable, and
-what funding really costs. Paper does not show the cost of the orders. A paper limit
-fill is at its limit price with the maker fee, so the 0.10% gate of
-`docs/trading_strategy.md` §8.3 cannot fail on paper. Only real fills can measure it
-(H3).
-
-- [ ] **E1. You:** clone `b3_trader`, add a deploy key for each private repository, and add
-  its own `.env`.
-- [ ] **E2. Add the paper cron line** at 00:10 UTC. Set `TRADER_TELEGRAM_CHAT_ID`.
-  *Done when:* 3 daily messages arrive with no failure.
-- [ ] **E3. Run for the agreed time** (open question 2).
-  *Done when:* the time is over, with no unexplained failure.
+Moved to `b3_trader`, `docs/plan.md`.
 
 ## Phase F: close the research loop (during paper)
 
@@ -135,49 +129,12 @@ fill is at its limit price with the maker fee, so the 0.10% gate of
 - [ ] **F2. Build the fidelity replay** in `macd_searcher`. Run `backtest.account` over
   the recorded targets, and compare it with the paper equity.
   *Done when:* each gap has a name: a bug, a cost, an unfilled order, or timing.
-- [ ] **F3. Write the pin procedure:** research result, new tag, change the pin, tests,
-  equal weights on one day, deploy.
+- **F3.** Moved to `b3_trader`, `docs/plan.md`.
 - [ ] **F4. Use one source for the Telegram book.** `book.py` has its own copy of the
   rules. It can call `target.py`. The Telegram universe has the OI filter and the bot
   universe does not, so decide which one the message shows.
 
-## Phase G: check the live broker with a small amount of real money
+## Phases G and H: the live broker and the live book
 
-The live broker has not run against an exchange. This check replaces the testnet. It
-uses one liquid coin and one position of about $11, for less than a minute.
-
-- [ ] **G1. Build `--live-check`** and test it with the fake exchange. It does these steps
-  in sequence, prints each result, and ends flat:
-  1. Send a post-only order far from the price. Read it back, then cancel it.
-  2. Open a short of about $11 at the market.
-  3. Send the reduce-only stop-market order at +100%. Read it back.
-  4. Record the fill in a separate check ledger, and run the ledger check.
-  5. Close part of the position, below $10. This shows if Hyperliquid accepts it.
-  6. Cancel the stop, and close the rest at the market.
-
-  *Done when:* the tests pass with the fake exchange.
-- [ ] **G2. You:** put about $30 in an account for the bot only, create an API wallet, add
-  the keys to `.env`, and set `live_url` in `trader.yaml` to `https://api.hyperliquid.xyz`.
-- [ ] **G3. You:** run `--live-check`, and send Claude the output.
-- [ ] **G4. Fix each defect, and run the check again.**
-  *Done when:* each step passes, the account is flat, and `docs/trading_bot.md` has the
-  result.
-
-## Phase H: the live book
-
-- [ ] **H1. Decide the capital and the halt level** (open question 1).
-- [ ] **H2. Check the gates that paper can show:** each paper-to-replay gap has a name, and
-  no leg is contradicted.
-- [ ] **H3. You:** add the funds, and start the live cron line. For the first weeks,
-  measure the real fill rate and the real cost a side.
-  *Done when:* the cost is at most 0.10% a side. If it stays above 0.20%, stop and
-  think again (§8.3).
-
-## Open questions
-
-1. **Capital.** The tested minimum is $5,000. At $1,000 the Sharpe is 0.83 against 1.50.
-   $100 pays for the check of phase G, but the daily run cannot hold the book at $100.
-2. **Paper time.** §8.3 asks for 8 weeks or more, but its main reason was to measure
-   the costs, and paper cannot do that here. *Proposal:* 4 weeks. The book needs 15
-   days to fill from zero, and then 2 weeks at full size.
-3. **The repository name.** `b3_trader` is a proposal.
+Moved to `b3_trader`, `docs/plan.md`, with the open questions on the capital and the
+paper time. The repository name is `b3_trader` (decided 2026-11-11).

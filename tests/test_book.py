@@ -108,6 +108,21 @@ def test_volume_floor_and_short_history_skip_the_day():
     assert closed_bar_fires("SOL", _candles(short), cfg, [TODAY]) == []
 
 
+def test_closed_bar_states_are_the_states_of_the_backtest_panel():
+    """The stack's S2-band exit reads this state live. The backtest read it from the panel."""
+    cfg = AppConfig()
+    df = _candles(_random_walk(320, seed=3))
+    days = [_d(k) for k in range(40)]
+    panel = bt.build_panel({"X": df}, cfg)["coin_days"]
+    want = {date.fromisoformat(r.day): (r.hist, r.state_pct) for r in panel.itertuples()
+            if date.fromisoformat(r.day) in days}
+    got = book_mod.closed_bar_states(df, cfg, days)
+    assert got.keys() == want.keys() and len(got) == 40
+    for d, (hist, pct) in got.items():
+        assert hist == pytest.approx(want[d][0])
+        assert (pct is None and pd.isna(want[d][1])) or pct == pytest.approx(want[d][1])
+
+
 def test_history_days_covers_every_window_the_book_reads():
     cfg = AppConfig()
     # 17 fire days, each a window of `lookback` closed bars ending the day before.

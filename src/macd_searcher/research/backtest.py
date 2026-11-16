@@ -90,6 +90,19 @@ BOOT_DRAWS = 2000
 
 PANEL_FILE = "backtest_panel.pkl"
 
+# The stack (docs/strategy_search.md) is B3 with three changes. Each one is positive in
+# both halves of the history. The stack is positive on all 9 detector settings tried.
+# * A long closes when its coin enters S2's band (``in_s2_band``). L2 is a pullback in a
+#   leader, and a coin in S2's band is not a leader (docs/exit_research.md §8).
+# * The shorts stay open for 21 days. Their alpha continues in days 14-21
+#   (docs/exit_research.md §1).
+# * The age tilt (``age_tilt``): more weight on old longs and on young shorts. Young
+#   coins have a low float and scheduled unlocks (docs/book_experiments.md §3).
+STACK_HOLDS = {"S1": 21, "S2": 21}
+AGE_TILT = 1.5
+OLD_LISTING_DAYS = 730
+YOUNG_LISTING_DAYS = 365
+
 # The other rules have no value to pin, so the code enforces them where they apply:
 # * one position per coin (``target_book``);
 # * a traded first fire opens, flips or restarts that position, and a fire in a band
@@ -187,6 +200,24 @@ def _capped(total: float, factor: np.ndarray) -> np.ndarray:
         w[over] = MAX_WEIGHT
         free &= ~over
     return w
+
+
+def in_s2_band(hist: float, state_pct: float | None) -> bool:
+    """A dip in S2's band: the histogram is below zero and its excursion is in the 50-100
+    band of the coin's own history. A record (100) is not in the band."""
+    return hist < 0 and state_pct is not None and 50 < state_pct < 100
+
+
+def age_tilt(first_bars: dict[str, date], k: float = AGE_TILT) -> Callable[[date, Position], float]:
+    """The stack's tilt: ``k`` x weight on a long listed OLD_LISTING_DAYS or more and on
+    a short listed less than YOUNG_LISTING_DAYS, at entry. ``first_bars`` gives the first
+    daily candle of each coin on Hyperliquid."""
+    def tilt(day: date, p: Position) -> float:
+        if p.symbol not in first_bars:
+            raise KeyError(f"the age tilt has no first bar for {p.symbol}")
+        age = (p.entry - first_bars[p.symbol]).days
+        return k if (p.side > 0 and age >= OLD_LISTING_DAYS) or (p.side < 0 and age < YOUNG_LISTING_DAYS) else 1.0
+    return tilt
 
 
 # ---------------------------------------------------------------- simulation

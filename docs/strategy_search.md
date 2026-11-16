@@ -200,7 +200,9 @@ This doc is backtest research. It does not give investment advice.
    of the stack have checks from 2026-10-27 and 2026-11-07.
 2. Do not change the live book before these checks have 30 episodes.
 3. Run the stack and the quality sleeve as paper books next to B3. Log the real funding
-   for each coin.
+   for each coin. *2026-11-16:* `target.target_from_candles(variant="stack",
+   first_bars=...)` gives the stack's book (trader_repo_plan.md, phase I). On 3 days of
+   real candles, its weights are equal to the backtest's stack book.
 4. Fetch the funding history from 2023. This takes hours. Then §5 can cover more than
    one regime, and a funding factor can have a proper test.
 

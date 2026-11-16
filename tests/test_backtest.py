@@ -130,6 +130,25 @@ def test_the_basket_fills_the_thin_side_and_nets_per_coin():
 
 # ---------------------------------------------------------------- positions
 
+def test_s2s_band_is_a_dip_with_an_excursion_between_50_and_100():
+    assert bt.in_s2_band(-1.0, 75.0)
+    assert not bt.in_s2_band(1.0, 75.0)                 # a rally, not a dip
+    assert not bt.in_s2_band(-1.0, 100.0)               # a record dip is not in the band
+    assert not bt.in_s2_band(-1.0, 50.0)
+    assert not bt.in_s2_band(-1.0, None) and not bt.in_s2_band(-1.0, float("nan"))
+
+
+def test_the_age_tilt_weights_old_longs_and_young_shorts():
+    first = {"OLD": D0 - timedelta(days=bt.OLD_LISTING_DAYS), "MID": D0 - timedelta(days=500),
+             "YOUNG": D0 - timedelta(days=bt.YOUNG_LISTING_DAYS - 1)}
+    tilt = bt.age_tilt(first)
+    pos = lambda s, side: Position(s, "L2" if side > 0 else "S1", side, D0, _d(14))  # noqa: E731
+    assert tilt(D0, pos("OLD", 1)) == bt.AGE_TILT and tilt(D0, pos("YOUNG", -1)) == bt.AGE_TILT
+    assert tilt(D0, pos("OLD", -1)) == tilt(D0, pos("YOUNG", 1)) == tilt(D0, pos("MID", 1)) == 1.0
+    with pytest.raises(KeyError, match="NEW"):
+        tilt(D0, pos("NEW", 1))
+
+
 def test_a_traded_first_fire_flips_or_restarts_the_position():
     book = _book(_fire("A", "L1"))
     book, _ = target_book(_d(3), [_fire("A", "S2")], book, {"A"})

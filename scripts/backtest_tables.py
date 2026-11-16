@@ -492,8 +492,8 @@ def age_tilt(k: float, longs: bool = True, shorts: bool = True, pre_2021: bool =
     def tilt(day: date, p: bt.Position) -> float:
         first = PANEL.first_bar[p.symbol]
         age = (p.entry - first).days
-        old = age >= 730 and (pre_2021 or first > AGE_START)
-        return k if (p.side > 0 and longs and old) or (p.side < 0 and shorts and age < 365) else 1.0
+        old = age >= bt.OLD_LISTING_DAYS and (pre_2021 or first > AGE_START)
+        return k if (p.side > 0 and longs and old) or (p.side < 0 and shorts and age < bt.YOUNG_LISTING_DAYS) else 1.0
     return tilt
 
 
@@ -759,7 +759,8 @@ def band_exit(panel: bt.Panel):
     return rule
 
 
-STACK = dict(exit_rule=long_in_s2_band, holds=SHORTS_21, tilt=age_tilt(1.5))
+# The stack as the bot trades it: the rules come from backtest.py (target.py reads the same).
+STACK = dict(exit_rule=long_in_s2_band, holds=bt.STACK_HOLDS, tilt=bt.age_tilt(PANEL.first_bar))
 
 
 def strategy_search() -> None:
@@ -793,7 +794,7 @@ def strategy_search() -> None:
         cells = []
         for k, kw in (("band", dict(exit_rule=exit_)), ("shorts", dict(holds=SHORTS_21)),
                       ("tilt", dict(tilt=age_tilt(1.5))),
-                      ("stack", dict(exit_rule=exit_, holds=SHORTS_21, tilt=age_tilt(1.5)))):
+                      ("stack", dict(exit_rule=exit_, holds=bt.STACK_HOLDS, tilt=bt.age_tilt(PANEL.first_bar)))):
             v = bt.simulate(panel, fires, **kw)
             d = bt.sharpe(v.net) - bt.sharpe(base.net)
             d1, d2 = (x - y for x, y in zip(half_sharpes(v.net), half_sharpes(base.net)))

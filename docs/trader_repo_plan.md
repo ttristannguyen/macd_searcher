@@ -138,3 +138,28 @@ Moved to `b3_trader`, `docs/plan.md`.
 
 Moved to `b3_trader`, `docs/plan.md`, with the open questions on the capital and the
 paper time. The repository name is `b3_trader` (decided 2026-11-11).
+
+## Phase I: paper trade the stack next to B3
+
+The stack is B3 with three rule changes (docs/strategy_search.md). Paper trading
+measures its costs and its real funding. It cannot confirm its edge: the watchlist
+checks do that.
+
+- [x] **I1. Give the stack's book from `target.py`.** `target_from_candles` has
+  `variant="stack"` and `first_bars`. The rules are in `research/backtest.py`
+  (`STACK_HOLDS`, `in_s2_band`, `age_tilt`), so the backtest and the bot read the same
+  rules. B3 stays the default.
+  *Done when:* the replay gives the backtest's stack book. *2026-11-16:* a test pins the
+  replay. On 2024-03-01, 2025-06-15 and 2026-10-10, the weights from real candles are
+  equal to the backtest's, also with only `history_days(cfg, "stack")` of candles.
+- [ ] **I2. Tag `strategy-v2`** on `main` after D1, and push it.
+- [ ] **I3. In `b3_trader`:** move the pin to `strategy-v2`. Add a second paper book with
+  its own ledger. It calls `target_from_candles(..., variant="stack", first_bars=...)`
+  and fetches `history_days(cfg, "stack")` days of candles.
+  *Done when:* the B3 book does not change, and the stack book runs each day.
+- [ ] **I4. In `b3_trader`:** keep the first daily candle of each coin, for `first_bars`.
+  The candles of one run do not go back far enough. A new coin gets its first candle
+  from the API.
+- [ ] **I5. Write the decision rule before the first paper day:** the tracking gap
+  against the fidelity replay (F2), the real funding of the shorts, and the watchlist
+  checks of 2026-10-27, 2026-11-07 and 2026-11-09.

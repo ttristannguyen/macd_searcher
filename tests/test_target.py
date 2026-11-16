@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
+import pytest
 import yaml
 
 from macd_searcher import target
@@ -64,6 +65,32 @@ def test_the_replay_gives_the_backtest_book_on_each_day():
     assert max(sizes) >= 5, "the random fires should build a book on both sides"
 
 
+def test_the_stack_replay_gives_the_backtest_book_on_each_day():
+    """The stack's three rules, replayed from an empty book over 22 days, give the book
+    that ``simulate`` keeps from its first day: 21-day shorts, the S2-band exit (read on
+    the book of the day before) and the age tilt."""
+    rng = random.Random(1)
+    symbols = [f"C{i}" for i in range(30)]       # more than 10 names a side, so the tilt acts
+    raw = [_fire(s, k, rng.choice(["bullish", "bearish"]), rng.choice([5.0, 20.0, 60.0, 80.0]))
+           for k in range(70) for s in symbols if rng.random() < 0.25]
+    fires = target.book_fires(raw)
+    band = {(s, _d(k)) for k in range(70) for s in symbols if rng.random() < 0.1}
+    first = {s: D0 - timedelta(days=rng.choice([100, 500, 1000])) for s in symbols}
+
+    def exit_rule(d, p):
+        return p.side > 0 and (p.symbol, d) in band
+
+    rules = dict(holds=bt.STACK_HOLDS, tilt=bt.age_tilt(first))
+    book: dict = {}
+    tilted = 0
+    for k in range(70):
+        exits = {s for s, p in book.items() if exit_rule(_d(k), p)}
+        book, weights = bt.target_book(_d(k), fires.get(_d(k), ()), book, set(symbols), exits, **rules)
+        assert target.target_on(_d(k), fires, _everyone(symbols), exit_rule=exit_rule, **rules) == (book, weights)
+        tilted += len({round(abs(w), 9) for w in weights.values() if w > 0}) > 1
+    assert tilted > 0, "the random book should give the tilt a side to act on"
+
+
 def test_the_book_starts_from_zero_on_the_start_day():
     fires = target.book_fires([_fire("OLD", 0), _fire("REFIRE", 1), _fire("REFIRE", 2),
                                _fire("NEW", 2), _fire("S", 2, "bearish", 10.0)])
@@ -118,6 +145,34 @@ def test_target_from_candles_applies_the_stops_and_the_start_day(monkeypatch):
     assert set(stopped.positions) == {"L", "NEW"}
     late = target.target_from_candles(_d(5), bars, AppConfig(), start=_d(5))
     assert set(late.positions) == {"NEW"} and late.yesterday == {}
+
+
+def test_the_stack_from_candles_closes_a_long_in_s2s_band_and_holds_a_short_21_days(monkeypatch):
+    canned = {"L": [_fire("L", 0)], "BAND": [_fire("BAND", 0)], "S": [_fire("S", 0, "bearish", 10.0)]}
+    monkeypatch.setattr(target, "closed_bar_fires", lambda s, df, cfg, days: canned[s])
+    # BAND's coin enters S2's band on day 3. L's coin is in a deep record dip: not the band.
+    states = {"BAND": {_d(3): (-1.0, 75.0)}, "L": {_d(3): (-1.0, 100.0)}, "S": {}}
+    monkeypatch.setattr(target, "closed_bar_states", lambda df, cfg, days: states[df.attrs["symbol"]])
+    bars = {}
+    for s in canned:
+        bars[s] = _bars(40, _d(-4))
+        bars[s].attrs["symbol"] = s
+    first = {s: D0 - timedelta(days=1000) for s in canned}
+    day3 = target.target_from_candles(_d(3), bars, AppConfig(), variant="stack", first_bars=first)
+    assert set(day3.positions) == {"L", "S"} and set(day3.yesterday) == {"L", "BAND", "S"}
+    day20 = target.target_from_candles(_d(20), bars, AppConfig(), variant="stack", first_bars=first)
+    b3 = target.target_from_candles(_d(20), bars, AppConfig())
+    assert set(day20.positions) == {"S"} and b3.positions == {}
+
+
+def test_the_stack_needs_the_first_bars():
+    with pytest.raises(ValueError, match="first_bars"):
+        target.target_from_candles(_d(5), {}, AppConfig(), variant="stack")
+
+
+def test_the_stack_reads_seven_more_days_of_candles():
+    cfg = AppConfig()
+    assert target.history_days(cfg, "stack") == target.history_days(cfg) + 7
 
 
 def test_the_packaged_settings_are_the_values_of_config_yaml():

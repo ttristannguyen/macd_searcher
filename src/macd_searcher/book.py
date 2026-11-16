@@ -118,6 +118,26 @@ def closed_bar_fires(symbol: str, df: pd.DataFrame, cfg: AppConfig, days: list[d
     return out
 
 
+def closed_bar_states(df: pd.DataFrame, cfg: AppConfig, days: list[date]) -> dict[date, tuple[float, float | None]]:
+    """The MACD state on each day: (hist, peak_pct of the excursion) on the 200 closed
+    bars ending the day before. These are the ``hist`` and ``state_pct`` of the
+    backtest panel (``research.backtest.build_panel``). The state has no volume floor,
+    and a day with a zero histogram or too few bars has no state."""
+    lookback = cfg.candles.lookback_days
+    index = {d: i for i, d in enumerate(df["ts"].dt.date)}
+    m = macd(df["close"], cfg.macd.fast, cfg.macd.slow, cfg.macd.signal)
+    hist = m["hist"].to_numpy()
+    out: dict[date, tuple[float, float | None]] = {}
+    for day in days:
+        i = index.get(day - _ONE_DAY)
+        if i is None or i + 1 < lookback or hist[i] == 0:
+            continue
+        window = m.iloc[i + 1 - lookback:i + 1]
+        _, pct, _ = _peak_vs_history(window["hist"], "bullish" if hist[i] < 0 else "bearish")
+        out[day] = (float(hist[i]), pct)
+    return out
+
+
 def open_positions(fires: list[Fire], day: date) -> dict[str, Position]:
     """The book as of `day`, one position per coin.
 

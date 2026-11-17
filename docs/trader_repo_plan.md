@@ -152,7 +152,8 @@ checks do that.
   *Done when:* the replay gives the backtest's stack book. *2026-11-16:* a test pins the
   replay. On 2024-03-01, 2025-06-15 and 2026-10-10, the weights from real candles are
   equal to the backtest's, also with only `history_days(cfg, "stack")` of candles.
-- [ ] **I2. Tag `strategy-v2`** on `main` after D1, and push it.
+- [x] **I2. Tag `strategy-v2`** on `main` after D1, and push it. *2026-11-17:* the tag is
+  on `a68fbed`.
 - [ ] **I3. In `b3_trader`:** move the pin to `strategy-v2`. Add a second paper book with
   its own ledger. It calls `target_from_candles(..., variant="stack", first_bars=...)`
   and fetches `history_days(cfg, "stack")` days of candles.

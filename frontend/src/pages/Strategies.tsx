@@ -13,7 +13,7 @@ const LOOKBACKS: { value: Lookback; label: string }[] = [
 ]
 
 // Per-trade alpha figures are the 2023-26 history rebuild as reported in
-// docs/profit_strategies.md (2026-10-19). Thresholds are applied server-side
+// docs/archive/profit_strategies.md (2026-10-19). Thresholds are applied server-side
 // (web/queries.STRATEGY_RULES); the numbers here are description only.
 const LEGS: Record<StrategyRule, { title: string; side: Side; blurb: string }> = {
   v2_bullish: {
@@ -50,7 +50,7 @@ const LEGS: Record<StrategyRule, { title: string; side: Side; blurb: string }> =
   },
 }
 
-/** Recent fires split by the strategy legs in docs/profit_strategies.md. */
+/** Recent fires split by the strategy legs in docs/archive/profit_strategies.md. */
 export function Strategies() {
   const [lookback, setLookback] = useState<Lookback>('7')
   const { data, isLoading, isError } = useStrategySignals(Number(lookback))

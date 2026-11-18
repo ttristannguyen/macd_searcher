@@ -2,8 +2,8 @@
 
     uv run python scripts/backtest_tables.py > tables.md
 
-Each section prints the tables of one doc: profit_strategies.md, trading_strategy.md,
-exit_research.md and book_experiments.md. The rules of the book come from
+Each section prints the tables of one doc: docs/archive/profit_strategies.md, trading_strategy.md,
+docs/archive/exit_research.md and docs/archive/book_experiments.md. The rules of the book come from
 ``research/backtest.py``. This script only makes the variants: other fires, other
 baskets, exit rules, and weights that a rejected idea changes. Each paired interval
 uses the same 30-day blocks for both books.
@@ -175,10 +175,10 @@ def with_weights(weights: np.ndarray, base: bt.Run = BASE) -> np.ndarray:
     return reweighted(weights, base).net
 
 
-# ---------------------------------------------------------------- profit_strategies.md
+# ---------------------------------------------------------------- docs/archive/profit_strategies.md
 
 def profit_strategies() -> None:
-    print("\n## profit_strategies.md")
+    print("\n## docs/archive/profit_strategies.md")
     b2 = run(LONGS, basket=UNIVERSE)
     b1 = run(V3, basket=UNIVERSE, holds={"v3": 7})
     sleeve = {n: btc_trend(n) for n in (20, 50, 100, 200)}
@@ -354,7 +354,7 @@ def trading_strategy() -> None:
     print(f"Kelly from B3: full {kelly:.1f}x; half-Kelly at half the Sharpe {kelly / 4:.1f}x")
 
 
-# ---------------------------------------------------------------- exit_research.md
+# ---------------------------------------------------------------- docs/archive/exit_research.md
 
 STATE = {(r.symbol, r.day): (r.hist, r.state_pct) for r in PANEL.coin_days.itertuples()}
 
@@ -375,7 +375,7 @@ def side_gross(v: bt.Run) -> float:
 
 def failed_cross(k: int):
     """Close a long at the close of bar k when the histogram has not crossed zero on any
-    of the first k closes (profit_strategies.md C6a). Bar i is the close of fire day +
+    of the first k closes (docs/archive/profit_strategies.md C6a). Bar i is the close of fire day +
     i - 1, and the panel row of the next day holds it."""
     def rule(day: date, p: bt.Position) -> bool:
         if (day - p.entry).days != k:
@@ -387,7 +387,7 @@ def failed_cross(k: int):
 
 
 def exit_research() -> None:
-    print("\n## exit_research.md")
+    print("\n## docs/archive/exit_research.md")
     header("§4: as portfolios", "book", "Sharpe", "Δ vs baseline [95%]", "Δ 2023–24", "Δ 2025–26", "CAGR", "max DD",
            "turnover")
     print(f"| baseline: every leg 14 days | {num(bt.sharpe(BASE.net), '.2f')} | — | — | — | {pct(bt.cagr(BASE.net))} "
@@ -437,7 +437,7 @@ def exit_research() -> None:
           f"{pct(bt.max_drawdown(s21.net), 0)}; half-years better {(hv > hb).sum()} of {len(hb)}")
 
 
-# ---------------------------------------------------------------- book_experiments.md
+# ---------------------------------------------------------------- docs/archive/book_experiments.md
 
 def lagged(frame: pd.DataFrame) -> np.ndarray:
     """A value per coin known at the close before each decision day."""
@@ -498,7 +498,7 @@ def age_tilt(k: float, longs: bool = True, shorts: bool = True, pre_2021: bool =
 
 
 def book_experiments() -> None:
-    print("\n## book_experiments.md")
+    print("\n## docs/archive/book_experiments.md")
     header("§1: position size and risk control", "variant", "Sharpe", "Δ vs baseline [95%]", "Δ 2023–24",
            "Δ 2025–26", "CAGR", "max DD", "turnover")
     print(f"| **baseline** | {num(bt.sharpe(BASE.net), '.2f')} | — | — | — | {pct(bt.cagr(BASE.net))} "
@@ -541,7 +541,7 @@ def book_experiments() -> None:
             ("tilt 1.5×, pre-2021 listings not given more weight", BASE, run(tilt=age_tilt(1.5, pre_2021=False))),
             ("tilt 1.5×, longs only", BASE, run(tilt=age_tilt(1.5, shorts=False))),
             ("tilt 1.5×, shorts only", BASE, run(tilt=age_tilt(1.5, longs=False))),
-            ("shorts 21 days (exit_research.md)", BASE, s21),
+            ("shorts 21 days (docs/archive/exit_research.md)", BASE, s21),
             ("shorts 21 days + tilt 1.5× (Δ vs shorts 21)", s21, run(holds=SHORTS_21, tilt=age_tilt(1.5)))]
     for name, base, v in rows:
         print(variant_row(name, base, v, names(v)))
@@ -627,7 +627,7 @@ def live_execution() -> None:
                               f"| {np.corrcoef(BASE.net, v.net)[0, 1]:.2f}"))
 
 
-# ---------------------------------------------------------------- new exits (exit_research.md §8)
+# ---------------------------------------------------------------- new exits (docs/archive/exit_research.md §8)
 
 HIST = coin_matrix("hist")
 PCT_STATE = coin_matrix("state_pct")
@@ -699,7 +699,7 @@ def without_flips(triggers: pd.DataFrame) -> pd.DataFrame:
 
 
 def new_exits() -> None:
-    print("\n## exit_research.md §8: new exits")
+    print("\n## docs/archive/exit_research.md §8: new exits")
     header("as portfolios", "book", "Sharpe", "Δ vs baseline [95%]", "Δ 2023–24", "Δ 2025–26", "CAGR", "max DD",
            "turnover")
     holds_7 = run(holds={leg: 7 for leg in LEGS})

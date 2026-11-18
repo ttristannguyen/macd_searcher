@@ -116,14 +116,14 @@ RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
     "crypto pullback above SMA200": lambda d: _crypto_pullback(d) & (_col(d, "dist_sma200_atr") > 0),
     "v3 bullish, S&P 500 / Nasdaq-100": lambda d: _bull(d) & _us_index_equity(d)
         & (d.peak_pct <= V3_BULL_MAX_PEAK_PCT) & (d.red < V3_BULL_MAX_REDUCTION),
-    # B3's short leg in docs/profit_strategies.md: deep, often coin-specific selling.
+    # B3's short leg in docs/archive/profit_strategies.md: deep, often coin-specific selling.
     "bullish 50 < peak_pct < 100": _bull_deep,
     # 2026-10-24 pass: early recovery (above SMA50, still below SMA200), where that short failed.
     "bullish 50 < peak_pct < 100, early recovery": lambda d: _bull_deep(d)
         & (_col(d, "dist_sma50_atr") > 0) & (_col(d, "dist_sma200_atr") <= 0),
     # 2026-10-25 pass: crowded longs going into the dip (baseline funding is ~11% APR).
     "bullish, 7d funding >= 15% APR": lambda d: _bull(d) & (_col(d, "fund_7d_apr") >= 15),
-    # B3's short legs as traded: crypto, first fire per episode (docs/exit_research.md).
+    # B3's short legs as traded: crypto, first fire per episode (docs/archive/exit_research.md).
     "crypto bearish peak_pct <= 25, first fires": lambda d: _bear(d) & (d["asset_class"] == "crypto")
         & (d.peak_pct <= 25) & _first(d),
     "crypto bullish 50 < peak_pct < 100, first fires": lambda d: _bull_deep(d) & (d["asset_class"] == "crypto")
@@ -151,12 +151,12 @@ RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
 # they are kept out of RULES and the cohort table. A check may use one only with the
 # late-entry metric that starts where its condition is known (AFTER_FIRE_METRIC).
 AFTER_FIRE_RULES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
-    # 2026-10-23 (profit_strategies.md C6a): the uncrossed deep fires carry the drift.
+    # 2026-10-23 (docs/archive/profit_strategies.md C6a): the uncrossed deep fires carry the drift.
     "bullish 50 < peak_pct < 100, uncrossed at bar 3": lambda d: _bull_deep(d) & (_col(d, "crossed_by_bar3") == 0),
-    # 2026-10-27 (exit_research.md): a pullback long whose coin then falls into a deep dip.
+    # 2026-10-27 (docs/archive/exit_research.md): a pullback long whose coin then falls into a deep dip.
     "crypto pullback, first fires, deep dip by day 13": lambda d: _crypto_pullback(d) & _first(d)
         & _col(d, "deep_dip_day").notna(),
-    # 2026-11-07 (exit_research.md §8): a pullback long whose coin then enters S2's band.
+    # 2026-11-07 (docs/archive/exit_research.md §8): a pullback long whose coin then enters S2's band.
     "crypto pullback, first fires, S2 band by day 13": lambda d: _crypto_pullback(d) & _first(d)
         & _col(d, "s2_band_day").notna(),
 }
@@ -259,7 +259,7 @@ WATCHLIST: tuple[Check, ...] = (
     Check("v3 bullish, S&P 500 / Nasdaq-100", "Does v3 bullish pick winners among index equities? "
           "(live in-sample: +3.41 alpha, +4.28 over holding the same stock, 44 ep, one window; "
           "other equities -1.98)", +1, "trade v3 on index equities", registered="2026-10-19"),
-    # Added 2026-10-23 (docs/profit_strategies.md C6a). Long-side alpha, so a good SHORT
+    # Added 2026-10-23 (docs/archive/profit_strategies.md C6a). Long-side alpha, so a good SHORT
     # reads negative. Entered at the bar-3 close, never scored from the fire.
     Check("bullish 50 < peak_pct < 100, uncrossed at bar 3", "Are deep bullish fires still uncrossed at "
           "bar 3 good SHORTS from there? (history 2023-26, first fires, bar 3 -> 14d: -1.08 [-1.72, -0.43]; "
@@ -278,7 +278,7 @@ WATCHLIST: tuple[Check, ...] = (
           "156 ep; Sep 19 - Oct 7 -6.37 [-9.82, -2.69], 49 ep; Oct 8-17 -4.96, 14 ep; all one falling market "
           "from September)", -1, "skip or short bullish fires with crowded funding",
           versus="all bullish", registered="2026-10-25"),
-    # Added 2026-10-27 (docs/exit_research.md): exits for B3. Each is measured from the
+    # Added 2026-10-27 (docs/archive/exit_research.md): exits for B3. Each is measured from the
     # 14d exit or the deep-dip close, never from the fire. Bearish alpha is short-side
     # and bullish long-side, so a good S2 short reads negative and a bad L2 long positive.
     Check("crypto bearish peak_pct <= 25, first fires", "Does B3's S1 short keep earning in the week after its "
@@ -303,7 +303,7 @@ WATCHLIST: tuple[Check, ...] = (
           "band - records at 14d +2.36 [-0.33, +5.07])", -1,
           "drop record peaks from L2", versus="crypto pullback peak_pct >= 75, first fires",
           registered="2026-10-28", horizon=14),
-    # Added 2026-11-07 (docs/exit_research.md §8): why S2 as the MACD state scores 2.15
+    # Added 2026-11-07 (docs/archive/exit_research.md §8): why S2 as the MACD state scores 2.15
     # against 1.50. Short-side alpha from the first close in S2's band to 14 days later.
     Check("crypto pullback, first fires, S2 band by day 13", "Is a pullback LONG whose coin then enters "
           "S2's band (hist < 0, 50 < peak_pct < 100) a good SHORT for 14 days from that close? (history, "
@@ -311,7 +311,7 @@ WATCHLIST: tuple[Check, ...] = (
           "-1.20; in the book, the flips give the state book its +0.65)", +1,
           "flip L2 longs to S2 shorts when their coin enters S2's band", registered="2026-11-07",
           metric="alpha_from_band", horizon=14),
-    # Added 2026-11-09 (docs/strategy_search.md, docs/book_experiments.md §4): the listing-age
+    # Added 2026-11-09 (docs/strategy_search.md, docs/archive/book_experiments.md §4): the listing-age
     # tilt, as three per-leg checks. Bearish alpha is short-side and bullish long-side, so a
     # better LONG on a bearish fire reads negative and a better SHORT on a bullish fire too.
     Check("crypto pullback, first fires, listed >= 2y", "Is L2 a better 14d LONG on coins listed for 2 years "

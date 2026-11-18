@@ -1,6 +1,6 @@
 # Exits for B3: what was tested, and what to change
 
-Research doc, 2026-10-27. B3 ([trading_strategy.md](trading_strategy.md)) holds every leg
+Research doc, 2026-10-27. B3 ([trading_strategy.md](../trading_strategy.md)) holds every leg
 for 14 days and exits on time only. This doc tests whether a different exit makes more
 money or loses less: per-leg holds, stops, take-profits, trailing stops, MACD events,
 the MACD state after entry, and the proposed short tail stop. Each is tested per trade
@@ -58,7 +58,7 @@ results in §1–3 did not change.
 
 ## Backtest
 
-Built as [trading_strategy.md](trading_strategy.md) §1.2: one position per coin, first
+Built as [trading_strategy.md](../trading_strategy.md) §1.2: one position per coin, first
 fires only, both sides sized to the thinner one (side gross = min(100%, 10% × names on
 the thinner side)), equal weight within a side. Costs are 0.10% a side on all turnover,
 including the daily re-equalisation of drifted weights. Funding is a flat 9% APR paid

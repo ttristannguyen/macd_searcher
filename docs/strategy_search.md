@@ -1,7 +1,7 @@
 # Strategy search: books that can do better than B3
 
 Research doc, 2026-11-09. This doc tests new methods against B3
-([profit_strategies.md](profit_strategies.md)). It follows
+([archive/profit_strategies.md](archive/profit_strategies.md)). It follows
 [research_method.md](research_method.md). All portfolio numbers come from the committed
 backtester, except where the text says "scratch".
 
@@ -114,9 +114,9 @@ With the bot's execution (limit orders, the stop from the next day):
 
 *Mechanisms.* Each rule has its mechanism and its counterfactual in an earlier doc:
 - **Close in S2's band.** L2 is a pullback in a leader. A coin in S2's band is not a
-  leader. Same-state coins go down too (exit_research.md §8).
-- **Shorts 21 days.** S1's and S2's alpha continues in days 14–21 (exit_research.md §1).
-- **Age tilt.** Young coins have a low float and scheduled unlocks (book_experiments.md
+  leader. Same-state coins go down too (archive/exit_research.md §8).
+- **Shorts 21 days.** S1's and S2's alpha continues in days 14–21 (archive/exit_research.md §1).
+- **Age tilt.** Young coins have a low float and scheduled unlocks (archive/book_experiments.md
   §3). This is a hypothesis.
 
 **The cost is a larger drawdown:** −23% against −18%.

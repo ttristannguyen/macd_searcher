@@ -2,7 +2,7 @@
 
 Research doc, 2026-10-30. This doc follows [exit_research.md](exit_research.md). It
 tests how to size, filter, and control the B3 book
-([trading_strategy.md](trading_strategy.md)) to increase gains or decrease losses. It
+([trading_strategy.md](../trading_strategy.md)) to increase gains or decrease losses. It
 does not change the four legs.
 
 **Data and method.** The data, the backtest, and the baseline are the same as in

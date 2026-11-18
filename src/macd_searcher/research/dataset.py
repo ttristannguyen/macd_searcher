@@ -330,7 +330,7 @@ def attach_funding(sig: pd.DataFrame, funding: dict[str, pd.DataFrame]) -> pd.Da
 # by bar 3"). Their outcome has to be measured from that later entry: scored from the
 # fire, the rule would be conditioning on its own first bars, which is look-ahead.
 # Bar 3 is the third daily close at or after the fire, the close of fire day + 2. That
-# matches the closed-candle history test (docs/profit_strategies.md C6a).
+# matches the closed-candle history test (docs/archive/profit_strategies.md C6a).
 LATE_BAR = 3
 
 
@@ -378,7 +378,7 @@ def attach_late_entry(sig: pd.DataFrame, snaps: pd.DataFrame, candles: dict[str,
 
 def attach_extension(sig: pd.DataFrame, snaps: pd.DataFrame, closed: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """``alpha_from_14d_21d``: what holding past the 14-day exit for one more week adds -
-    entry at the close of fire day + 14, exit at fire day + 21 (docs/exit_research.md).
+    entry at the close of fire day + 14, exit at fire day + 21 (docs/archive/exit_research.md).
     From closed candles only, like ``attach_candle_exits``."""
     return sig.assign(alpha_from_14d_21d=_late_alpha(sig, snaps, candle_closes(closed), 14, 21))
 
@@ -398,7 +398,7 @@ def _is_deep_dip(pct: float) -> bool:
 # S2's band: a dip in the upper half of the coin's own dips, below a record
 # (``book.leg_of``). The S2 state book of trading_strategy.md shorts each coin that
 # enters it. Most of that book's gain comes from the L2 longs that it flips to shorts
-# (docs/exit_research.md §8).
+# (docs/archive/exit_research.md §8).
 def in_s2_band(pct: float) -> bool:
     return 50 < pct < 100
 
@@ -447,7 +447,7 @@ def first_deep_dip(sig: pd.DataFrame, hist: dict[str, pd.Series], last: int = 13
 def attach_dip_exit(sig: pd.DataFrame, snaps: pd.DataFrame, closed: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """``deep_dip_day`` (see ``first_deep_dip``) and ``alpha_from_dip_14d``: the alpha
     from the close of that day to the 14d exit - what a long gives up by NOT exiting
-    when the coin falls into a deep dip (docs/exit_research.md). From closed candles only."""
+    when the coin falls into a deep dip (docs/archive/exit_research.md). From closed candles only."""
     dip = first_deep_dip(sig, {s: _closed_bar_hist(c) for s, c in closed.items()})
     close_of = candle_closes(closed)
     alpha = pd.Series(np.nan, index=sig.index)
@@ -459,7 +459,7 @@ def attach_dip_exit(sig: pd.DataFrame, snaps: pd.DataFrame, closed: dict[str, pd
 def attach_band_flip(sig: pd.DataFrame, snaps: pd.DataFrame, closed: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """``s2_band_day`` (``first_deep_dip`` with ``in_s2_band``) and ``alpha_from_band_14d``:
     the alpha from the close of that day to 14 days later. That is the S2 short that the
-    S2 state book makes of a long whose coin enters S2's band (docs/exit_research.md §8).
+    S2 state book makes of a long whose coin enters S2's band (docs/archive/exit_research.md §8).
     From closed candles only."""
     band = first_deep_dip(sig, {s: _closed_bar_hist(c) for s, c in closed.items()}, in_state=in_s2_band)
     close_of = candle_closes(closed)
@@ -472,7 +472,7 @@ def attach_band_flip(sig: pd.DataFrame, snaps: pd.DataFrame, closed: dict[str, p
 def attach_listing_age(sig: pd.DataFrame, first_bars: dict[str, pd.Timestamp]) -> pd.DataFrame:
     """``listed_days``: the days from the coin's first daily candle to the fire. A coin
     with no history has NaN. The history starts on 2021-01-01, so an older listing shows
-    that date (docs/book_experiments.md §3)."""
+    that date (docs/archive/book_experiments.md §3)."""
     first = pd.to_datetime(sig["symbol"].map(first_bars), utc=True)
     return sig.assign(listed_days=(sig["fired_at"] - first).dt.days)
 

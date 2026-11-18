@@ -8,6 +8,46 @@ own docs ([archive/confidence_v3_research.md](archive/confidence_v3_research.md)
 
 ---
 
+## 2026-11-18 — the B3 research docs move to the archive
+
+Three docs record finished passes. They are now in `archive/`:
+[archive/profit_strategies.md](archive/profit_strategies.md),
+[archive/exit_research.md](archive/exit_research.md) and
+[archive/book_experiments.md](archive/book_experiments.md). This entry keeps their final
+results. All values come from the committed backtester (re-anchored 2026-11-03), on fires
+and returns from 2023-02-28 to 2026-10-15. All values are in-sample.
+
+**Profit strategies (2026-10-19).**
+- Long-only signal books lost money. The equal-weight alt universe fell 71% in 2025.
+- The selection edge pays only in a market-neutral book. A hedge with BTC or the top 20
+  coins lost 26–27% a year.
+- B3 (long the good fires, short the bad fires, 14d) has Sharpe 1.50 [0.55, 2.56] and
+  max drawdown −18%. This became the B3 spec in [trading_strategy.md](trading_strategy.md).
+- BTC > SMA50 plus B3 (B4) has Sharpe 1.75 [0.71, 2.86] and max drawdown −37%. It stacks
+  two in-sample picks.
+- Costs decide the 7d books: v3 bullish at 7d has Sharpe −0.12 net.
+- These did not work: market timing from fire clusters, plain momentum, long-only with a
+  trend switch, and the failed-cross exit (C6a).
+
+**Exits (2026-10-27, 2026-11-07).**
+- Hold the shorts (S1, S2) 21 days: +0.17 [−0.09, +0.40] Sharpe, +0.09 / +0.25 by half.
+  This is now one of the three rules of the stack.
+- No exit rule improves the longs. Stops, take-profits, trailing stops, zero-cross exits
+  and opposite-fire exits do not help in both halves.
+- The short tail stop at +50% costs 0.16 Sharpe. Use +100% as insurance only.
+- The S2-band flip of L2 longs is on the watchlist (2026-11-07). The stack uses the
+  close, not the flip.
+
+**Position size, risk control and filters (2026-10-30).**
+- The listing-age tilt (1.5× on longs listed ≥2y and shorts listed <1y) gives
+  +0.17 [−0.01, +0.35], +0.16 / +0.18 by half. It is now one of the three rules of the
+  stack. Three checks are on the watchlist (2026-11-09).
+- An age filter does not work, because it removes the breadth of the book.
+- Volatility targets, equity-curve filters, inverse-volatility weights, beta-neutral
+  sides and cluster filters do not help. B3 earns most when dispersion is high.
+
+---
+
 ## 2026-11-16 — can the stack + quality sleeve do better?
 
 Question: can a change to 75% stack + 25% quality sleeve increase its Sharpe? The full
@@ -97,7 +137,7 @@ verdict. The verdicts outside B3 do not change: the record-peak warning is contr
 ### Tooling
 
 - `cache.first_bars` and `dataset.attach_listing_age` add `listed_days` to the live
-  frame. This closes the open item of book_experiments.md §4.
+  frame. This closes the open item of archive/book_experiments.md §4.
 - `backtest_tables.strategy_search` prints the tables of the stack and of the settings.
 - `scripts/quality_sleeve.py` is the walk-forward sleeve.
 
@@ -117,13 +157,13 @@ Three per-leg checks of the listing-age tilt, at 14 days:
 Questions:
 1. Does the execution of the bot (docs/trading_bot.md) keep B3's edge?
 2. What is the smallest account that trades the tested book?
-3. Does an exit that exit_research.md did not test help?
+3. Does an exit that archive/exit_research.md did not test help?
 
 **Data.** The prod snapshot was synced on 2026-11-07. Its last run is 2026-11-06 20:00
 UTC. The portfolio numbers come from the committed backtester on the frozen panel,
 2023-02-28 → 2026-10-15 (`scripts/backtest_tables.py`, `live_execution()` and
 `new_exits()`). The per-trade numbers come from scratch scripts in the backtester's
-convention. The exits are in [exit_research.md](exit_research.md) §8.
+convention. The exits are in [archive/exit_research.md](archive/exit_research.md) §8.
 
 ### Watchlist (snapshot 2026-11-06 20:00 UTC)
 
@@ -281,7 +321,7 @@ The universe pays +3.3% [+0.2, +6.1].
 - **The shorts receive less than the backtest assumes.** Net, the book received about
   2.3% a year of side gross. The backtest charges it about 2.5%.
 
-### Exits (exit_research.md §8)
+### Exits (archive/exit_research.md §8)
 
 - **No new exit helps in both halves per trade:** an exit when the edge is paid,
   take-profits and a give-back in ATR units, a rank exit, a scale-out, and same-leg
@@ -325,7 +365,7 @@ Question: does a tilt keep B3 dollar-neutral? It did not. A tilt pushed some nam
 above the 10% cap. `_weights` cut them to 10%, and the excess went to cash. Thus the
 tilted side was smaller than the other side. Now the excess moves to the other names
 of the same side. The baseline does not change, because equal weights never go above
-the cap. Only the 8 rows with a tilt change (book_experiments.md §1 and §3).
+the cap. Only the 8 rows with a tilt change (archive/book_experiments.md §1 and §3).
 
 - **The 1.5× age tilt changes little:** +0.19 [−0.01, +0.40] → +0.17 [−0.01, +0.35],
   positive in both halves (+0.16 / +0.18). Before the fix, it was net long or net
@@ -353,8 +393,8 @@ are the same? The scratch builds used different portfolio rules and did not reco
 them. `research/backtest.py` (commit `9238751`) now pins each rule. With the bar cut of
 the 2026-10-27 build, it gives that build's Sharpe 1.4215 exactly. The pinned baseline
 is **Sharpe 1.50 [0.55, 2.56], CAGR +38.5%, max drawdown −18%** (2023-02-28 →
-2026-10-15). The portfolio tables of profit_strategies.md, trading_strategy.md,
-exit_research.md and book_experiments.md come from it now.
+2026-10-15). The portfolio tables of archive/profit_strategies.md, trading_strategy.md,
+archive/exit_research.md and archive/book_experiments.md come from it now.
 
 - **The universe basket is expensive.** Its daily rebalance now pays costs. B2 goes
   from 0.92 to 0.47 (0.98 with a free rebalance). Each universe-hedged book is weaker.
@@ -449,7 +489,7 @@ is the same band before the histogram retraces 30%. These coin-days have a retra
 
 Question: can position size, book-level risk control, or a filter increase B3's gains
 or decrease its losses? The full results are in
-[book_experiments.md](book_experiments.md). The data and the baseline are the same as
+[archive/book_experiments.md](archive/book_experiments.md). The data and the baseline are the same as
 on 2026-10-27. Each variant is a paired bootstrap, split 2023–24 / 2025–26.
 
 - **A listing-age tilt is the one tangible result.** It gives 1.5× weight to longs
@@ -468,7 +508,7 @@ on 2026-10-27. Each variant is a paired bootstrap, split 2023–24 / 2025–26.
 - **Observation only:** L1 and L2 fires on a weekend decision day have about 0 alpha,
   in both halves. S1 and the non-fires do not agree, so no mechanism explains it.
 
-Not registered: the live research frame has no listing age yet. book_experiments.md §4
+Not registered: the live research frame has no listing age yet. archive/book_experiments.md §4
 gives the two checks to register after the feature exists.
 
 ---
@@ -476,7 +516,7 @@ gives the two checks to register after the feature exists.
 ## 2026-10-27 — exits for B3
 
 Question: does any exit beat B3's 14-day time exit? Full write-up in
-[exit_research.md](exit_research.md). Fires 2023-03-02 → 2026-10-08, first fire per
+[archive/exit_research.md](archive/exit_research.md). Fires 2023-03-02 → 2026-10-08, first fire per
 episode, candles to 2026-10-24. Every rule is reported on 2023–24 and 2025–26
 separately.
 
@@ -545,7 +585,7 @@ episodes any check has is 25 (ATR expanding). 7d outcomes reach fires through
 
 ### What the fire adds over the MACD state (history)
 
-Question (profit_strategies.md §6.5): is B3 an own-history momentum sort that the
+Question (archive/profit_strategies.md §6.5): is B3 an own-history momentum sort that the
 detector happens to sit on, or does the fire itself add something? To answer it I built a
 panel of every eligible coin-day, 95,928 rows from 2023-03 to 2026-10-24. The history
 CSVs were extended with the live candle cache. Each row records the MACD state the
@@ -593,7 +633,7 @@ same-side fire in the last 5 days. Everything here is in-sample.
   has already turned: a dip that is both small and over. On the deep leg it has nothing
   to add. The state already says "breakdown", and the histogram turning doesn't end it.
 
-**As portfolios.** Built as in profit_strategies.md: 14d hold, 0.10% a side, flat funding.
+**As portfolios.** Built as in archive/profit_strategies.md: 14d hold, 0.10% a side, flat funding.
 *Superseded 2026-11-03: the committed backtester gives other values (entry of that
 date).*
 
@@ -736,7 +776,7 @@ script, not committed.
 Question: should v3 bullish and bullish `peak_pct ≤ 25` trades be closed if MACD
 hasn't crossed its signal line *k* bars after entry? History rebuild, first fire per
 episode, fires 2023-03-02 → 2026-10-08, candles to 2026-10-15. Full write-up in
-[profit_strategies.md](profit_strategies.md) §C6a.
+[archive/profit_strategies.md](archive/profit_strategies.md) §C6a.
 
 - **No.** Per trade the exit costs alpha at every *k* (v3 7d, k = 3: −0.25 [−0.48,
   −0.03]; `peak_pct ≤ 25` 7d: −0.31 [−0.61, −0.06]). As a universe-hedged portfolio

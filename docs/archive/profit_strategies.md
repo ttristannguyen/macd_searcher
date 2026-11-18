@@ -1,15 +1,15 @@
 # Profit strategies: what the signal research could support, backtested as portfolios
 
 Exploratory doc, 2026-10-19. It turns the findings in
-[archive/confidence_v3_research.md](archive/confidence_v3_research.md),
-[research_log.md](research_log.md) and [archive/historical_rebuild.md](archive/historical_rebuild.md)
+[confidence_v3_research.md](confidence_v3_research.md),
+[research_log.md](../research_log.md) and [historical_rebuild.md](historical_rebuild.md)
 into tradeable strategies. Each one is backtested as a **portfolio**, with costs, funding,
 overlapping positions and a hedge you could actually hold. It does not pick a winner.
 It says which ideas have money in them, which don't, and how far to trust each one.
 
-[trading_strategy.md](trading_strategy.md) was the earlier plan, built around v2. Its
+[trading_strategy.md](../trading_strategy.md) was the earlier plan, built around v2. Its
 account simulations (+83% at 5x) ran on v2 over Jun–Oct 2026, and
-[its own audit](trading_strategy.md#appendix-the-v2-plan-and-its-audit) shows that
+[its own audit](../trading_strategy.md#appendix-the-v2-plan-and-its-audit) shows that
 return was market move, not selection. This doc re-asks "what to trade" on 3.6 years of
 history instead of 4 months. *2026-10-26:* trading_strategy.md has since been
 redesigned around B3 from this doc.
@@ -38,7 +38,7 @@ A1, A4 and the generic factors were not run again. They are not B3-type books, a
 committed backtester does not build them. Their numbers are from the scratch build of
 2026-10-19.
 
-**2026-11-09.** [strategy_search.md](strategy_search.md) tests about 100 other books.
+**2026-11-09.** [strategy_search.md](../strategy_search.md) tests about 100 other books.
 Two candidates do better than B3 in the backtester, and no candidate is confirmed. B3's
 1.50 is the best of 9 detector settings.
 
@@ -131,7 +131,7 @@ The bullets give its rules. Struck-through text is the rule of the scratch build
   closed-candle detector would. It exits at the close of fire day + N, the exit bar of
   the research pipeline's `alpha_Nd`. A delisted coin exits at its last close.
   Production enters about 20h earlier on the forming candle
-  ([research_log.md](research_log.md) 2026-10-16). Returns are daily close to close.
+  ([research_log.md](../research_log.md) 2026-10-16). Returns are daily close to close.
 - **Weights.** ~~Equal weight across open names, capped at 10% of equity per name.
   With fewer than 10 names the rest sits in cash. On average a book holds 7–37 names
   depending on the filter.~~ A long/short book (B3) sizes both sides to the thinner
@@ -146,7 +146,7 @@ The bullets give its rules. Struck-through text is the rule of the scratch build
 - **Costs.** 0.10% per unit traded per side: Hyperliquid's 0.045% taker fee plus an
   assumed 0.055% slippage. Funding is a flat 9% APR paid on longs and 6.5% APR received
   on shorts, from the live measurements (+0.176% and +0.124% a week,
-  [archive/confidence_v3_research.md](archive/confidence_v3_research.md) §8). ~~The universe hedge's own
+  [confidence_v3_research.md](confidence_v3_research.md) §8). ~~The universe hedge's own
   daily rebalancing is *not* charged, which flatters B2 slightly.~~ All turnover pays the
   cost: the trades that bring drifted weights back to target, and the basket's daily
   rebalance. Free, that rebalance would give B2 0.98 instead of 0.47.
@@ -350,7 +350,7 @@ detector carries something these simple sorts don't. **The likeliest reason (a
 hypothesis):** `peak_pct` scores each move against the coin's *own* history, while a
 return ranking compares a volatile coin's normal swing with a quiet coin's unusual
 one. An "own-history-normalised momentum" sort without the MACD would test this.
-*Tested 2026-10-25 ([research_log.md](research_log.md)):* it isn't this. Own-history
+*Tested 2026-10-25 ([research_log.md](../research_log.md)):* it isn't this. Own-history
 30d momentum is a *reversal* factor here (IC −0.045). On three of B3's four legs, the
 fire beats non-firing coins in the same MACD state by about ±1.1% at 7d, every year.
 The deep-bullish short leg is the exception: non-firing coins in that state drift down
@@ -387,7 +387,7 @@ Over this period the top 20 compounded at ~~+8.9%~~ +9.0% a year and BTC at ~~+4
 +41.2%. The equal-weight alt universe compounded at **~~−20%~~ −20.4%**. Alpha in the research is measured
 against that equal-weight universe. Hedging with the majors adds the full
 majors-minus-alts gap, about 30–60 points a year, and it swamps a 15–20% edge. That
-generalises [archive/confidence_v3_research.md](archive/confidence_v3_research.md) §7 ("hedging against
+generalises [confidence_v3_research.md](confidence_v3_research.md) §7 ("hedging against
 BTC is not the same as hedging against the class") from BTC to any large-cap basket.
 The random-20 row shows the opposite danger. Alt returns are right-skewed, so a short
 basket of 20 random alts sometimes holds the one that goes 5x. **A short leg has to be
@@ -573,7 +573,7 @@ through day 21. Holding only the shorts 21 days adds ~~+0.27~~ +0.17 Sharpe to B
 both halves of the history.
 
 **C6. Signal-specific exits.** Already tested and rejected in the v2 plan
-([trading_strategy.md](trading_strategy.md#appendix-the-v2-plan-and-its-audit)):
+([trading_strategy.md](../trading_strategy.md#appendix-the-v2-plan-and-its-audit)):
 Bollinger exits, failed-cross exits, stops.
 None adds alpha. Stops are tail control. The failed-cross exit is re-tested below on
 the good fires, over 3.6 years and as a portfolio. It still doesn't help.
@@ -666,7 +666,7 @@ moves. CAGR does fall: `peak_pct ≤ 25` at 7d goes from ~~+14.8% to +10.6%~~ +1
 or an exposure cap binds, and in these books it doesn't.
 
 **Verdict:** don't add it to the long legs. This is the same answer as the v2 plan's
-audit ([trading_strategy.md](trading_strategy.md#appendix-the-v2-plan-and-its-audit)),
+audit ([trading_strategy.md](../trading_strategy.md#appendix-the-v2-plan-and-its-audit)),
 which tested v2 over 4 months. Now it
 holds over 3.6 years, on the edges that do work, and at portfolio level. **Hypothesis,
 not tested out of sample:** the failed cross may sharpen B3's *short* leg. Among
@@ -719,7 +719,7 @@ timing from signal clusters doesn't work.
    long-minus-short spread > 0; B2's > 0; the bearish pullback as a long. That gets the
    first clean answer on whether the in-sample edge is real.
 2. **Paper-trade B3 next to C1**, following the path in
-   [trading_strategy.md](trading_strategy.md) §8. Log intended and simulated fills,
+   [trading_strategy.md](../trading_strategy.md) §8. Log intended and simulated fills,
    per-coin funding, and spreads at entry. That measures the two biggest unknowns: real
    costs, and whether forming-candle fires behave like the closed-candle backtest.
 3. **Decide on C1 separately.** BTC trend-following needs none of the signal research.
@@ -731,7 +731,7 @@ timing from signal clusters doesn't work.
    (§3).~~ Done 2026-10-25: it doesn't match B3, and the detector does real work on three
    legs. A book on the MACD state alone (long strong rallies, short deep dips, no
    detector) makes Sharpe 0.49 with a −52% drawdown
-   ([research_log.md](research_log.md); scratch build of 2026-10-25, not re-run).
+   ([research_log.md](../research_log.md); scratch build of 2026-10-25, not re-run).
 
 ## Reproduction
 

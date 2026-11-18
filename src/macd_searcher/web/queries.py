@@ -88,7 +88,7 @@ def recent_signals(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
 
 # ---------- recent fires by strategy leg ----------
 #
-# The v2 and v3 markers plus the legs of docs/profit_strategies.md B3, as live watch
+# The v2 and v3 markers plus the legs of docs/archive/profit_strategies.md B3, as live watch
 # lists. v2, v3 and the bearish low-peak leg take their thresholds from signals.py,
 # so they can't drift from the Confidence tab. The two good-fire cuts were found on
 # the 2023-26 history (exploratory), so they live here rather than in signals.py.

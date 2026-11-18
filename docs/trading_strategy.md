@@ -1,7 +1,7 @@
 # Automated trading — strategy plan
 
 Planning doc, **redesigned 2026-10-26** around the portfolio backtests in
-[profit_strategies.md](profit_strategies.md). It replaces the v2 plan, a levered
+[archive/profit_strategies.md](archive/profit_strategies.md). It replaces the v2 plan, a levered
 long-only book of v2 bullish fires. That plan's own audit showed its returns were
 market timing on two sell-offs, not selection. Its lessons are kept in the
 [appendix](#appendix-the-v2-plan-and-its-audit). **Nothing here is built.** Every
@@ -96,7 +96,7 @@ log's band table (2026-10-18) and pullback pass (2026-10-16). "Fire − state" i
   +1.31] against B3, and +1.09 / +0.26 in 2023–24 / 2025–26. The 2026-10-25 scratch
   build said "the same book". There are two causes. The short side is broader (35 names
   against 28). A state trigger also flips a long whose coin falls into a deep dip, as
-  the adverse-state exit does (exit_research.md §4). This was found on this history.
+  the adverse-state exit does (archive/exit_research.md §4). This was found on this history.
   The leg does not change before a watchlist check (§7).
 
 ### 1.2 Construction
@@ -107,7 +107,7 @@ log's band table (2026-10-18) and pullback pass (2026-10-16). "Fire − state" i
 - **Trigger: the first fire of an episode.** An episode is a run of same-direction
   fires with no gap over a day. Re-fires inside it don't extend the hold. A new episode
   on the same coin restarts the clock. The book scored higher this way in ~~both builds
-  (1.22 in profit_strategies.md, 1.29 against 1.14 in the 2026-10-25 rebuild)~~ every
+  (1.22 in archive/profit_strategies.md, 1.29 against 1.14 in the 2026-10-25 rebuild)~~ every
   build: 1.50 against 1.40 for all fires in the committed backtester. On S1
   it also follows H9: bearish re-fires are worse shorts, −1.01 every year. H9 implies
   that bearish re-fires are *better* L2 longs, but the first-fire book still scored
@@ -137,7 +137,7 @@ detector `scripts/historical_rebuild.py` uses, and the one every number here com
 from. The bot does not read the scanner's alerts.
 
 - **Fidelity.** A bot on production alerts would be a different strategy from the one
-  backtested (profit_strategies.md §5). Production repaints intraday. About 65% of its
+  backtested (archive/profit_strategies.md §5). Production repaints intraday. About 65% of its
   00:00 first fires exist only because the 00:00 run reads a seconds-old, near-flat
   bar.
 - **The forming candle's head start cancels out in a long/short book.** Forming fires
@@ -203,14 +203,14 @@ reads as "no liquidity dependence", not as a threshold to pick.
 
 - **Time only:** close at the ~~14th daily close~~ close of fire day + 14 (§1.2).
 - **Candidate: hold the shorts 21 days** (2026-10-27,
-  [exit_research.md](exit_research.md)). By day 14 the longs' alpha has stopped
+  [archive/exit_research.md](archive/exit_research.md)). By day 14 the longs' alpha has stopped
   accruing. S1 and S2 keep earning in week 3, positive every year. As a portfolio
   it adds ~~+0.27 [−0.05, +0.58]~~ +0.17 [−0.09, +0.40] Sharpe, in both 2023–24 and
   2025–26, and short holds of 21–30 days form a plateau. It was found on this history,
   so it waits for its check (§7).
 - **No path-based exit.** Stops, take-profits and trailing stops on alpha, and
   zero-cross and opposite-fire exits, were tested on all four legs. None helps in both
-  halves of the history (exit_research.md §3).
+  halves of the history (archive/exit_research.md §3).
 - **No stop on longs.** Stops cap the tail and add no alpha (C6, appendix).
 - **No failed-cross exit.** On the good fires, it sells the uncrossed trades at bar 3,
   just before they earn their alpha (C6a, 3.6 years, portfolio level).
@@ -239,7 +239,7 @@ plus:
 |---|---|---|
 | net exposure | \|long − short\| ≤ 10% of equity after each rebalance | stays neutral as names open and close |
 | per name | ≤ 10% of equity, ≤ 1% of prior-day volume | backtest construction; capacity |
-| short tail stop | a resting exchange trigger order, placed at entry, closes a short that is up e.g. +50% against it | alt returns are right-skewed: B2 hedged with 20 random alts lost ~~36%~~ 40% in 2024, because a small short basket sometimes holds the one that goes 5x. Set wide enough to catch only squeezes. *Measured 2026-10-27:* at +50% it costs ~~0.11~~ 0.16 Sharpe and doesn't cut drawdown, because squeezes partly revert. At +100% it costs ~~0.06~~ 0.08 (exit_research.md §6) |
+| short tail stop | a resting exchange trigger order, placed at entry, closes a short that is up e.g. +50% against it | alt returns are right-skewed: B2 hedged with 20 random alts lost ~~36%~~ 40% in 2024, because a small short basket sometimes holds the one that goes 5x. Set wide enough to catch only squeezes. *Measured 2026-10-27:* at +50% it costs ~~0.11~~ 0.16 Sharpe and doesn't cut drawdown, because squeezes partly revert. At +100% it costs ~~0.06~~ 0.08 (archive/exit_research.md §6) |
 | account halt | at −30% from peak: close all, cancel orders, manual restart (proposal, §10) | about ~~1.4x B3's −22%~~ 1.6x B3's −18% backtest drawdown |
 | ledger check | halt if exchange positions ≠ ledger | carried over |
 | daily alert | Telegram message on a day worse than −5% | an alert, not a block: in the v2 tests, soft halts deadlocked |
@@ -287,13 +287,13 @@ one at a time.
 | hold S1 21 days instead of 14 | S1 | `crypto bearish peak_pct <= 25, first fires`, 14d exit → 21d (10-27) | hold S1 21 days |
 | hold S2 21 days instead of 14 | S2 | `crypto bullish 50 < peak_pct < 100, first fires`, 14d exit → 21d (10-27) | hold S2 21 days |
 | exit a long whose coin enters a deep dip (hist < 0, state `peak_pct ≥ 75`) | L2 | `crypto pullback, first fires, deep dip by day 13` (10-27) | add the exit; its history gain is mostly 2023–24 |
-| 1.5× weight on longs listed ≥ 2 years and shorts listed < 1 year ([book_experiments.md](book_experiments.md) §3) | all | not registered yet: the live frame needs listing age first | add the tilt. History: ~~+0.23 [+0.03, +0.42]~~ ~~+0.19 [−0.01, +0.40]~~ +0.17 [−0.01, +0.35] Sharpe, positive in both halves |
+| 1.5× weight on longs listed ≥ 2 years and shorts listed < 1 year ([archive/book_experiments.md](archive/book_experiments.md) §3) | all | not registered yet: the live frame needs listing age first | add the tilt. History: ~~+0.23 [+0.03, +0.42]~~ ~~+0.19 [−0.01, +0.40]~~ +0.17 [−0.01, +0.35] Sharpe, positive in both halves |
 | L2 only at 75 ≤ `peak_pct` < 100 | L2 | `crypto pullback 75 <= peak_pct < 100, first fires` against the rest of the pullback, 14d (10-28) | remove the 50–75 band and record peaks from L2 |
 | no record peaks in L2 | L2 | the same band against `crypto pullback peak_pct >= 75, first fires`, 14d (10-28) | remove record peaks from L2 |
 | pullback above SMA200 | L2 | `crypto pullback above SMA200` (10-19) | relevant only with a 7d L2 hold: the trend changes how fast the pullback pays, not how much |
 | v3 on index equities | new sleeve | `v3 bullish, S&P 500 / Nasdaq-100` (10-19) | a separate equity book, backtested first |
 
-profit_strategies.md §6.1 also asked for portfolio-level checks. The paper book
+archive/profit_strategies.md §6.1 also asked for portfolio-level checks. The paper book
 provides the first one: B3's long-minus-short spread, logged from the day paper
 trading starts and never backfilled (§8.3).
 
@@ -311,8 +311,8 @@ frozen panel (`state/research_cache/backtest_panel.pkl`).
   gives that build's numbers to four decimals (Sharpe 1.4215). The docs had 1.11 to
   1.42 for the same fires. The gap came from rules that the scratch scripts did not
   record: side sizing, the last bar of a hold, the drift cost, and first fires
-  against all fires. Each rule is now a named constant (exit_research.md, "Backtest").
-- ~~The profit_strategies.md backtests were scratch scripts. Commit one, with tests,
+  against all fires. Each rule is now a named constant (archive/exit_research.md, "Backtest").
+- ~~The archive/profit_strategies.md backtests were scratch scripts. Commit one, with tests,
   that reproduces B3 on the cached history (`state/research_cache/`): Sharpe about 1.1
   on all fires, 1.2–1.3 on first fires.~~ This is the same discipline as
   [archive/historical_rebuild.md](archive/historical_rebuild.md)'s calibration. If it lands far off,
@@ -338,14 +338,14 @@ baseline:
 3. the short tail stop's level: is its alpha cost ≈ 0?
 4. thin side scaled down vs topped up with a universe basket: capital use
 5. per-leg holds: shorts at 21d, longs at 14d (~~+0.27~~ +0.17 Sharpe in-sample,
-   exit_research.md). This replaces the earlier candidate, L2 at 7d. L2's fire edge is
+   archive/exit_research.md). This replaces the earlier candidate, L2 at 7d. L2's fire edge is
    front-loaded, but as a portfolio the change is neutral (~~1.40 vs 1.42~~ 1.43 vs 1.50)
    and adds ~~14%~~ 13% turnover. It is a horizon found on this history, so it is
    adopted only if its live check agrees (§7)
 6. costs at the per-side figure paper trading measures
-7. the listing-age tilt at 1× and 1.5× (book_experiments.md §3)
+7. the listing-age tilt at 1× and 1.5× (archive/book_experiments.md §3)
 
-*2026-10-30 ([book_experiments.md](book_experiments.md) §1).* Variant 2: a 25% band cuts
+*2026-10-30 ([archive/book_experiments.md](archive/book_experiments.md) §1).* Variant 2: a 25% band cuts
 turnover by ~~17%~~ 18%, but the Sharpe change is noise (~~+0.09 [−0.23, +0.38]~~
 +0.03 [−0.28, +0.35]). Variant 4: the universe basket adds ~~+0.05 [−0.08, +0.18]~~
 +0.01 [−0.10, +0.11], positive in both halves.
@@ -356,7 +356,7 @@ turnover by ~~17%~~ 18%, but the Sharpe change is noise (~~+0.09 [−0.23, +0.38
 stop costs 0.16 at +50% and 0.08 at +100%. Variant 6: 2.04 / 1.77 / 1.50 / 0.95 at 0 /
 0.05 / 0.10 / 0.20% a side. Variant 7: the 1.5× age tilt adds ~~+0.19 [−0.01, +0.40]~~
 +0.17 [−0.01, +0.35]. *2026-11-04:* the weight above the 10% cap now stays in its side
-(book_experiments.md, "Fixed 2026-11-04").
+(archive/book_experiments.md, "Fixed 2026-11-04").
 
 Report for each: Sharpe with a 30-day block-bootstrap 95% interval, CAGR, max
 drawdown, years and half-years, turnover, average names per side, and cost and
@@ -420,14 +420,14 @@ legs are contradicted.
 
 | idea | why not | source |
 |---|---|---|
-| long-only signal books | they ride the alt index (beta ≈ 1.0) | profit_strategies.md A1 |
+| long-only signal books | they ride the alt index (beta ≈ 1.0) | archive/profit_strategies.md A1 |
 | BTC or top-20 hedge | adds the majors-minus-alts gap: ~~−19% to −27%~~ −26% to −27% a year | B2 hedge table |
 | v3 bullish at 7d, universe-hedged | costs take it from ~~0.59 gross to 0.00 net~~ 0.68 gross to −0.12 net | B1 |
 | market timing (v2, BTC downtrend, signal clusters) | no timing hypothesis survived history | H4–H6, A4, C2 |
 | stops on longs, Bollinger and failed-cross exits | no alpha; the failed-cross exit gives up unpaid edge | C6, C6a |
-| stops, take-profits and trailing stops on alpha; zero-cross and opposite-fire exits | none helps in both halves of the history; take-profits flip sign with the market | exit_research.md §3 |
-| volatility targets, equity-curve filter, inverse-volatility weights, beta-neutral sides | none helps in both halves, except 1/√volatility weights at +0.00 overall. B3 earns most when dispersion is high, and its risk is also high then | book_experiments.md §1 |
-| filters on same-day clusters, re-fires after entry, or listing age | no effect, or the filter cuts the breadth that the Sharpe needs | book_experiments.md §2, §3 |
+| stops, take-profits and trailing stops on alpha; zero-cross and opposite-fire exits | none helps in both halves of the history; take-profits flip sign with the market | archive/exit_research.md §3 |
+| volatility targets, equity-curve filter, inverse-volatility weights, beta-neutral sides | none helps in both halves, except 1/√volatility weights at +0.00 overall. B3 earns most when dispersion is high, and its risk is also high then | archive/book_experiments.md §1 |
+| filters on same-day clusters, re-fires after entry, or listing age | no effect, or the filter cuts the breadth that the Sharpe needs | archive/book_experiments.md §2, §3 |
 | sizing by sig/ATR | sig carries no selection information | archive/confidence_v3_research.md §1 |
 | SMA filter on the pullback at 14d | the gap is gone by 14d | research log 2026-10-24 |
 | ATR expansion | timing, not selection | H7 |
@@ -476,7 +476,7 @@ move and −0.36% alpha. Its picks did no better than random same-class coins bo
 the same instant. The money came from buying after crypto sell-offs that bounced,
 during two BTC-downtrend stretches. The historical rebuild then found no v2 selection
 edge (H4) and no timing rule that holds (H5, H6). That left nothing to trade in the
-v2 plan, and led to profit_strategies.md and this redesign.
+v2 plan, and led to archive/profit_strategies.md and this redesign.
 
 The plan's two candidate filters are still tracked on the watchlist. **§3G** was a
 regime switch: trade only while BTC's own MACD signal line is below zero. **§3H** was

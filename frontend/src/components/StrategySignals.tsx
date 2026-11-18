@@ -3,7 +3,7 @@ import { ASSET_CLASS_COLOR, fmtPct, fmtPrice, relativeTime } from '../lib/format
 import { Badge, Card, StateMsg } from './ui'
 
 // The side you'd TAKE, which is not always the fire's direction: the bearish
-// pullback is a bearish fire held long (docs/profit_strategies.md).
+// pullback is a bearish fire held long (docs/archive/profit_strategies.md).
 export type Side = 'long' | 'short'
 
 /** One strategy leg's recent fires, one row per symbol (its latest fire). */

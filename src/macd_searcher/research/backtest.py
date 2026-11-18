@@ -57,7 +57,7 @@ EPISODE_GAP_DAYS = 1
 MAX_WEIGHT = 0.10
 
 # 0.10% of each unit traded: Hyperliquid's 0.045% taker fee plus 0.055% of assumed
-# slippage (docs/profit_strategies.md). It applies to all turnover. That includes the
+# slippage (docs/archive/profit_strategies.md). It applies to all turnover. That includes the
 # trades that bring drifted weights back to target, and the universe basket.
 COST_PER_SIDE = 0.001
 
@@ -93,11 +93,11 @@ PANEL_FILE = "backtest_panel.pkl"
 # The stack (docs/strategy_search.md) is B3 with three changes. Each one is positive in
 # both halves of the history. The stack is positive on all 9 detector settings tried.
 # * A long closes when its coin enters S2's band (``in_s2_band``). L2 is a pullback in a
-#   leader, and a coin in S2's band is not a leader (docs/exit_research.md §8).
+#   leader, and a coin in S2's band is not a leader (docs/archive/exit_research.md §8).
 # * The shorts stay open for 21 days. Their alpha continues in days 14-21
-#   (docs/exit_research.md §1).
+#   (docs/archive/exit_research.md §1).
 # * The age tilt (``age_tilt``): more weight on old longs and on young shorts. Young
-#   coins have a low float and scheduled unlocks (docs/book_experiments.md §3).
+#   coins have a low float and scheduled unlocks (docs/archive/book_experiments.md §3).
 STACK_HOLDS = {"S1": 21, "S2": 21}
 AGE_TILT = 1.5
 OLD_LISTING_DAYS = 730

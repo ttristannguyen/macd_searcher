@@ -8,6 +8,62 @@ own docs ([archive/confidence_v3_research.md](archive/confidence_v3_research.md)
 
 ---
 
+## 2026-11-16 — can the stack + quality sleeve do better?
+
+Question: can a change to 75% stack + 25% quality sleeve increase its Sharpe? The full
+write-up is in [strategy_search.md](strategy_search.md) §8. Before each batch of tests,
+we recorded each hypothesis, its direction and its mechanism. The window is 2024-01-01 →
+2026-10-15 (the walk-forward sleeve), with the halves 2024 / 2025–26.
+
+**Watchlist (snapshot of 2026-11-16 00:00 UTC).** No B3 leg check has 30 episodes. The
+v3 bearish leg (S1) is confirmed at 7d: +3.55 [+1.53, +5.89], 34 ep. The 21-day, band
+and listing-age checks have no outcome yet. Their first outcomes come from 11-17 to
+11-23.
+
+- **No change improves the blend.** 17 variants fail. These include blend weights, a
+  sleeve-score tilt on the stack, a beta-adjusted label, maker orders, sleeves with no
+  model, funding filters, a funding feature and a funding-carry sleeve.
+- **The gain of the sleeve is robust.** It adds +0.43 to +0.49 to the stack of each of
+  the 9 detector settings, in both halves on 9 of 9. 20 placebo sleeves add −0.12 on
+  average (max +0.15). With the bot's execution, the gain is +0.48 [+0.18, +0.82]. The
+  sleeve's beta is −0.01.
+- **Real funding (2023-12 → 2026-10, 99% of the gross):** the blend has Sharpe 2.85, and
+  +0.37 [+0.06, +0.70] against the stack (+0.38 / +0.41). The sleeve alone falls from
+  1.44 to 1.14, and to 0.88 in 2025–26. Its funding cost was +0.1%, +12.9% and +19.9% a
+  year in 2024, 2025 and 2026. *Mechanism:* the sleeve shorts young, volatile coins. In
+  2025–26, longs on those coins received 37.8% a year, so the shorts paid.
+- **Funding is a fair price.** A carry sleeve receives 22.8% a year of funding and loses
+  more on price (Sharpe −1.20 on price only). Thus a funding filter removes shorts that
+  earn their cost.
+- **The quality signs are stable.** In 2023, the raw label gave the opposite sign for
+  each risk feature (high beta won, IC +0.14, t 3.0). With beta out of the label, 2023
+  has the quality signs too. The 2023 reversal was the alt rally in the label.
+- **A yearly retrain is enough** (blend −0.01 [−0.20, +0.20]). The sleeve alone moves
+  from 1.23 to 1.86 with the retrain schedule, and the blend stays at 2.68–2.92.
+- **The blend is not dollar-neutral.** The beta basket keeps it net long by 4.5% on
+  average. On 3.6% of days the bot's ±10% planned-net rule sends only the closes. That
+  costs up to −0.14 at $50,000.
+
+### Tooling
+
+- `backtest.account` takes `funding`, a day × coin matrix of real daily funding. A NaN
+  cell uses the flat rate. `backtest.load_funding` reads it from `funding_history/` and
+  `funding/`. Two tests pin both.
+- `scripts/fetch_funding_history.py` fetches the hourly funding of each coin from
+  2023-12-01 to 2026-05-15 (about 2.5 hours, once).
+- `scripts/quality_sleeve.py` has `--settings` (the sleeve on the 9 settings) and
+  `--funding` (each book with real funding). `--placebo` also gives the blend's gain.
+
+### Registered this pass
+
+Nothing. Each per-trade effect of this pass is also in the same-state non-fires:
+- Stack trades against the sleeve's score: −0.84 for fires, −1.36 for non-fires.
+- Crowded S2 shorts net of funding: −1.97 for fires, −1.63 for non-fires.
+
+Thus the detector does not know these effects (research_method.md rule 4).
+
+---
+
 ## 2026-11-09 — a search for books that do better than B3
 
 Question: does another method or strategy do better than B3? The full write-up is in

@@ -334,6 +334,28 @@ def test_funding_is_flat_paid_on_longs_and_received_on_shorts():
     assert out["net"][0] == pytest.approx(-funding - 1.0 * bt.COST_PER_SIDE)
 
 
+def test_real_funding_replaces_the_flat_rate_where_it_is_known():
+    weights = np.array([[0.5, -0.5]])
+    out = account(weights, np.zeros((1, 2)), funding=np.array([[0.002, np.nan]]))
+    assert out["funding"][0] == pytest.approx(0.5 * 0.002 - 0.5 * bt.FUNDING_SHORT_APR / 365)
+    # a short receives what a long pays, so negative funding is a cost to a short
+    out = account(np.array([[0.0, -0.5]]), np.zeros((1, 2)), funding=np.array([[0.0, -0.004]]))
+    assert out["funding"][0] == pytest.approx(0.002)
+
+
+def test_load_funding_sums_the_hours_of_each_utc_day_and_skips_a_short_day(tmp_path):
+    panel = _panel(tmp_path, {"A": [100.0] * 4})
+    day0, day1 = panel.days[0], panel.days[1]
+    hours = ([f"{day0} {h:02d}:00:00.071+00:00" for h in range(24)]
+             + [f"{day1} {h:02d}:00:00.010+00:00" for h in range(bt.MIN_FUNDING_HOURS - 1)])
+    path = tmp_path / "cache" / "funding_history" / "A.csv"
+    path.parent.mkdir(parents=True)
+    pd.DataFrame({"ts": hours, "funding": 1e-5}).to_csv(path, index=False)
+    funding = bt.load_funding(panel, tmp_path / "cache")
+    assert funding[0, 0] == pytest.approx(24e-5)
+    assert np.isnan(funding[1, 0])
+
+
 def test_a_drift_band_keeps_weights_inside_the_band():
     weights = np.array([[0.1, -0.1], [0.1, -0.1]])
     ret = np.array([[0.10, 0.0], [0.0, 0.0]])

@@ -278,12 +278,16 @@ class Run:
 
 def account(weights: np.ndarray, ret: np.ndarray, *, cost: float = COST_PER_SIDE, band: float = 0.0,
             equity: float | None = None, fills: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
-            cross: bool = False) -> dict[str, np.ndarray]:
+            cross: bool = False, funding: np.ndarray | None = None) -> dict[str, np.ndarray]:
     """Daily returns of a book that trades to ``weights`` at each close.
 
     Weights drift with prices between rebalances. Each trade from the drifted weight to
     the target pays ``cost`` per side. With a ``band`` > 0, the book keeps a drifted
     weight that is within ``band`` x |target| of the target (§8.2 variant 2).
+
+    The funding is flat by default. ``funding`` (``load_funding``) gives the real daily
+    rate that a long pays on each coin, and a NaN cell uses the flat rate. The flat rate
+    was good for B3 and bad for the quality sleeve (docs/strategy_search.md §8).
 
     The live bot's rules are off by default (b3_trader, docs/trading_bot.md):
 
@@ -327,10 +331,13 @@ def account(weights: np.ndarray, ret: np.ndarray, *, cost: float = COST_PER_SIDE
         delta = np.abs(w - held)
         turnover = float(delta.sum())
         fee = cost * turnover if fills is None else cost * delta[taker].sum() + MAKER_COST * delta[~taker].sum()
-        funding = (w[w > 0].sum() * FUNDING_LONG_APR + w[w < 0].sum() * FUNDING_SHORT_APR) / 365
+        rate = np.where(w > 0, FUNDING_LONG_APR, FUNDING_SHORT_APR) / 365
+        if funding is not None:
+            rate = np.where(np.isnan(funding[t]), rate, funding[t])
+        paid = float(w @ rate)
         out["gross"][t], out["turnover"][t] = gross, turnover
-        out["cost"][t], out["funding"][t] = fee, funding
-        out["net"][t] = gross - fee - funding
+        out["cost"][t], out["funding"][t] = fee, paid
+        out["net"][t] = gross - fee - paid
         held = w * (1 + r) / (1 + gross)
     out["weights"] = traded
     return out
@@ -570,6 +577,33 @@ def with_low(panel: Panel, root: Path) -> Panel:
     if not np.allclose(close[known], frozen[known], rtol=1e-9):
         raise ValueError(f"the bars in {root} are not the bars of the frozen panel")
     return replace(panel, low=wide["low"].reindex(index=window, columns=panel.symbols).to_numpy())
+
+
+# A day needs most of its hourly rates. Hyperliquid sometimes skips one hour.
+MIN_FUNDING_HOURS = 20
+
+
+def load_funding(panel: Panel, root: Path) -> np.ndarray:
+    """The real daily funding rate that a long pays, day x coin: the sum of the hourly
+    rates in the UTC day of each bar. A short receives it.
+
+    The rates come from ``funding_history/`` (scripts/fetch_funding_history.py, from
+    2023-12) and from ``funding/`` (the live cache, from 2026-05-15). A day with fewer
+    than MIN_FUNDING_HOURS rates is NaN, and ``account`` uses the flat rate there."""
+    days = pd.DatetimeIndex([pd.Timestamp(d) for d in panel.days])
+    out = np.full((len(panel.days), len(panel.symbols)), np.nan)
+    for j, symbol in enumerate(panel.symbols):
+        parts = [pd.read_csv(p, usecols=["ts", "funding"])
+                 for p in (root / kind / f"{symbol.replace(':', '__')}.csv" for kind in ("funding_history", "funding"))
+                 if p.exists()]
+        if not parts:
+            continue
+        rates = pd.concat(parts)
+        hour = pd.to_datetime(rates["ts"], utc=True, format="ISO8601").dt.floor("h")
+        rates = rates.assign(hour=hour).drop_duplicates("hour").set_index("hour")["funding"]
+        daily = rates.groupby(rates.index.tz_convert(None).normalize()).agg(["sum", "count"])
+        out[:, j] = daily["sum"].where(daily["count"] >= MIN_FUNDING_HOURS).reindex(days).to_numpy()
+    return out
 
 
 # ---------------------------------------------------------------- report

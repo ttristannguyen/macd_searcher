@@ -2,6 +2,8 @@
 
     uv run --with scikit-learn python scripts/quality_sleeve.py
     uv run --with scikit-learn python scripts/quality_sleeve.py --placebo 30
+    uv run --with scikit-learn python scripts/quality_sleeve.py --settings
+    uv run --with scikit-learn python scripts/quality_sleeve.py --funding
 
 The model is a research tool, so scikit-learn is not a project dependency. The book
 goes through ``backtest.account``. The script uses the helpers of ``backtest_tables.py``.
@@ -18,6 +20,7 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import date
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -134,6 +137,9 @@ def report(name: str, r: np.ndarray, base: np.ndarray) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--placebo", type=int, default=0, help="the number of runs with permuted labels")
+    ap.add_argument("--settings", action="store_true", help="also put the sleeve on the stack of each detector setting")
+    ap.add_argument("--funding", action="store_true", help="also score the books with real funding "
+                    "(needs scripts/fetch_funding_history.py)")
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")         # the tables use → and –
     x, excess = features(), forward_excess()
@@ -150,18 +156,70 @@ def main() -> None:
                     ("75% stack + 25% sleeve", net(0.75 * stack + 0.25 * sleeve))):
         print(report(name, r, b3))
 
-    results = []
+    if args.settings:
+        print_settings(sleeve)
+    if args.funding:
+        print_funding(sleeve, stack)
+
+    # A placebo sleeve can also help the blend by its correlation alone. Thus the
+    # placebo also gives the blend's gain over the stack (strategy_search.md §8.1).
+    alone, gain = [], []
+    stack_sharpe = bt.sharpe(net(stack)[FIRST_TEST:])
     for seed in range(args.placebo):
         rng, shuffled = np.random.default_rng(seed), labels.copy()
         for t in range(N_DAYS):
             ok = ~np.isnan(shuffled[t])
             shuffled[t, ok] = rng.permutation(shuffled[t, ok])
-        results.append(bt.sharpe(net(book(walk_forward(x, shuffled)))[FIRST_TEST:]))
-    if results:
-        a = np.array(results)
+        placebo = book(walk_forward(x, shuffled))
+        alone.append(bt.sharpe(net(placebo)[FIRST_TEST:]))
+        gain.append(bt.sharpe(net(0.75 * stack + 0.25 * placebo)[FIRST_TEST:]) - stack_sharpe)
+    if alone:
+        a, g = np.array(alone), np.array(gain)
         real = bt.sharpe(net(sleeve)[FIRST_TEST:])
+        real_gain = bt.sharpe(net(0.75 * stack + 0.25 * sleeve)[FIRST_TEST:]) - stack_sharpe
         print(f"\nplacebo, {len(a)} runs: mean {a.mean():+.2f}, sd {a.std():.2f}, max {a.max():+.2f}; "
               f"share at or above the real {real:.2f}: {(a >= real).mean():.3f}")
+        print(f"blend gain over the stack: placebo mean {g.mean():+.2f}, max {g.max():+.2f}; "
+              f"share at or above the real {real_gain:+.2f}: {(g >= real_gain).mean():.3f}")
+
+
+def print_funding(sleeve: np.ndarray, stack: np.ndarray) -> None:
+    """Each book with the flat funding and with the real funding (strategy_search.md
+    §8.2). The flat rate pays each short the same. The sleeve shorts crowded coins, and
+    a short on a coin with negative funding pays."""
+    funding = bt.load_funding(P, Path("state/research_cache"))
+    year = np.array([d.year for d in DAYS])
+    print("\n| book | Sharpe, flat funding | Sharpe, real funding | 2024 | 2025–26 | real funding a year: 2024 / 2025 / 2026 |")
+    print("|---|---|---|---|---|---|")
+    real = {}
+    for name, w in (("B3", T.BASE.weights), ("the quality sleeve alone", sleeve), ("the stack", stack),
+                    ("75% stack + 25% sleeve", 0.75 * stack + 0.25 * sleeve)):
+        a = bt.account(np.where(LISTED, w, 0.0), P.ret, funding=funding)
+        real[name] = r = a["net"]
+        paid = " / ".join(f"{a['funding'][year == y].mean() * 365:+.1%}" for y in (2024, 2025, 2026))
+        print(f"| {name} | {bt.sharpe(net(w)[FIRST_TEST:]):.2f} | {bt.sharpe(r[FIRST_TEST:]):.2f} "
+              f"| {bt.sharpe(r[FIRST_TEST:T.SPLIT]):.2f} | {bt.sharpe(r[T.SPLIT:]):.2f} | {paid} |")
+    base, blend = real["the stack"], real["75% stack + 25% sleeve"]
+    d, lo, hi = bt.sharpe_diff_ci(base[FIRST_TEST:], blend[FIRST_TEST:])
+    halves = [bt.sharpe(blend[s]) - bt.sharpe(base[s]) for s in (slice(FIRST_TEST, T.SPLIT), slice(T.SPLIT, None))]
+    print(f"\nreal funding, blend gain over the stack: {d:+.2f} [{lo:+.2f}, {hi:+.2f}], "
+          f"2024 {halves[0]:+.2f}, 2025–26 {halves[1]:+.2f}")
+
+
+def print_settings(sleeve: np.ndarray) -> None:
+    """The sleeve on the stack of each detector setting. The sleeve does not read the
+    detector, so its gain must not depend on the setting (strategy_search.md §8.1)."""
+    print("\n| fast / slow / signal / reduction | the stack | 75% stack + 25% sleeve | Δ [95%] | Δ 2024 | Δ 2025–26 |")
+    print("|---|---|---|---|---|---|")
+    for setting in ((12, 26, 9, 0.3),) + T.NEIGHBOURS:
+        panel = P if setting == (12, 26, 9, 0.3) else T.neighbour_panel(*setting)
+        stack = bt.simulate(panel, bt.book_fires(panel), exit_rule=T.band_exit(panel), holds=bt.STACK_HOLDS,
+                            tilt=bt.age_tilt(P.first_bar)).weights
+        base, blend = net(stack), net(0.75 * stack + 0.25 * sleeve)
+        d, lo, hi = bt.sharpe_diff_ci(base[FIRST_TEST:], blend[FIRST_TEST:])
+        halves = [bt.sharpe(blend[s]) - bt.sharpe(base[s]) for s in (slice(FIRST_TEST, T.SPLIT), slice(T.SPLIT, None))]
+        print(f"| {' / '.join(map(str, setting))} | {bt.sharpe(base[FIRST_TEST:]):.2f} | {bt.sharpe(blend[FIRST_TEST:]):.2f} "
+              f"| {d:+.2f} [{lo:+.2f}, {hi:+.2f}] | {halves[0]:+.2f} | {halves[1]:+.2f} |")
 
 
 if __name__ == "__main__":

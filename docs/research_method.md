@@ -23,6 +23,7 @@ uv run python -m macd_searcher.research.backtest             # the baseline
 uv run python -m macd_searcher.research.backtest --rebuild   # rebuild the frozen panel first
 uv run python scripts/backtest_tables.py > tables.md         # the portfolio tables of the docs
 uv run --with scikit-learn python scripts/quality_sleeve.py  # the walk-forward sleeve of strategy_search.md
+uv run python scripts/fetch_funding_history.py               # once: real funding from 2023-12 (`--funding`)
 ```
 
 Reads `state/prod_snapshot.sqlite3` (synced daily by `scripts/sync_prod_db.ps1`)

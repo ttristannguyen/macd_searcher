@@ -4,7 +4,7 @@ The conventions for any analysis of signal outcomes, and the pipeline that
 implements them. Every rule below exists because breaking it produced a wrong
 conclusion at least once; the "why" is the mistake it prevents. Each pass is logged
 in [research_log.md](research_log.md); topic deep-dives live in their own docs
-(currently [confidence_v3_research.md](confidence_v3_research.md)). This doc is only
+(currently [archive/confidence_v3_research.md](archive/confidence_v3_research.md)). This doc is only
 the method.
 
 ## Running it
@@ -73,7 +73,7 @@ snapshot, entered at that run's `live_close` and exited on the same daily bar as
 `px_Nd`. A random pick scores exactly zero. *Why:* returns are right-skewed, so a
 **median** benchmark hands every selection about +1.1% of free "alpha" at 7d — a
 random one included. A first draft of
-[direction_asymmetry_analysis.md](direction_asymmetry_analysis.md) reported a
+[archive/direction_asymmetry_analysis.md](archive/direction_asymmetry_analysis.md) reported a
 split-half-robust edge that was entirely this bias.
 
 **2. Take exit prices from candles, not snapshots.** *Why:* a snapshot only exists

@@ -84,7 +84,7 @@ export function Confidence() {
           The rule is measurement-only: it marks alerts, it does not suppress them. Its
           thresholds live in <code className="text-slate-500">signals.py</code> and are
           derived rather than stored, so changing one re-labels all history here — see
-          docs/confidence_v2.md, and docs/confidence_v3.md for the shadow rule.
+          docs/archive/confidence_v2.md, and docs/archive/confidence_v3.md for the shadow rule.
         </p>
       </div>
     </ClassesContext.Provider>

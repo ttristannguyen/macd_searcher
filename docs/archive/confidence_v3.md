@@ -2,7 +2,7 @@
 
 Working doc + plan + progress tracker. Evidence lives in
 [confidence_v3_research.md](confidence_v3_research.md); method in
-[research_method.md](research_method.md). This doc is what we build, and why the
+[research_method.md](../research_method.md). This doc is what we build, and why the
 rule should work.
 
 ## The rule

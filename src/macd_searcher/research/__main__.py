@@ -1,7 +1,7 @@
 """Periodic research report: ``uv run python -m macd_searcher.research --help``.
 
 Prints markdown to stdout (or ``--out``), so a run can be pasted into, or diffed
-against, docs/confidence_v3_research.md. Progress goes to stderr.
+against, docs/archive/confidence_v3_research.md. Progress goes to stderr.
 """
 
 from __future__ import annotations

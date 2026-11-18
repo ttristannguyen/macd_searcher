@@ -352,7 +352,7 @@ async def test_send_signals_missing_credentials_prints_warning_and_text():
 
 def test_format_message_has_no_record_trough_warning():
     """The record-trough warning was removed after it failed to replicate in history
-    (docs/historical_rebuild.md, H2). A record trough is in no B3 leg, so it isn't shown."""
+    (docs/archive/historical_rebuild.md, H2). A record trough is in no B3 leg, so it isn't shown."""
     s = _mk_signal("REC", "histogram_flattening", "bullish", close=100.0, macd=-1.0, hist=-0.2,
                    atr=2.0, reduction_from_peak=0.4, hist_peak_pct=100.0, hist_top_n=6)
     text = format_message([s], 1, AppConfig())

@@ -724,7 +724,7 @@ def confidence_sensitivity(
 #
 # The panels above report raw EV, and raw EV is market move + alpha. Nothing here
 # predicts the market move: v1 was retired and v2 adopted on market direction, not
-# selection (docs/confidence_v3_research.md). This panel splits the two, so a rule is
+# selection (docs/archive/confidence_v3_research.md). This panel splits the two, so a rule is
 # judged on the part it can actually control.
 #
 # Benchmark: the MEAN forward return of every same-class symbol in the signal's own
@@ -872,7 +872,7 @@ def confidence_compare(
 # Direction of the effect is the OPPOSITE of what we assumed going in: a LOW
 # percentile (a modest peak by this token's standards) outperforms. Fading a monster
 # move fails — the momentum resumes; fading a tired one works. Bearish only so far.
-# See docs/hist_peak_context.md for the measurement and its caveats.
+# See docs/archive/hist_peak_context.md for the measurement and its caveats.
 _PEAK_PCT_BUCKET_SQL = (
     "CASE WHEN fire_hist_peak_pct < 20 THEN 'a <20' "
     "WHEN fire_hist_peak_pct < 40 THEN 'b 20-40' "

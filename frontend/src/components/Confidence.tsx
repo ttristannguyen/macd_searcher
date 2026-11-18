@@ -7,8 +7,8 @@
 // everything.
 //
 // The rule and its thresholds live in src/macd_searcher/signals.py; the measurement
-// behind them is in docs/confidence_v2.md. (v1 was a bearish peak-context rule; it
-// decayed to +0.07% EV and was retired — docs/confidence.md keeps that record.)
+// behind them is in docs/archive/confidence_v2.md. (v1 was a bearish peak-context rule; it
+// decayed to +0.07% EV and was retired — docs/archive/confidence.md keeps that record.)
 
 import { Fragment } from 'react'
 import {
@@ -101,9 +101,9 @@ function PairedStat({
 //
 // The other panels judge a rule on raw EV, which is market move + alpha. Nothing
 // here predicts the market move — v1 was retired and v2 adopted on market direction
-// (docs/confidence_v3_research.md) — so this panel puts alpha, the part a rule's
+// (docs/archive/confidence_v3_research.md) — so this panel puts alpha, the part a rule's
 // choice of asset controls, next to the raw number. v3 is shadow-only until the
-// research watchlist confirms it (docs/confidence_v3.md).
+// research watchlist confirms it (docs/archive/confidence_v3.md).
 
 const RULE_LABELS: Record<string, { name: string; note: string }> = {
   v2: { name: 'v2 · live', note: 'bullish, sig/ATR < −0.5, reduction < 0.6 — bolded in Telegram' },

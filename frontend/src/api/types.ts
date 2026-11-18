@@ -288,7 +288,7 @@ export interface PerfConfidenceSensitivity {
 
 // One row per (horizon, direction, peak-vs-own-history percentile band). Low
 // percentile = a modest peak by this token's standards — which is the side that
-// performs, opposite to the original assumption. See docs/hist_peak_context.md.
+// performs, opposite to the original assumption. See docs/archive/hist_peak_context.md.
 export interface PerfPeakBucket {
   horizon: string
   direction: string

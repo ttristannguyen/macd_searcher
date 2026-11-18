@@ -22,7 +22,7 @@ from ..signals import (
     RECORD_PEAK_PCT,
 )
 
-# v1, retired 2026-09 (see docs/confidence_v2.md for its thresholds' provenance).
+# v1, retired 2026-09 (see docs/archive/confidence_v2.md for its thresholds' provenance).
 V1_MAX_REDUCTION, V1_MAX_PEAK_PCT, V1_MIN_TOP_N = 0.6, 40, 3
 
 
@@ -187,7 +187,7 @@ class Check:
     metric: str = "alpha"
     versus: str | None = None
     # "discovery": the live data must confirm it (whole interval on the expected side).
-    # "monitor": already confirmed elsewhere (docs/historical_rebuild.md), so live data
+    # "monitor": already confirmed elsewhere (docs/archive/historical_rebuild.md), so live data
     # only has to not contradict it — it acts once it has enough episodes.
     role: str = "discovery"
     # Days held. None = the report's --horizon (7 by default). Set it when the
@@ -271,7 +271,7 @@ WATCHLIST: tuple[Check, ...] = (
           "220 ep; post hoc from a 2x2 cut, no mechanism)", +1,
           "find the mechanism, then drop early-recovery coins from B3's short leg",
           versus="bullish 50 < peak_pct < 100", registered="2026-10-24", horizon=14),
-    # Added 2026-10-25 (docs/research_log.md): confidence_v3_research.md section 8's
+    # Added 2026-10-25 (docs/research_log.md): docs/archive/confidence_v3_research.md section 8's
     # out-of-sample funding effect, now with a fixed cut. Non-firing coins show no such effect.
     Check("bullish, 7d funding >= 15% APR", "Do bullish fires on coins whose longs paid >= 15% APR over the "
           "prior week underperform the rest of bullish fires? (live, rule - rest: Jun-Sep -1.60 [-3.89, +0.27], "

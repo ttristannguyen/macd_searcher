@@ -81,7 +81,7 @@ def signal_line_atr_multiple(s: Signal) -> float | None:
 #
 # Measured on 5,818 scored signals (2026-06-06 -> 09-18, prod_snapshot). Constants,
 # not config knobs: they're empirical findings, so changing one should follow a
-# re-measurement rather than a preference. See docs/confidence_v2.md.
+# re-measurement rather than a preference. See docs/archive/confidence_v2.md.
 #
 # The rule marks 8.7% of signals: 62.7% win / +3.86% EV at 7d against 47.8% / -1.17%
 # for everything else, and an MFE/MAE ratio of 2.05 against 0.80. It is positive in
@@ -132,17 +132,17 @@ def is_high_confidence(s: Signal) -> bool:
 
 # ---------- confidence v3 — SHADOW, not yet the live marker ----------
 #
-# Measured 2026-10-14 (docs/confidence_v3_research.md, plan in docs/confidence_v3.md).
+# Measured 2026-10-14 (docs/archive/confidence_v3_research.md, plan in docs/archive/confidence_v3.md).
 # Against a same-run, same-class benchmark, v2's in-sample edge was market move, not
 # selection (alpha -0.56%), and sig/ATR carries no selection information. peak_pct is
 # the one feature that survives episode-level and out-of-sample checks.
 #
 # These are shown on the Confidence tab beside v2 and do NOT bold Telegram rows until
-# the research watchlist confirms them out of sample (docs/confidence_v3.md, Phase 4).
+# the research watchlist confirms them out of sample (docs/archive/confidence_v3.md, Phase 4).
 #
 # WHY peak_pct: a modest trough — small by the token's own standards — is the token's
 # normal rhythm and mean-reverts against its peers. The historical rebuild
-# (docs/historical_rebuild.md, 2023 -> 2026-06) confirmed v3 at +0.58% 7d alpha in
+# (docs/archive/historical_rebuild.md, 2023 -> 2026-06) confirmed v3 at +0.58% 7d alpha in
 # every year, with the effect concentrated in the lowest quarter (peak_pct <= 25:
 # +1.51%). The opposite end did NOT replicate: record troughs were -3% to -4% in the
 # 2026 live cycle but +0.01% across history, so they carry no warning.
@@ -166,7 +166,7 @@ def is_record_peak(s: Signal) -> bool:
 
     Tracked as a cohort on the Confidence tab and the research watchlist, not shown
     as a warning: its strong underperformance in the 2026 live cycle did not
-    replicate across 2023-2026 history (docs/historical_rebuild.md, H2)."""
+    replicate across 2023-2026 history (docs/archive/historical_rebuild.md, H2)."""
     return s.direction == "bullish" and s.hist_peak_pct is not None and s.hist_peak_pct >= RECORD_PEAK_PCT
 
 

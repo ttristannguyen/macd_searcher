@@ -414,7 +414,7 @@ export function RsiAnalysis() {
 // monster move fails — the momentum resumes; fading a tired one works.
 //
 // Bearish only, so far: it held in both regime halves at +1.6-2.1% EV, while bullish
-// was significant in one half and reversed in the other. See docs/hist_peak_context.md.
+// was significant in one half and reversed in the other. See docs/archive/hist_peak_context.md.
 
 const PEAK_BUCKETS = ['a <20', 'b 20-40', 'c 40-60', 'd 60-80', 'e 80-100'] as const
 // Teal ramp — distinct from RSI violet and signal-line amber. Light = low

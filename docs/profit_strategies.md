@@ -1,8 +1,8 @@
 # Profit strategies: what the signal research could support, backtested as portfolios
 
 Exploratory doc, 2026-10-19. It turns the findings in
-[confidence_v3_research.md](confidence_v3_research.md),
-[research_log.md](research_log.md) and [historical_rebuild.md](historical_rebuild.md)
+[archive/confidence_v3_research.md](archive/confidence_v3_research.md),
+[research_log.md](research_log.md) and [archive/historical_rebuild.md](archive/historical_rebuild.md)
 into tradeable strategies. Each one is backtested as a **portfolio**, with costs, funding,
 overlapping positions and a hedge you could actually hold. It does not pick a winner.
 It says which ideas have money in them, which don't, and how far to trust each one.
@@ -146,7 +146,7 @@ The bullets give its rules. Struck-through text is the rule of the scratch build
 - **Costs.** 0.10% per unit traded per side: Hyperliquid's 0.045% taker fee plus an
   assumed 0.055% slippage. Funding is a flat 9% APR paid on longs and 6.5% APR received
   on shorts, from the live measurements (+0.176% and +0.124% a week,
-  [confidence_v3_research.md](confidence_v3_research.md) §8). ~~The universe hedge's own
+  [archive/confidence_v3_research.md](archive/confidence_v3_research.md) §8). ~~The universe hedge's own
   daily rebalancing is *not* charged, which flatters B2 slightly.~~ All turnover pays the
   cost: the trades that bring drifted weights back to target, and the basket's daily
   rebalance. Free, that rebalance would give B2 0.98 instead of 0.47.
@@ -387,7 +387,7 @@ Over this period the top 20 compounded at ~~+8.9%~~ +9.0% a year and BTC at ~~+4
 +41.2%. The equal-weight alt universe compounded at **~~−20%~~ −20.4%**. Alpha in the research is measured
 against that equal-weight universe. Hedging with the majors adds the full
 majors-minus-alts gap, about 30–60 points a year, and it swamps a 15–20% edge. That
-generalises [confidence_v3_research.md](confidence_v3_research.md) §7 ("hedging against
+generalises [archive/confidence_v3_research.md](archive/confidence_v3_research.md) §7 ("hedging against
 BTC is not the same as hedging against the class") from BTC to any large-cap basket.
 The random-20 row shows the opposite danger. Alt returns are right-skewed, so a short
 basket of 20 random alts sometimes holds the one that goes 5x. **A short leg has to be

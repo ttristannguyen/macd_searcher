@@ -3,8 +3,8 @@
 One dated entry per periodic pass of [research_method.md](research_method.md), newest
 first. Each entry records what the pass learned about the dataset, what it changed
 in the tooling, and what it registered on the watchlist. Topic deep-dives keep their
-own docs ([confidence_v3_research.md](confidence_v3_research.md),
-[confidence_v3.md](confidence_v3.md)); this is the running record.
+own docs ([archive/confidence_v3_research.md](archive/confidence_v3_research.md),
+[archive/confidence_v3.md](archive/confidence_v3.md)); this is the running record.
 
 ---
 
@@ -554,7 +554,7 @@ date).*
   still earns its place: dropping it halves the Sharpe.
 
 **A mechanism test that failed.** If deep dips underperform because they are
-coin-specific collapses ([confidence_v3.md](confidence_v3.md)), the effect should fade
+coin-specific collapses ([archive/confidence_v3.md](archive/confidence_v3.md)), the effect should fade
 on days when many coins are in a deep dip at once. Using history before the live period
 at 14d, it doesn't. Deep fires are −0.56 on low-breadth days (87 ep), −0.11 on mid days,
 and **−1.12 [−1.82, −0.45]** on high-breadth days (1,387 ep). Breadth explains neither
@@ -924,7 +924,7 @@ universe fell ~4% and BTC ~1%, so both a long-only and a BTC-hedged version lost
 
 The closed-candle detector rebuilt over 2023 → 2026-06-08 crypto history (2022 had no
 coin above the volume floor), against hypotheses frozen beforehand in
-[historical_rebuild.md](historical_rebuild.md), which has the full results.
+[archive/historical_rebuild.md](archive/historical_rebuild.md), which has the full results.
 Calibration on the live period passed. 10,372 episodes, about 4× the live dataset.
 
 - **Confirmed in every year with data:** v3 bullish alpha +0.58% [+0.04, +1.15];
@@ -1025,7 +1025,7 @@ in-sample, checked after 2026-09-19.
   Their out-of-sample confirmation shrinks at episode level: −0.05 [−0.11, +0.03],
   against −0.23 measured row-level earlier. Same sign, no longer significant.
 - **`oi_to_vol` and `atr_ratio_14_50` flip sign out of sample** at episode level.
-  [confidence_v3_research.md](confidence_v3_research.md) §3 called them replicated
+  [archive/confidence_v3_research.md](archive/confidence_v3_research.md) §3 called them replicated
   on row-level intervals. They do not survive.
 - `dd_from_high_30` holds (IS +0.09, OOS +0.25 [+0.01, +0.49]), but it is a generic
   factor (it predicts alpha for random assets too).

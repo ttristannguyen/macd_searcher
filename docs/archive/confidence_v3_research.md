@@ -154,7 +154,7 @@ the full sample — `peak_pct` −0.134 [−0.200, −0.056], `oi_to_vol` +0.123
 −0.118 [−0.194, −0.047] — while `sig_atr` stays at −0.025 [−0.120, +0.060]. The
 OOS-only episode subset (n=90) is too small to confirm any of them on its own.
 
-**Revised 2026-10-15 ([research_log.md](research_log.md)):** with the
+**Revised 2026-10-15 ([research_log.md](../research_log.md)):** with the
 *out-of-sample* half also measured at episode level, `oi_to_vol` and
 `atr_ratio_14_50` **flip sign**. They do not replicate. `peak_pct`'s out-of-sample IC
 shrinks to −0.05 [−0.11, +0.03]: same sign, no longer significant. The in-sample
@@ -405,7 +405,7 @@ funding would eat most of a +0.86% alpha.
 **Recommendation:** no funding gate now. Net out ~0.16%/week on longs in any trading
 rule built on v3, and re-test the out-of-sample funding effect once the market turns.
 
-*Update 2026-10-25 ([research_log.md](research_log.md)):* on bullish fires from
+*Update 2026-10-25 ([research_log.md](../research_log.md)):* on bullish fires from
 2026-10-08 to 10-17, which were unseen when this was written, `fund_7d` IC is −0.23
 (102 episodes). Non-firing coins show no such effect (−0.01 to −0.09), so it is
 specific to bullish fires. It is still one falling market. It is now a watchlist check
@@ -457,7 +457,7 @@ with a fixed cut (`fund_7d_apr ≥ 15`), scored from 2026-10-25.
 
 `uv run python -m macd_searcher.research` (add `--scan` for the feature scan)
 rebuilds the rule tables and watchlist from a synced snapshot; the method, and why
-each rule of it exists, is in [research_method.md](research_method.md). The universe
+each rule of it exists, is in [research_method.md](../research_method.md). The universe
 counterfactual panel and the confound splits in §3–§4 were one-off scripts and are
 not in the pipeline. The mechanism behind `peak_pct`, and the build plan, are in
 [confidence_v3.md](confidence_v3.md).

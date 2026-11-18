@@ -1,4 +1,4 @@
-"""Historical rebuild of the closed-candle detector — see docs/historical_rebuild.md.
+"""Historical rebuild of the closed-candle detector — see docs/archive/historical_rebuild.md.
 
 Runs the production detector (signals._check_histogram_flattening + _peak_vs_history,
 current config.yaml) once per symbol per day on 200 closed daily bars, for every core

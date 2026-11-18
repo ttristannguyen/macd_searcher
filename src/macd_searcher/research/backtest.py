@@ -72,7 +72,7 @@ MAKER_COST = 0.00015
 MIN_ORDER_USD = 10.0
 MAX_PLANNED_NET = 0.10
 
-# Flat funding from the live measurements (docs/confidence_v3_research.md §8): longs
+# Flat funding from the live measurements (docs/archive/confidence_v3_research.md §8): longs
 # pay 9% APR and shorts receive 6.5% APR.
 FUNDING_LONG_APR = 0.09
 FUNDING_SHORT_APR = 0.065

@@ -1,5 +1,5 @@
 """Offline research pipeline for signal quality — the tooling behind
-docs/confidence_v3_research.md, so a periodic re-run is one command:
+docs/archive/confidence_v3_research.md, so a periodic re-run is one command:
 
     uv run python -m macd_searcher.research            # top up cache, print report
     uv run python -m macd_searcher.research --offline  # cache only, no API calls

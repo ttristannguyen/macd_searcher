@@ -21,7 +21,7 @@ function keyMetric(s: SignalRow): string {
 //
 // Bullish: a modest trough (low pct) is the side the v3 shadow rule favours —
 // confirmed across 2023-2026 history and strongest at p25 or below
-// (docs/historical_rebuild.md). No colour until the live watchlist confirms it.
+// (docs/archive/historical_rebuild.md). No colour until the live watchlist confirms it.
 // There is deliberately no record-trough (p100) warning: it was shipped on 2026 live
 // data and did not replicate in history. Mirrors signals.CONFIDENCE_V3_MAX_PEAK_PCT.
 const PEAK_TRUST_FLOOR = 3

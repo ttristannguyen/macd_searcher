@@ -315,7 +315,7 @@ frozen panel (`state/research_cache/backtest_panel.pkl`).
 - ~~The profit_strategies.md backtests were scratch scripts. Commit one, with tests,
   that reproduces B3 on the cached history (`state/research_cache/`): Sharpe about 1.1
   on all fires, 1.2–1.3 on first fires.~~ This is the same discipline as
-  [historical_rebuild.md](historical_rebuild.md)'s calibration. If it lands far off,
+  [archive/historical_rebuild.md](archive/historical_rebuild.md)'s calibration. If it lands far off,
   find out why before going further.
 - **One pure target-book function** maps fires, closed bars and the open positions to
   target weights. The backtester and the live bot both call it, so live trades what
@@ -428,7 +428,7 @@ legs are contradicted.
 | stops, take-profits and trailing stops on alpha; zero-cross and opposite-fire exits | none helps in both halves of the history; take-profits flip sign with the market | exit_research.md §3 |
 | volatility targets, equity-curve filter, inverse-volatility weights, beta-neutral sides | none helps in both halves, except 1/√volatility weights at +0.00 overall. B3 earns most when dispersion is high, and its risk is also high then | book_experiments.md §1 |
 | filters on same-day clusters, re-fires after entry, or listing age | no effect, or the filter cuts the breadth that the Sharpe needs | book_experiments.md §2, §3 |
-| sizing by sig/ATR | sig carries no selection information | confidence_v3_research.md §1 |
+| sizing by sig/ATR | sig carries no selection information | archive/confidence_v3_research.md §1 |
 | SMA filter on the pullback at 14d | the gap is gone by 14d | research log 2026-10-24 |
 | ATR expansion | timing, not selection | H7 |
 | record-trough gate | doesn't generalise (+0.01 across history) | H2 |

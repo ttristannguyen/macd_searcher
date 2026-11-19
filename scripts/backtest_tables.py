@@ -926,6 +926,123 @@ def name_cap() -> None:
               f"max DD {pct(bt.max_drawdown(capped.net * k), 0)}")
 
 
+# ---------------------------------------------------------------- research_log.md 2026-11-19: exit alternatives
+
+def state_continues(day: date, p: bt.Position) -> bool:
+    """The coin is in a state that continues in the trade's direction: a long in a strong
+    rally, or a short in a deep dip (2026-10-25: these states continue)."""
+    t, j = ROW[day], COL[p.symbol]
+    return bool(DEEP_DIP_PCT <= PCT_STATE[t, j] < 100 and (HIST[t, j] > 0 if p.side > 0 else HIST[t, j] < 0))
+
+
+def hold_longer(planned: dict[str, int], also=None):
+    """Hold 7 days more when the coin is in a state that continues at the planned exit. Use it
+    with holds of planned + 7. ``also`` is another exit rule of the book."""
+    def rule(day: date, p: bt.Position) -> bool:
+        if also is not None and also(day, p):
+            return True
+        return (day - p.entry).days == planned.get(p.leg, bt.HOLD_DAYS) + 1 and not state_continues(day, p)
+    return rule
+
+
+def close_when_full(fires: pd.DataFrame = FIRES, *, pick: str = "oldest", age: int = 7, seed: int = 0,
+                    holds=None, tilt=None, exit_rule=None) -> bt.Run:
+    """On a day when the long side has more names than max(10, short names), close L2 longs
+    down to that count. The thinner side or the cap sets the gross, so the gross does not
+    change. ``pick`` gives the L2 longs that close first:
+
+    * "oldest": those held more than ``age`` days, oldest first (the rule);
+    * "youngest" or "random": placebos, from those held 1 day or more;
+    * "new": a placebo that closes the L2 longs opened today first, so the book skips them.
+
+    The rule needs the whole book, so it is not an ``exit_rule``. This loop is
+    ``bt.simulate`` with fills at the close and no stop: with no close, it gives BASE."""
+    rng = np.random.default_rng(seed)
+    by_day = {date.fromisoformat(d): [bt.Fire(r.symbol, r.leg if pd.notna(r.leg) else None, r.side, r.first)
+                                      for r in g.itertuples()]
+              for d, g in fires.groupby("day")}
+    least_days = {"oldest": age + 1, "youngest": 1, "random": 1, "new": 0}[pick]
+    weights = np.zeros_like(PANEL.ret)
+    longs, shorts = np.zeros(len(DAYS)), np.zeros(len(DAYS))
+    book: dict[str, bt.Position] = {}
+    for t, day in enumerate(DAYS):
+        listed = {PANEL.symbols[j] for j in np.flatnonzero(PANEL.listed[t])}
+        exits = {s for s, p in book.items() if exit_rule and exit_rule(day, p)}
+        book, target = bt.target_book(day, by_day.get(day, ()), book, listed, exits, holds=holds, tilt=tilt)
+        n_long = sum(p.side > 0 for p in book.values())
+        keep = max(round(1 / bt.MAX_WEIGHT), len(book) - n_long)      # 10 names fill a side
+        if n_long > keep:
+            l2 = sorted((p for p in book.values() if p.leg == "L2" and (day - p.entry).days >= least_days),
+                        key=lambda p: p.entry, reverse=pick != "oldest")
+            if pick == "random":
+                l2 = [l2[i] for i in rng.permutation(len(l2))]
+            for p in l2[:n_long - keep]:
+                del book[p.symbol]
+            book, target = bt.target_book(day, (), book, listed, tilt=tilt)
+        for s, w in target.items():
+            weights[t, COL[s]] = w
+        longs[t] = sum(p.side > 0 for p in book.values())
+        shorts[t] = len(book) - longs[t]
+    acc = bt.account(weights, PANEL.ret)
+    return bt.Run(DAYS, acc["weights"], PANEL.ret, acc["net"], acc["gross"], acc["cost"], acc["funding"],
+                  acc["turnover"], longs, shorts)
+
+
+def exit_alternatives() -> None:
+    print("\n## research_log.md 2026-11-19: exit alternatives")
+    stack = run(**STACK)
+    stack_kw = dict(holds=bt.STACK_HOLDS, tilt=STACK["tilt"], exit_rule=long_in_s2_band)
+    all_21 = {leg: 21 for leg in LEGS}
+    for book, base, rows in (
+            ("B3", BASE, [("hold 7 days more in a state that continues", run(holds=all_21, exit_rule=hold_longer({}))),
+                          ("the same, longs only", run(holds={"L1": 21, "L2": 21}, exit_rule=hold_longer({}))),
+                          ("the same, shorts only", run(holds=SHORTS_21, exit_rule=hold_longer({})))]
+            + [(f"full long side: close L2 longs held more than {a} days", close_when_full(age=a)) for a in (3, 5, 7, 10)]),
+            ("the stack", stack, [
+                ("hold 7 days more in a state that continues",
+                 run(holds={"L1": 21, "L2": 21, "S1": 28, "S2": 28}, tilt=STACK["tilt"],
+                     exit_rule=hold_longer(bt.STACK_HOLDS, also=long_in_s2_band)))]
+            + [(f"full long side: close L2 longs held more than {a} days", close_when_full(age=a, **stack_kw))
+               for a in (3, 5, 7, 10)])):
+        kw = stack_kw if book == "the stack" else {}
+        rows += [("placebo: close the youngest L2 longs held 1 day or more", close_when_full(pick="youngest", **kw)),
+                 ("placebo: skip the new L2 longs", close_when_full(pick="new", **kw))]
+        header(f"{book}: exits by state and by age", "book", "Sharpe", f"Δ vs {book} [95%]", "Δ 2023–24", "Δ 2025–26",
+               "CAGR", "max DD", "turnover", "names long / short")
+        for name, v in rows:
+            print(variant_row(name, base, v, f"{turnover_change(base, v)} | {names(v)}"))
+        random = [bt.sharpe(close_when_full(pick="random", seed=s, **kw).net) - bt.sharpe(base.net) for s in range(10)]
+        print(f"\nplacebo: close random L2 longs held 1 day or more, 10 seeds: Δ mean {num(np.mean(random), '+.2f')}, "
+              f"from {num(min(random), '+.2f')} to {num(max(random), '+.2f')}")
+
+    # The funding history starts in 2023-12, so the funding exit has its own window and halves.
+    funding = bt.load_funding(PANEL, Path("state/research_cache"))
+    funding_7d = pd.DataFrame(funding).shift(1).rolling(7, min_periods=5).mean().to_numpy() * 365
+    start, split = DAYS.index(date(2024, 1, 1)), DAYS.index(date(2025, 1, 1))
+
+    def funding_exit(cut: float, also=None):
+        def rule(day: date, p: bt.Position) -> bool:
+            return (also is not None and also(day, p)) or (p.side > 0 and funding_7d[ROW[day], COL[p.symbol]] >= cut)
+        return rule
+
+    def paired_2024(b: np.ndarray, v: np.ndarray) -> str:
+        b, v, k = b[start:], v[start:], split - start
+        d, lo, hi = bt.sharpe_diff_ci(b, v)
+        return (f"{num(bt.sharpe(v), '.2f')} | {num(d, '+.2f')} [{num(lo, '+.2f')}, {num(hi, '+.2f')}] "
+                f"| {num(bt.sharpe(v[:k]) - bt.sharpe(b[:k]), '+.2f')} | {num(bt.sharpe(v[k:]) - bt.sharpe(b[k:]), '+.2f')}")
+
+    def real(v: bt.Run) -> np.ndarray:
+        return bt.account(v.weights, v.ret, funding=funding)["net"]
+
+    header("a long closes when its 7-day funding is high, 2024-01-01 → 2026-10-15", "book", "funding", "Sharpe",
+           "Δ vs the same book [95%]", "Δ 2024", "Δ 2025–26")
+    for book, base, kw, also in (("B3", BASE, {}, None), ("the stack", stack, STACK, long_in_s2_band)):
+        for cut in (0.15, 0.50):
+            v = run(**{**kw, "exit_rule": funding_exit(cut, also)})
+            for kind, b, x in (("flat", base.net, v.net), ("real", real(base), real(v))):
+                print(f"| {book}, close at ≥ {cut:.0%} APR | {kind} | {paired_2024(b, x)} |")
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")         # the tables use −, → and Δ
     print(f"# Portfolio tables — panel built {PANEL.meta['built']}, window {DAYS[0]} → {DAYS[-1]}")
@@ -938,3 +1055,4 @@ if __name__ == "__main__":
     strategy_search()
     peak_lookback()
     name_cap()
+    exit_alternatives()

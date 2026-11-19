@@ -8,6 +8,153 @@ own docs ([archive/confidence_v3_research.md](archive/confidence_v3_research.md)
 
 ---
 
+## 2026-11-19 — more exit alternatives
+
+Question: does an exit that archive/exit_research.md and strategy_search.md did not test
+help B3 or the stack?
+
+**Data.** The frozen panel (built 2026-11-03), crypto only, fires and returns 2023-02-28 →
+2026-10-15. First fires only. The per-trade numbers come from scratch scripts in the
+backtester's convention (archive/exit_research.md §8). The portfolio numbers come from the
+committed backtester (`backtest_tables.exit_alternatives()`). The funding rows use the real
+hourly funding from 2023-12, so their window is 2024-01-01 → 2026-10-15. All of this is
+in-sample.
+
+**Method.** We wrote each hypothesis, its sign and its mechanism before the first look.
+Batch 1 was H1–H4. Batch 2 (H5, H6) came after the per-trade results of batch 1. Each
+rule decides on day D' from bars closed through D' − 1, and exits at that close.
+
+| | rule | mechanism | expected |
+|---|---|---|---|
+| H1 | a long closes when its 7-day funding is ≥ 15% or ≥ 50% APR | crowded longs meet long liquidations | > 0 |
+| H1b | a short closes when its 7-day funding is ≤ −15% or ≤ −50% APR | crowded shorts meet a squeeze | ≤ 0 (strategy_search.md §8.4) |
+| H2 | close after a bar with 3× the coin's median notional of 20 bars, in the trade's favour | the forced flow ends, and the price reverts | > 0 |
+| H3 | close when the coin falls below the $300k liquidity floor | coins that leave the universe are the losers (research_method.md rule 2) | > 0 for longs |
+| H4 | hold 7 days more when the coin is in a state that continues: a long in a strong rally, a short in a deep dip | these states continue (2026-10-25) | > 0 |
+| H5 | when the long side has more names than max(10, short names), close the L2 longs held more than 7 days, oldest first | L2's edge is paid by day 7 (archive/exit_research.md §1), and the gross does not fall | > 0 |
+| H6 | an L2 long above its SMA200 at entry closes when its close falls below the SMA200 | the 200-day trend is part of L2's edge (2026-11-19, the lookback entry) | > 0 |
+
+### Watchlist (snapshot 2026-11-19 00:00 UTC)
+
+- **No B3 leg check has 30 episodes.** The first 21-day outcomes are here. S2 after its
+  14d exit: −1.99 long-side, 11 ep, the expected side. S1: 0 ep. The L2 deep-dip exit: −1.10,
+  7 ep, the wrong side (the long gained). The S2-band flip: 0 ep.
+- **The v3 bearish leg at 7d is not confirmed now.** On 2026-11-16 it was +3.55 [+1.53,
+  +5.89], 34 ep. Now it is +2.19 [−2.52, +5.25], 38 ep. At 14d it is +3.34 [−1.75, +7.97],
+  26 ep.
+- **A new verdict outside B3:** bullish crypto fires in a BTC downtrend are contradicted.
+  Rule − rest, raw: −2.61 [−6.54, −0.17], 124 ep.
+- The other verdicts do not change: v2 confirmed (+1.41 [+0.58, +2.38], 179 ep), the
+  record-peak warning contradicted (+1.05 [+0.32, +2.20], 153 ep), v3 bullish holds.
+
+### Per trade
+
+Exit alpha minus 14-day-hold alpha, 2023–24 / 2025–26 (H1, H1b: 2024 / 2025–26). Bold: the
+95% week-block interval excludes zero. The share is the trades that the rule closes before
+day 14. For H4, it is the trades that the rule holds longer.
+
+| rule | L1 | L2 | S1 | S2 | share (L1 / L2 / S1 / S2) |
+|---|---|---|---|---|---|
+| H1, funding ≥ 15% APR | −0.43 / −0.16 | −0.97 / −0.18 | | | 25 / 43% |
+| H1, funding ≥ 50% APR | −0.08 / **−0.24** | +0.01 / −0.10 | | | 5 / 17% |
+| H1b, funding ≤ −15% APR | | | **−0.51** / −0.12 | **−0.42** / −0.08 | 20 / 21% |
+| H1b, funding ≤ −50% APR | | | −0.28 / −0.11 | −0.16 / −0.16 | 8 / 7% |
+| H2, volume climax | +1.02 / **−0.94** | −0.46 / +0.21 | −0.32 / −0.28 | −0.18 / −0.31 | 43 / 35 / 28 / 31% |
+| H3, below the floor | +0.45 / **−0.71** | −0.08 / **−0.45** | **−0.93** / −0.36 | −0.15 / **−1.00** | 45 / 39 / 45 / 40% |
+| H4, 7 days more | +0.23 / −0.06 | +0.30 / +0.15 | **+0.18** / +0.01 | +0.05 / +0.06 | 5 / 7 / 5 / 11% |
+| H6, below the SMA200 | +0.06 / +0.04 | +0.10 / −0.02 | | | 6 / 11% |
+
+The same rules on same-state non-fires (archive/exit_research.md §8):
+
+| rule | L1 | L2 | S1 | S2 |
+|---|---|---|---|---|
+| H1, funding ≥ 15% APR | +0.75 / −0.12 | **−1.40** / **−0.50** | | |
+| H1, funding ≥ 50% APR | +0.17 / −0.05 | −0.92 / **−0.19** | | |
+| H1b, funding ≤ −15% APR | | | −0.22 / −0.04 | −0.19 / −0.09 |
+| H1b, funding ≤ −50% APR | | | −0.18 / **−0.28** | +0.11 / −0.09 |
+| H2, volume climax | +0.04 / −0.23 | **−1.40** / −0.05 | −0.28 / +0.26 | +0.31 / −0.14 |
+| H3, below the floor | +0.18 / −0.03 | +0.35 / −0.12 | −0.32 / +0.09 | +0.17 / **−0.55** |
+| H4, 7 days more | +0.05 / +0.00 | +0.09 / −0.13 | +0.05 / +0.06 | +0.14 / **+0.15** |
+| H6, below the SMA200 | +0.36 / **+0.06** | +0.04 / −0.05 | | |
+
+- **Funding exits cost alpha (H1, H1b).** A long with high funding is a coin in a strong
+  trend, and the trend continues. Same-state L2 coins lose −1.40 / −0.50 too. Thus funding
+  is a fair price for crowded longs, as strategy_search.md §8.4 found for crowded shorts.
+- **The volume climax changes sign with the market (H2).** L1 gains +1.02 in 2023–24 and
+  loses −0.94 in 2025–26, as the take-profits did (archive/exit_research.md §3). The other
+  legs lose. On same-state L2 coins, an up bar on high volume starts more trend (−1.40).
+- **The liquidity floor does not predict (H3).** 39–45% of the trades go below $300k on
+  one day of the hold or more. Rule 2 of research_method.md is about the same window: the
+  fall causes the exit. After the exit, the longs do not lose more, and the shorts
+  continue to go down.
+- **The trend break is noise (H6).** It closes 11% of L2 trades, for +0.10 / −0.02.
+- **A longer hold in a state that continues is positive but small (H4).** It acts on 5–11%
+  of the trades. The same-state coins agree, so it is a state effect, not a fire effect.
+
+### As portfolios
+
+| book | Sharpe | Δ [95%] | Δ 2023–24 | Δ 2025–26 | CAGR | max DD | turnover | names long / short |
+|---|---|---|---|---|---|---|---|---|
+| **B3** | 1.50 | — | — | — | +38.5% | −18% | — | 33 / 28 |
+| H4, 7 days more in a state that continues | 1.52 | +0.02 [−0.04, +0.08] | +0.04 | +0.01 | +39.1% | −19% | −2% | 33 / 28 |
+| H4, shorts only | 1.52 | +0.03 [−0.00, +0.06] | +0.04 | +0.02 | +39.4% | −18% | −1% | 33 / 28 |
+| H5, L2 held more than 7 days | 1.61 | +0.12 [−0.13, +0.38] | +0.25 | +0.04 | +45.4% | −19% | +8% | 27 / 28 |
+| H5, L2 held more than 5 days | 1.72 | +0.23 [−0.07, +0.54] | +0.44 | +0.07 | +50.8% | −18% | +11% | 25 / 28 |
+| H5 placebo: the youngest L2 longs held 1 day or more | 1.64 | +0.14 [−0.27, +0.57] | +0.34 | −0.01 | +48.4% | −22% | +34% | 19 / 28 |
+| **the stack** | 2.04 | — | — | — | +61.0% | −23% | — | 27 / 33 |
+| H4, 7 days more in a state that continues | 2.05 | +0.01 [−0.05, +0.07] | +0.01 | +0.01 | +61.1% | −23% | −1% | 27 / 33 |
+| H5, L2 held more than 7 days | 2.07 | +0.03 [−0.12, +0.19] | +0.05 | +0.04 | +63.6% | −23% | +6% | 24 / 33 |
+| H5, L2 held more than 5 days | 2.10 | +0.06 [−0.13, +0.22] | +0.06 | +0.07 | +65.2% | −22% | +9% | 22 / 33 |
+| H5 placebo: the youngest L2 longs held 1 day or more | 1.88 | −0.16 [−0.53, +0.15] | −0.44 | +0.09 | +57.6% | −25% | +27% | 18 / 33 |
+
+Δ is against the same book. A placebo that closes random L2 longs held 1 day or more gives
++0.08 on B3 (10 seeds, −0.12 to +0.28) and −0.11 on the stack (−0.19 to +0.09).
+We registered H5 at 7 days. `exit_alternatives()` also prints H5 at 3 and 10 days, and H4
+for the longs only.
+
+H1 with real funding, 2024-01-01 → 2026-10-15:
+
+| book | funding | Sharpe | Δ vs the same book [95%] | Δ 2024 | Δ 2025–26 |
+|---|---|---|---|---|---|
+| B3, funding ≥ 15% APR | flat / real | 1.38 / 1.68 | −0.44 / −0.26 [−0.92, +0.30] | −0.78 / −0.58 | −0.35 / −0.20 |
+| B3, funding ≥ 50% APR | flat / real | 1.73 / 1.93 | −0.09 / −0.01 [−0.47, +0.34] | +0.12 / +0.27 | −0.18 / −0.14 |
+| the stack, funding ≥ 15% APR | flat / real | 1.83 / 2.07 | −0.57 / −0.41 [−0.99, −0.02] | −1.41 / −1.23 | −0.24 / −0.11 |
+| the stack, funding ≥ 50% APR | flat / real | 2.26 / 2.41 | −0.14 / −0.07 [−0.40, +0.13] | −0.20 / −0.08 | −0.11 / −0.07 |
+
+The interval is for real funding.
+
+- **No exit helps the stack.** H4 adds +0.01, and H5 adds +0.03 to +0.06. The funding exit
+  costs money with real funding too.
+- **On B3, H5's gain does not come from the age.** The placebo that closes the youngest
+  L2 longs gives +0.14, and random L2 longs give +0.08 on average. Thus B3 gains from fewer
+  L2 names on days with a full long side, not from the close of spent trades.
+- **Mechanism: the stack's band exit already closes the spent L2 trades.** Per trade, L2's
+  alpha in days 7–14 is +0.06 / −0.14. L2 longs in S2's band by day 7 lose −1.53 [−3.06,
+  −0.40] / −0.80 [−1.85, +0.26] in those days. The others earn +0.78 / +0.07. The stack
+  closes the first group. Thus an age rule has no spent trades left to close.
+- **Observation only: on the stack, skip the new L2 longs on a day with a full long side.**
+  It gives +0.30 [−0.04, +0.69], but +0.66 / −0.00 by half (B3: +0.05). It was a placebo,
+  it is an entry rule, and it does not help in 2025–26. No mechanism explains it.
+- *Answer:* no new exit helps in both halves with a mechanism. Exits on the trade's price,
+  volume, liquidity or funding do not help. In three passes, two exit rules helped: the
+  close on the coin's MACD state (S2's band) and a hold for each leg (shorts 21 days).
+
+### Tooling
+
+- `backtest_tables.exit_alternatives()` prints the portfolio tables of this entry.
+- `backtest_tables.close_when_full()` is `bt.simulate` with fills at the close, no stop,
+  and the H5 rule. With no close, it gives the baseline exactly. The rule needs the whole
+  book, so it is not an `exit_rule` of `simulate`.
+
+### Registered this pass
+
+Nothing:
+- No rule helps in both halves with a mechanism and a counterfactual.
+- The per-trade effects of funding and volume are also in the same-state coins, so the
+  detector does not know them (research_method.md rule 4).
+
+---
+
 ## 2026-11-19 — the `peak_pct` lookback, and a cap of 5% a name
 
 Questions:

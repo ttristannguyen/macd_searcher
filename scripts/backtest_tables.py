@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pickle
 import sys
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -21,9 +22,10 @@ import pandas as pd
 
 from macd_searcher.book import LEGS
 from macd_searcher.config import load_config
+from macd_searcher.indicators import macd
 from macd_searcher.research import backtest as bt
 from macd_searcher.research.dataset import DEEP_DIP_PCT
-from macd_searcher.signals import CONFIDENCE_V3_MAX_PEAK_PCT, CONFIDENCE_V3_MAX_REDUCTION
+from macd_searcher.signals import CONFIDENCE_V3_MAX_PEAK_PCT, CONFIDENCE_V3_MAX_REDUCTION, _peak_vs_history
 from macd_searcher.stats import episodes
 
 PANEL = bt.load_panel(Path("state/research_cache") / bt.PANEL_FILE)
@@ -806,6 +808,124 @@ def strategy_search() -> None:
           + ", ".join(f"{k} {a} and {b}" for k, (a, b) in wins.items()))
 
 
+# ---------------------------------------------------------------- research_log.md 2026-11-19
+
+LOOKBACKS = (50, 100, 150, 200, 300, 400, 600)
+
+
+def lookback_panel(lookback: int) -> bt.Panel:
+    """The frozen panel with the state peak_pct of each coin-day on the last ``lookback``
+    closed bars (all the bars of a younger coin). The fires, the universe and the prices
+    do not change. A build takes some minutes, so the state stays in the cache."""
+    path = Path("state/research_cache/neighbours") / f"lookback_{lookback}.pkl"
+    if not path.exists():
+        cfg = load_config("config.yaml")
+        need = PANEL.coin_days.groupby("symbol")["day"].apply(set)
+        rows = []
+        for symbol, df in bt.load_bars(Path("state/research_cache")).items():
+            if symbol not in need:
+                continue
+            hist = macd(df["close"], cfg.macd.fast, cfg.macd.slow, cfg.macd.signal)["hist"]
+            values = hist.to_numpy()
+            for i, day in enumerate((df["ts"] + pd.Timedelta(days=1)).dt.strftime("%Y-%m-%d")):
+                if day in need[symbol] and values[i] != 0:
+                    window = hist.iloc[max(0, i + 1 - lookback):i + 1]
+                    _, state_pct, _ = _peak_vs_history(window, "bullish" if values[i] < 0 else "bearish")
+                    rows.append((symbol, day, state_pct))
+        path.parent.mkdir(exist_ok=True)
+        pd.DataFrame(rows, columns=["symbol", "day", "state_pct"]).to_pickle(path)
+    state = pd.read_pickle(path)
+    coin_days = PANEL.coin_days.drop(columns="state_pct").merge(state, on=["symbol", "day"], how="left")
+    return replace(PANEL, coin_days=coin_days[PANEL.coin_days.columns])
+
+
+def split_legs(long_fires: pd.DataFrame, short_fires: pd.DataFrame) -> pd.DataFrame:
+    """The long legs of one set of fires and the short legs of another. Both sets are the
+    same fires with other legs. A fire that both sides take is not traded."""
+    assert (long_fires["symbol"].equals(short_fires["symbol"]) and long_fires["day"].equals(short_fires["day"]))
+    longs, shorts = long_fires["side"] > 0, short_fires["side"] < 0
+    leg = np.where(longs & ~shorts, long_fires["leg"], np.where(shorts & ~longs, short_fires["leg"], None))
+    side = np.where(longs & ~shorts, 1, np.where(shorts & ~longs, -1, 0))
+    return long_fires.assign(leg=leg, side=side)
+
+
+def daily_side_gross(v: bt.Run) -> np.ndarray:
+    """The gross of the long side on each day. The short side has the same gross."""
+    return np.where(v.weights > 0, v.weights, 0).sum(axis=1)
+
+
+def peak_lookback() -> None:
+    print("\n## research_log.md 2026-11-19: the peak_pct lookback")
+    panels = {n: PANEL if n == 200 else lookback_panel(n) for n in LOOKBACKS}
+    fires = {n: FIRES if n == 200 else bt.book_fires(p) for n, p in panels.items()}
+    header("B3, each leg at lookback L", "book", "Sharpe", "Δ vs L = 200 [95%]", "Δ 2023–24", "Δ 2025–26", "CAGR",
+           "max DD", "names long / short")
+    for n in LOOKBACKS:
+        v = run(fires[n])
+        print(variant_row(f"L = {n}", BASE, v, names(v)))
+    for title, pick in (("B3, longs at L, shorts at 200", lambda n: split_legs(fires[n], FIRES)),
+                        ("B3, longs at 200, shorts at L", lambda n: split_legs(FIRES, fires[n]))):
+        header(title, "book", "Sharpe", "Δ vs L = 200 [95%]", "Δ 2023–24", "Δ 2025–26", "CAGR", "max DD",
+               "names long / short")
+        for n in LOOKBACKS:
+            if n != 200:
+                v = run(pick(n))
+                print(variant_row(f"L = {n}", BASE, v, names(v)))
+    stack = run(**STACK)
+    header("the stack, each leg and the S2-band exit at lookback L", "book", "Sharpe", "Δ vs the stack [95%]",
+           "Δ 2023–24", "Δ 2025–26", "CAGR", "max DD", "names long / short")
+    for n in LOOKBACKS:
+        v = run(fires[n], exit_rule=band_exit(panels[n]), holds=bt.STACK_HOLDS, tilt=bt.age_tilt(PANEL.first_bar))
+        print(variant_row(f"L = {n}", stack, v, names(v)))
+
+
+def name_cap() -> None:
+    print("\n## research_log.md 2026-11-19: a cap of 5% a name")
+    cols = ("book", "Sharpe", "Δ vs 10% [95%]", "Δ 2023–24", "Δ 2025–26", "CAGR", "max DD", "mean side gross",
+            "volatility a year", "worst name-day")
+
+    def extra(v: bt.Run) -> str:
+        worst = (v.weights * np.nan_to_num(v.ret)).min()
+        return f"{daily_side_gross(v).mean() * 100:.0f}% | {v.net.std() * np.sqrt(365) * 100:.0f}% | {pct(worst)}"
+
+    for book, kw in (("B3", {}), ("the stack", STACK)):
+        header(f"{book}: the cap a name", *cols)
+        base = run(**kw)
+        for cap in (0.10, 0.075, 0.05):
+            v = run(**kw, max_weight=cap)
+            print(variant_row(f"{cap:.1%}", base, v, extra(v)))
+        header(f"{book} with the bot's execution (limit orders, stop from the next day): the cap a name", *cols)
+        for equity in (None, 10000, 5000, 3000):
+            base = live(**BOT, **kw, equity=equity)
+            size = f"${equity:,}" if equity else "no minimum"
+            for cap in (0.10, 0.05):
+                v = live(**BOT, **kw, equity=equity, max_weight=cap)
+                print(variant_row(f"{size}, {cap:.0%}", base, v, extra(v)))
+
+    for book, kw in (("B3", {}), ("the stack", STACK)):
+        base, capped = run(**kw), run(**kw, max_weight=0.05)
+        thin = np.minimum(base.longs, base.shorts)
+        header(f"{book} by names on the thinner side", "thinner side", "share of days", "side gross 10% / 5%",
+               "Sharpe 10% / 5%", "Sharpe 10%, 2023–24 / 2025–26")
+        early = np.arange(len(DAYS)) < SPLIT
+        for lo, hi in ((0, 10), (10, 20), (20, None)):
+            m = (thin >= lo) & (thin < (hi or np.inf))
+            print(f"| {lo}–{hi - 1 if hi else ''} | {m.mean():.0%} | {daily_side_gross(base)[m].mean():.0%} / "
+                  f"{daily_side_gross(capped)[m].mean():.0%} | {num(bt.sharpe(base.net[m]), '.2f')} / "
+                  f"{num(bt.sharpe(capped.net[m]), '.2f')} | {num(bt.sharpe(base.net[m & early]), '.2f')} / "
+                  f"{num(bt.sharpe(base.net[m & ~early]), '.2f')} |")
+        scale = daily_side_gross(capped) / np.where(daily_side_gross(base) > 0, daily_side_gross(base), 1)
+        for half, part in (("2023–24", slice(None, SPLIT)), ("2025–26", slice(SPLIT, None))):
+            print(f"\n{half}: thinner side < 20 names on {(thin[part] < 20).mean():.0%} of days; mean side gross "
+                  f"{daily_side_gross(base)[part].mean():.0%} at 10% and {daily_side_gross(capped)[part].mean():.0%} at 5%")
+        print(f"\nthe 10% book with each day's exposure cut to the 5% book's side gross: Sharpe "
+              f"{num(bt.sharpe(base.net * scale), '.2f')} (the 5% book: {num(bt.sharpe(capped.net), '.2f')})")
+        k = base.net.std() / capped.net.std()
+        print(f"the 5% book at the volatility of the 10% book (x{k:.2f}, side gross above 100% on full days): "
+              f"CAGR {pct(bt.cagr(capped.net * k))} against {pct(bt.cagr(base.net))}, "
+              f"max DD {pct(bt.max_drawdown(capped.net * k), 0)}")
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")         # the tables use −, → and Δ
     print(f"# Portfolio tables — panel built {PANEL.meta['built']}, window {DAYS[0]} → {DAYS[-1]}")
@@ -816,3 +936,5 @@ if __name__ == "__main__":
     live_execution()
     new_exits()
     strategy_search()
+    peak_lookback()
+    name_cap()

@@ -138,7 +138,8 @@ def target_book(day: date, fires: Iterable[Fire], positions: dict[str, Position]
                 exits: Collection[str] = (), *, holds: dict[str, int] | None = None,
                 tilt: Callable[[date, Position], float] | None = None,
                 basket: Sequence[str] | None = None, first_only: bool = FIRST_FIRES_ONLY,
-                restart_same_leg: bool = False) -> tuple[dict[str, Position], dict[str, float]]:
+                restart_same_leg: bool = False,
+                max_weight: float = MAX_WEIGHT) -> tuple[dict[str, Position], dict[str, float]]:
     """Today's positions and target weights (a fraction of equity: + long, - short).
 
     ``positions`` is the book after the last rebalance. A position closes when its hold
@@ -150,7 +151,7 @@ def target_book(day: date, fires: Iterable[Fire], positions: dict[str, Position]
     weight factor per position, and ``basket`` fills the thin side with an equal-weight
     basket of these coins (docs/trading_strategy.md §8.2). With ``restart_same_leg``, a
     re-fire in the leg of the open position restarts that position. Other re-fires
-    still do nothing.
+    still do nothing. ``max_weight`` is the cap per name, in place of MAX_WEIGHT.
     """
     book = {s: p for s, p in positions.items() if p.last >= day and s in listed and s not in exits}
     for f in fires:
@@ -161,23 +162,23 @@ def target_book(day: date, fires: Iterable[Fire], positions: dict[str, Position]
             continue
         hold = (holds or {}).get(f.leg, HOLD_DAYS)
         book[f.symbol] = Position(f.symbol, f.leg, f.side, day, day + timedelta(days=hold))
-    return book, _weights(day, book, tilt, basket)
+    return book, _weights(day, book, tilt, basket, max_weight)
 
 
-def _weights(day: date, book: dict[str, Position], tilt, basket) -> dict[str, float]:
+def _weights(day: date, book: dict[str, Position], tilt, basket, cap: float = MAX_WEIGHT) -> dict[str, float]:
     """Both sides get the gross of the thinner side. With a basket, they get the gross of
     the thicker side, and the basket fills the gap. Inside a side, the weights follow the
-    tilt (equal by default) and stop at MAX_WEIGHT."""
+    tilt (equal by default) and stop at ``cap``."""
     sides = [[p for p in book.values() if p.side > 0], [p for p in book.values() if p.side < 0]]
     n_thin, n_thick = sorted(len(s) for s in sides)
-    gross = min(1.0, MAX_WEIGHT * (n_thick if basket is not None else n_thin))
+    gross = min(1.0, cap * (n_thick if basket is not None else n_thin))
     weights: dict[str, float] = {}
     for sign, side in zip((1, -1), sides):
         if not side:
             continue
-        side_gross = min(gross, MAX_WEIGHT * len(side))      # a thin side can hold only 10% a name
+        side_gross = min(gross, cap * len(side))      # a thin side can hold only the cap a name
         factor = np.array([tilt(day, p) if tilt else 1.0 for p in side])
-        weights.update({p.symbol: sign * x for p, x in zip(side, _capped(side_gross, factor))})
+        weights.update({p.symbol: sign * x for p, x in zip(side, _capped(side_gross, factor, cap))})
     gap = sum(weights.values())          # the net exposure: the basket takes the other side
     if basket and gap:
         for s in basket:
@@ -185,19 +186,19 @@ def _weights(day: date, book: dict[str, Position], tilt, basket) -> dict[str, fl
     return weights
 
 
-def _capped(total: float, factor: np.ndarray) -> np.ndarray:
+def _capped(total: float, factor: np.ndarray, cap: float = MAX_WEIGHT) -> np.ndarray:
     """Weights in proportion to ``factor``, with a sum of ``total`` and none above
-    MAX_WEIGHT. The weight above the cap moves to the names below the cap. Thus the side
-    keeps its gross, and the book stays dollar-neutral. On a thinner side of 10 names or
-    fewer, each name is at the cap, so a tilt has no effect there."""
+    ``cap``. The weight above the cap moves to the names below the cap. Thus the side
+    keeps its gross, and the book stays dollar-neutral. On a thinner side of 1 / cap names
+    or fewer, each name is at the cap, so a tilt has no effect there."""
     w = np.zeros(len(factor))
     free = np.ones(len(factor), dtype=bool)
     while free.any():
         w[free] = (total - w[~free].sum()) * factor[free] / factor[free].sum()
-        over = free & (w > MAX_WEIGHT)
+        over = free & (w > cap)
         if not over.any():
             break
-        w[over] = MAX_WEIGHT
+        w[over] = cap
         free &= ~over
     return w
 
@@ -362,7 +363,8 @@ def simulate(panel: Panel, fires: pd.DataFrame, *, holds: dict[str, int] | None 
              short_stop: float | None = None, stop_delay: int = 0,
              exit_rule: Callable[[date, Position], bool] | None = None,
              cost: float = COST_PER_SIDE, band: float = 0.0,
-             fill: Literal["close", "limit", "limit_then_cross"] = "close", equity: float | None = None) -> Run:
+             fill: Literal["close", "limit", "limit_then_cross"] = "close", equity: float | None = None,
+             max_weight: float = MAX_WEIGHT) -> Run:
     """Run ``target_book`` once a day over the panel, then ``account`` for the returns.
 
     ``fires`` is ``book_fires(panel)`` or a subset of it. ``basket`` is a day x coin mask
@@ -379,6 +381,7 @@ def simulate(panel: Panel, fires: pd.DataFrame, *, holds: dict[str, int] | None 
     price, and a sell if the high is above it. "limit_then_cross" crosses the spread
     one day later if the limit order did not fill. Both need ``panel.low``
     (``with_low``). ``equity`` (USD) adds the bot's $10 rules (``account``).
+    ``max_weight`` is the cap per name (``target_book``).
     """
     if fill != "close" and panel.low is None:
         raise ValueError(f"fill={fill!r} needs the bar lows: use with_low(panel, root)")
@@ -399,7 +402,8 @@ def simulate(panel: Panel, fires: pd.DataFrame, *, holds: dict[str, int] | None 
         exits = stopped | {s for s, p in book.items() if exit_rule and exit_rule(day, p)}
         members = [panel.symbols[j] for j in np.flatnonzero(basket[t])] if basket is not None else None
         book, target = target_book(day, by_day.get(day, ()), book, listed, exits, holds=holds, tilt=tilt,
-                                   basket=members, first_only=first_only, restart_same_leg=restart_same_leg)
+                                   basket=members, first_only=first_only, restart_same_leg=restart_same_leg,
+                                   max_weight=max_weight)
         for s, w in target.items():
             weights[t, col[s]] = w
         longs[t] = sum(p.side > 0 for p in book.values())

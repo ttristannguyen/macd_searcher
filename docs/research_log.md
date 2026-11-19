@@ -8,6 +8,189 @@ own docs ([archive/confidence_v3_research.md](archive/confidence_v3_research.md)
 
 ---
 
+## 2026-11-19 — the `peak_pct` lookback, and a cap of 5% a name
+
+Questions:
+1. Does a `peak_pct` window other than 200 bars sort the good and the bad fires better?
+   Do the longs and the shorts need different windows?
+2. How does a cap of 5% a name, in place of 10%, change the profit of the book?
+
+**Data.** The frozen panel (built 2026-11-03), crypto only, fires and returns
+2023-02-28 → 2026-10-15. First fires only. The per-trade numbers come from scratch
+scripts in the backtester's convention: entry at the close of D − 1, exit at the close of
+D + 14, alpha against the mean of the eligible universe over the same bars, week-block
+intervals. The portfolio numbers come from the committed backtester
+(`backtest_tables.peak_lookback()` and `name_cap()`). All of this is in-sample.
+
+**The lookback test changes only the window that ranks the excursion.** The fires, the
+universe and MACD (warm over the full history) do not change. A coin with fewer bars than
+L uses all of its bars. The leg bands stay at 25 / 50 / 100. At L = 200, the new state is
+equal to the panel's `state_pct` on all 162,531 coin-days.
+
+### Per trade: 14d alpha in the trade's direction
+
+| L (bars) | priors of the same sign, median | L1 (ep) | L2 (ep) | S1 (ep) | S2 (ep) | all traded fires | Δ all traded vs 200, same fires [95%] |
+|---|---|---|---|---|---|---|---|
+| 50 | 1 | +0.66 (1,323) | +0.61 (3,820) | +0.66 (1,857) | +1.44 (196) | +0.65 | −0.46 [−0.88, −0.02] |
+| 100 | 3 | +1.67 (1,112) | +0.62 (3,998) | +0.47 (1,599) | +0.18 (1,266) | +0.66 | −0.45 [−0.79, −0.11] |
+| 150 | 5 | +1.34 (1,069) | +0.84 (3,677) | +1.07 (1,661) | +0.89 (1,981) | +0.96 | −0.15 [−0.36, +0.05] |
+| **200** | 7 | +1.73 (1,009) | +0.96 (3,407) | +1.26 (1,554) | +0.96 (2,171) | +1.12 | — |
+| 300 | 11 | +1.19 (1,017) | +0.70 (3,000) | +0.70 (1,621) | +0.81 (2,293) | +0.79 | −0.32 [−0.51, −0.14] |
+| 400 | 14 | +1.63 (1,049) | +0.75 (2,832) | +0.98 (1,693) | +0.66 (2,305) | +0.89 | −0.23 [−0.46, +0.01] |
+| 600 | 20 | +1.14 (1,115) | +0.75 (2,760) | +0.70 (1,796) | +0.77 (2,327) | +0.80 | −0.31 [−0.59, −0.03] |
+
+Same state, and fire − state, in the trade's direction at 14d. The state rows are
+universe coin-days in the leg's band with no same-side fire in the last 5 days. The last
+column is the rank correlation of the first fires' `peak_pct` with the coin's price change
+over the same window.
+
+| L | L1 state / fire − state | L2 state / fire − state | S1 state / fire − state | S2 state / fire − state | correlation with the price change, bullish / bearish |
+|---|---|---|---|---|---|
+| 50 | −0.02 / +0.68 | +0.01 / +0.60 | +0.10 / +0.56 | +0.30 / +1.15 | +0.31 / +0.11 |
+| 100 | +0.31 / +1.35 | +0.42 / +0.20 | +0.02 / +0.45 | +0.38 / −0.20 | +0.40 / +0.23 |
+| 150 | +0.10 / +1.24 | +0.56 / +0.28 | +0.33 / +0.75 | +0.65 / +0.24 | +0.39 / +0.32 |
+| **200** | +0.09 / **+1.65** [+0.59, +2.74] | +0.65 / +0.31 | +0.10 / **+1.16** [+0.39, +1.92] | +0.55 / +0.41 | +0.42 / +0.40 |
+| 300 | +0.06 / +1.12 | +0.62 / +0.08 | +0.22 / +0.47 | +0.44 / +0.37 | +0.46 / +0.50 |
+| 400 | +0.12 / +1.51 | +0.82 / −0.07 | +0.37 / +0.61 | +0.51 / +0.15 | +0.52 / +0.49 |
+| 600 | +0.03 / +1.11 | +1.03 / −0.28 | +0.56 / +0.14 | +0.65 / +0.12 | +0.55 / +0.56 |
+
+- **No window sorts the fires better than 200 bars.** On the same fires, each other window
+  lowers the mean alpha of the traded fires by 0.15 to 0.46 points. Four of the six
+  intervals exclude zero. No leg is better at another window, except S2 at 50 bars, which
+  keeps only 196 episodes.
+- **A short window has too few priors.** At 50 bars, the median fire has 1 prior
+  excursion of its sign, so `peak_pct` is 0, 50 or 100. At 100 bars, 22% of the fires have
+  2 priors or fewer. The bands then sort noise.
+- **A long window ranks the price level.** The histogram is in price units. Over a longer
+  window the price moves more, so `peak_pct` follows the price change more (+0.42 at 200
+  bars, +0.56 at 600). Then the state earns the leg's alpha, and the fire adds less. L2's
+  state goes from +0.65 to +1.03 and its fire − state from +0.31 to −0.28. S1's state goes
+  from +0.10 to +0.56 and its fire − state from +1.16 to +0.14. At 600 bars, `peak_pct` is
+  a generic price-momentum sort (research_method.md rule 4).
+- **L1 does not depend on the window.** Its fire − state is +1.1 to +1.65 at each window
+  from 100 to 600 bars. The fire carries L1.
+- **Two band results of 2026-10-28 are properties of the 200-bar window.** Bearish 75–<100
+  as a long is +2.10 at 200 bars, but −0.15 at 150 and +0.54 to +1.17 at 300–600. Bearish
+  records (100) are −0.07 at 200 bars, but +1.09 to +1.31 at 50–150 and at 400–600.
+- **Mechanism test: the histogram divided by the close.** This removes most of the link
+  to the price change (+0.13 / −0.01 at 200 bars, +0.11 / +0.05 at 600). But B3 falls to
+  0.95 at 200 bars, and to 0.27–0.87 at the other windows (scratch, on `simulate`). Thus
+  the 200-day trend inside `peak_pct` is part of B3's edge. This agrees with 2026-10-19:
+  the pullback long belongs to coins in an uptrend. A window of 600 bars holds too much of
+  the price level, and hist / close holds too little.
+
+### As portfolios
+
+| book | Sharpe | Δ vs L = 200 [95%] | Δ 2023–24 | Δ 2025–26 | CAGR | max DD | names long / short |
+|---|---|---|---|---|---|---|---|
+| B3, L = 50 | 0.19 | −1.30 [−2.40, −0.09] | +0.07 | −2.66 | +1.8% | −35% | 40 / 16 |
+| B3, L = 100 | 0.54 | −0.95 [−1.78, −0.06] | −0.35 | −1.60 | +10.6% | −31% | 38 / 22 |
+| B3, L = 150 | 1.40 | −0.10 [−0.72, +0.52] | +0.21 | −0.38 | +33.8% | −23% | 36 / 27 |
+| **B3, L = 200** | 1.50 | — | — | — | +38.5% | −18% | 33 / 28 |
+| B3, L = 300 | 0.87 | −0.63 [−1.22, −0.11] | −0.39 | −0.88 | +19.3% | −23% | 30 / 29 |
+| B3, L = 400 | 1.11 | −0.39 [−1.18, +0.28] | −0.24 | −0.62 | +26.2% | −26% | 29 / 29 |
+| B3, L = 600 | 1.00 | −0.50 [−1.30, +0.22] | −0.51 | −0.55 | +23.2% | −25% | 29 / 30 |
+| B3, longs at 100, shorts at 200 | 1.50 | +0.00 [−0.40, +0.45] | +0.30 | −0.26 | +36.9% | −20% | 36 / 26 |
+| B3, longs at 400, shorts at 200 | 1.58 | +0.09 [−0.27, +0.51] | +0.21 | −0.07 | +42.1% | −20% | 29 / 28 |
+| B3, longs at 600, shorts at 200 | 1.51 | +0.02 [−0.38, +0.47] | +0.04 | −0.04 | +40.2% | −26% | 28 / 27 |
+| B3, longs at 200, shorts at 150 | 1.39 | −0.11 [−0.59, +0.34] | −0.19 | −0.02 | +34.5% | −27% | 33 / 27 |
+| B3, longs at 200, shorts at 400 | 1.13 | −0.36 [−0.95, +0.09] | −0.33 | −0.43 | +27.0% | −23% | 33 / 29 |
+| the stack, L = 150 | 1.90 | −0.14 [−0.76, +0.41] (vs the stack) | +0.28 | −0.53 | +54.3% | −18% | 29 / 32 |
+| **the stack, L = 200** | 2.04 | — | — | — | +61.0% | −23% | 27 / 33 |
+| the stack, L = 400 | 1.47 | −0.57 [−1.35, +0.15] (vs the stack) | +0.23 | −1.38 | +39.0% | −22% | 24 / 35 |
+
+`backtest_tables.peak_lookback()` prints every row of the grid.
+
+- **200 bars is the best window for B3 and for the stack.** No other window gives Δ > 0 in
+  both halves, for all the legs or for one side alone.
+- **The longs do not need another window.** Longs at 100 to 600 bars score 1.30 to 1.58.
+  The best, longs at 400 bars, gives +0.09 [−0.27, +0.51], +0.21 / −0.07. This agrees with
+  L1's fire − state, which does not depend on the window.
+- **The shorts need 200 bars.** Each other short window costs 0.11 to 0.98 Sharpe, and the
+  loss is negative in both halves at each window.
+- *Answer:* another window does not make it easier to find the coins that go up or down.
+  The good and the bad fires do not need different windows.
+- *Caveat:* the bands were set at 200 bars on this same history, so 200 bars has an
+  advantage. The two mechanisms (too few priors, the price level) explain the loss on each
+  side of 200 without that advantage.
+
+### A cap of 5% a name
+
+Each side has equal weights that stop at the cap. Thus the side gross is min(100%, cap ×
+names on the thinner side). `max_weight` is the new variant of `backtest.simulate`.
+
+| book | Sharpe | Δ vs 10% [95%] | Δ 2023–24 | Δ 2025–26 | CAGR | max DD | mean side gross | volatility a year | worst name-day |
+|---|---|---|---|---|---|---|---|---|---|
+| B3, 10% | 1.50 | — | — | — | +38.5% | −18% | 84% | 24% | −7.5% |
+| B3, 7.5% | 1.55 | +0.05 [−0.05, +0.16] | +0.06 | −0.03 | +37.6% | −17% | 79% | 22% | −5.6% |
+| **B3, 5%** | 1.67 | +0.18 [−0.06, +0.43] | +0.16 | −0.05 | +35.2% | −16% | 69% | 19% | −3.9% |
+| the stack, 10% | 2.04 | — | — | — | +61.0% | −23% | 82% | 25% | −7.5% |
+| the stack, 7.5% | 2.04 | +0.00 [−0.14, +0.15] | −0.08 | +0.03 | +55.2% | −21% | 76% | 23% | −5.6% |
+| **the stack, 5%** | 2.20 | +0.16 [−0.11, +0.43] | −0.08 | +0.17 | +49.7% | −16% | 66% | 19% | −3.7% |
+| the bot's B3, $5,000, 5% (vs 10%) | 1.70 | +0.20 [−0.05, +0.49] | +0.05 | +0.10 | +36.2% | −14% | 69% | 19% | −4.0% |
+| the bot's stack, $5,000, 5% (vs 10%) | 2.25 | +0.21 [−0.05, +0.46] | −0.05 | +0.20 | +51.9% | −16% | 66% | 19% | −3.6% |
+
+The bot's rows use limit orders and the stop from the next day. Their base is the same
+book at 10% (B3 1.49, the stack 2.05).
+
+By names on the thinner side of the 10% book:
+
+| book | thinner side | share of days | side gross 10% / 5% | Sharpe 10% / 5% | Sharpe 10%, 2023–24 / 2025–26 |
+|---|---|---|---|---|---|
+| B3 | 0–9 | 30% | 46% / 23% | 0.56 / 0.55 | 0.38 / 1.49 |
+| B3 | 10–19 | 29% | 100% / 72% | 0.53 / 0.43 | −0.58 / 2.36 |
+| B3 | 20 or more | 41% | 100% / 100% | 2.97 / 2.97 | 2.23 / 3.13 |
+| the stack | 0–9 | 34% | 48% / 24% | 0.76 / 0.75 | 1.06 / −0.23 |
+| the stack | 10–19 | 26% | 100% / 69% | 1.45 / 1.06 | 0.09 / 3.49 |
+| the stack | 20 or more | 40% | 100% / 100% | 3.72 / 3.76 | 2.89 / 3.91 |
+
+- **The 5% cap gives less profit.** CAGR falls from +38.5% to +35.2% for B3, and from
+  +61.0% to +49.7% for the stack. The mean side gross falls from 84% to 69%, and from 82%
+  to 66%.
+- **The risk falls more than the return.** Volatility falls from 24–25% to 19%. Max
+  drawdown falls from −18% to −16% (B3) and from −23% to −16% (the stack). The worst loss
+  from one name on one day falls from 7.5% to 3.9% of equity.
+- **The Sharpe gain is not robust.** With fills at the close, B3 gains +0.18 [−0.06,
+  +0.43], but −0.05 in 2025–26. The stack gains +0.16 [−0.11, +0.43], but −0.08 in
+  2023–24. With the bot's execution, B3 gains in both halves at each account size (+0.19
+  to +0.27). The stack still loses in 2023–24 at each size (−0.05 to −0.13). Each interval
+  includes zero.
+- **Mechanism: the cap is an exposure rule for thin days.** The cap changes the book only
+  when the thinner side has fewer than 20 names. The 10% book, with each day's exposure
+  cut to the 5% book's side gross, scores 1.68 against 1.67 (B3). Thus the cap does not
+  change which coins the book holds. It only holds less on thin days.
+- **Broad days are the best days in each half.** With 20 names or more on the thinner
+  side, the 10% book has the highest Sharpe in both halves (B3: 2.23 and 3.13; the stack:
+  2.89 and 3.91). A broad book is diversified, and many fires come when dispersion is
+  high (2026-10-30). But on thin days, the order of 0–9 names and 10–19 names changes
+  between the halves and the books. The cap cuts the 0–9 days most, so its gain changes
+  sign.
+- **The thin days are mostly in 2023–24.** The thinner side has fewer than 20 names on 85%
+  of the days in 2023–24, and on 32% in 2025–26. Thus most of the full-period gain comes
+  from less exposure in 2023–24, B3's weak half (Sharpe 0.21).
+- *For the decision:* the cap is a risk choice, not an edge. At 1x it costs 3 points of
+  CAGR (B3) to 11 points (the stack), and it halves the loss from one name. At the 10%
+  book's volatility, the 5% book would earn more (B3 +44.4% against +38.5%). But that needs
+  a side gross above 100% on full days, and the bot trades 1x neutral.
+
+### Tooling
+
+- `backtest.simulate` and `backtest.target_book` take `max_weight`, the cap a name
+  (default MAX_WEIGHT). A test pins it. The baseline does not change (the golden test
+  passes).
+- `backtest_tables.lookback_panel(L)` gives the frozen panel with the state `peak_pct` on
+  the last L bars. The state stays in `state/research_cache/neighbours/`. `peak_lookback()`
+  and `name_cap()` print the tables of this entry.
+
+### Registered this pass
+
+Nothing:
+- No lookback variant helps in both halves, and the live frame has only the 200-bar
+  `peak_pct`.
+- The cap is a rule of the book, not a per-trade check.
+
+---
+
 ## 2026-11-18 — the B3 research docs move to the archive
 
 Three docs record finished passes. They are now in `archive/`:

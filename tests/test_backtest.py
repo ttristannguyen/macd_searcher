@@ -121,6 +121,15 @@ def test_a_tilt_has_no_effect_on_a_thin_side_of_10_names_or_fewer():
     assert w["S0"] == pytest.approx(-0.015) and sum(w.values()) == pytest.approx(0)
 
 
+def test_a_lower_cap_per_name_lowers_the_gross_of_a_thin_book():
+    fires = [_fire(f"L{i}", "L1") for i in range(15)] + [_fire(f"S{i}", "S1") for i in range(12)]
+    _, w = target_book(D0, fires, {}, {f.symbol for f in fires}, max_weight=0.05)
+    # 12 shorts at the 5% cap give 60% a side. The 15 longs share the 60%.
+    assert w["S0"] == pytest.approx(-0.05) and w["L0"] == pytest.approx(0.04)
+    assert sum(x for x in w.values() if x > 0) == pytest.approx(0.60)
+    assert sum(w.values()) == pytest.approx(0)
+
+
 def test_the_basket_fills_the_thin_side_and_nets_per_coin():
     fires = [_fire("A", "L1"), _fire("B", "L2")]
     _, w = target_book(D0, fires, {}, {"A", "B", "C", "D"}, basket=["A", "B", "C", "D"])
